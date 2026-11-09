@@ -14,6 +14,12 @@ A native Herdr App interface preview for managing mods.
 
 All lifecycle actions are simulated in memory and reset when the manager closes. They do not read installed mods, fetch repositories, change enabled state in Herdr, or write files. A short progress state blocks conflicting actions. Versions, repositories, and `/preview/mods/` paths are illustrative. GitHub validation checks URL format, not repository contents. Real installation, updates, and persistent enable/disable state are not available.
 
+## Live management status
+
+`PLAN.md` now scopes live work to Gallery browsing, installed-mod discovery, installation, updates and confirmed uninstall. Enable/disable is excluded. Implementation must use existing Herdr APIs and verified local operations without patching Herdr, replacing its binary or manually editing its generated SDK or shipped interface files. Live management remains incomplete; the runtime is still the sample-only preview described above.
+
+See [Live management research and constraints](docs/lifecycle-prerequisites.md) for the source format, version-pinned host evidence, local implementation route and safety gates. Hidden copies can remain active, and deleting a folder does not establish unload; unsafe operations must be rejected. No installed mod was changed by the research or this planning revision.
+
 ## Open in Herdr
 
 Herdr loads root `main.js` and `preview.js` directly. No build, Node.js, or npm dependencies are required to run the mod.
