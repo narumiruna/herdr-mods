@@ -1,18 +1,20 @@
 export const GALLERY_URL = "https://herdr.dev/gallery/?type=mods"
 
-export type Source = "all" | "github" | "development"
+/** @typedef {"all" | "github" | "development"} Source */
 
-export interface PreviewMod {
-  id: string
-  name: string
-  description: string
-  repository: string
-  version: string
-  source: Exclude<Source, "all">
-  icon: string
-}
+/**
+ * @typedef {object} PreviewMod
+ * @property {string} id
+ * @property {string} name
+ * @property {string} description
+ * @property {string} repository
+ * @property {string} version
+ * @property {Exclude<Source, "all">} source
+ * @property {string} icon
+ */
 
-export const PREVIEW_MODS: readonly PreviewMod[] = [
+/** @type {readonly PreviewMod[]} */
+export const PREVIEW_MODS = [
   {
     id: "focus-mode",
     name: "Focus Mode",
@@ -51,7 +53,12 @@ export const PREVIEW_MODS: readonly PreviewMod[] = [
   },
 ]
 
-export function filterMods(query: string, source: Source): readonly PreviewMod[] {
+/**
+ * @param {string} query
+ * @param {Source} source
+ * @returns {readonly PreviewMod[]}
+ */
+export function filterMods(query, source) {
   const term = query.trim().toLowerCase()
   return PREVIEW_MODS.filter(
     (mod) =>

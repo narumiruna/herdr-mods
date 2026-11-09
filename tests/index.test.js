@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { filterMods, GALLERY_URL, PREVIEW_MODS } from "../src/preview"
+import { filterMods, GALLERY_URL, PREVIEW_MODS } from "../preview.js"
 
 test("shows every sample when no filter is set", () => {
   expect(filterMods("", "all")).toEqual(PREVIEW_MODS)
