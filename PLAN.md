@@ -2,9 +2,9 @@
 
 ## Goal
 
-Build a Herdr App mod manager with an in-app [Herdr Gallery](https://herdr.dev/gallery/?type=mods). Users can browse and search available mods, install them, see which are installed, and enable, disable, update, or uninstall installed mods.
+Build a Herdr App mod manager with an in-app [Herdr Gallery](https://herdr.dev/gallery/?type=mods). Users can browse and search available mods, install them, see which are installed, and update or uninstall eligible installed mods.
 
-Current authorization: execute this plan, including live Gallery data, installed-mod discovery and lifecycle implementation where supported. Follow Herdr's direct JavaScript convention without `src`, `dist`, or a build step. Use temporary fixtures for lifecycle validation; do not change the user's installed mods. Missing host support remains a prerequisite blocker, not permission to simulate live success or change Herdr itself.
+Current revision: update planning and related documentation only. The planned live scope is Gallery browsing, installed-mod discovery, installation, updates and confirmed uninstall. Enable/disable is excluded. Follow Herdr's direct JavaScript convention without `src`, `dist`, or a build step. Do not patch or fork upstream Herdr, replace its binary, manually edit its generated SDK, or change shipped mods, layouts or keybindings. Use temporary fixtures for lifecycle validation; do not change the user's installed mods.
 
 ## Context
 
@@ -17,32 +17,42 @@ Current authorization: execute this plan, including live Gallery data, installed
 
 ### Gallery
 
-- Show available mods inside Mod Manager. An external Gallery link is optional and does not meet this requirement by itself.
-- Search by mod name, description, and repository, without case sensitivity. An empty search shows all available mods.
-- Show each mod's name, description, source, and version when the data source provides it.
-- Show whether each Gallery mod is installed and, when installed, whether it is enabled or disabled.
-- Provide actions based on the current state:
+- Show real available mods inside Mod Manager. An external Gallery link is optional and does not meet this requirement by itself.
+- Search by mod name, description and repository, without case sensitivity. An empty search shows all available mods.
+- Show each mod's name, description, source and version when the data source provides it.
+- Show whether each Gallery mod is installed.
+- Provide actions based on installation and ownership:
   - Not installed: `Install`.
-  - Installed and enabled: `Disable` and `Uninstall`.
-  - Installed and disabled: `Enable` and `Uninstall`.
+  - Installed: `Uninstall` when the target is safe.
   - An update is available for a manager-installed mod: also offer `Update`.
-- Show loading, no-results, and data-fetch errors. A fetch error must not appear as an empty Gallery.
+  - An action is unsafe or unsupported: block it and show the reason.
+- Show loading, no-results and data-fetch errors. A fetch error must not appear as an empty Gallery.
 
 ### Installed Mods
 
-- List actual installed mods, including mods that are not in the Gallery. Show their source and enabled or disabled state; an `Installed` label alone is not sufficient.
-- Support search and retain source filters. Treat installation source and enabled state as separate properties.
-- Provide `Enable`, `Disable`, and `Uninstall` actions with the same behavior as the Gallery. Keep `Install from GitHub` and eligible update actions.
-- Disabling a mod must not uninstall it or delete its files. Enabling a disabled mod must not require reinstallation. Save the selected state and explain any required reload or restart.
-- Confirm uninstall with the mod name and target path before removing files. Cancel must leave the mod unchanged.
-- Block actions that cannot be performed safely and show the reason. In particular, protect shipped mods, the running manager, active layout dependencies, and symbolic-link targets from unsafe changes.
+- List actual installed mods, including mods that are not in the Gallery. Show their source and installation ownership.
+- Support search and retain installation-source filters. Keep `Install from GitHub` and eligible update actions.
+- Confirm uninstall with the mod name and verified target path before removing files. Cancel must leave the mod unchanged.
+- Protect shipped mods, the running manager, active layout and runtime dependencies, symbolic-link targets, unsafe paths and local changes from unsupported mutation.
+- Do not edit layouts or keybindings to detach a mod. If dependency or runtime safety cannot be established, block the affected operation and show the reason.
+- Explain any verified reload or full app restart requirement for updates or removal. Do not equate a file change with successful unload.
 
 ### Shared State and Operations
 
-- Use one installed-mod state and one set of lifecycle operations for both pages. Match Gallery entries to local mods by verified identity and normalized repository source, not display name alone.
-- After a successful operation, refresh both pages from actual local state. For example, uninstall changes the Gallery action back to `Install` and removes the Installed entry.
-- Prevent duplicate or conflicting operations on the same mod. Show progress and failures; do not report success before the operation is verified.
-- If the enabled state cannot be read, show an unknown state and a reason instead of assuming the mod is enabled.
+- Use one installed-mod state and one set of install, update and uninstall operations for both pages.
+- Match Gallery entries to local mods by verified identity and normalized repository source, not display name alone. Recipe paths and bundled mod folders are part of identity.
+- After a successful operation, refresh both pages from actual local state. Uninstall restores the Gallery's `Install` action and removes the Installed entry.
+- Prevent duplicate or conflicting operations on the same mod, including across manager views. Show progress and failures; do not report success before file and ownership changes are verified.
+- Keep sample fixtures separate from live data. Installation membership does not establish whether a mod is enabled or running.
+
+### Non-Goals
+
+- No enable/disable controls, persistent enabled-state discovery, disabled-mod store, folder parking or restart-pending toggle mechanism.
+- No upstream Herdr changes or dependency on a new upstream lifecycle API.
+- No automatic layout or keybinding changes, repository install scripts, or execution of downloaded code as a validation shortcut.
+- Do not silently add a required runtime dependency or claim native support on unverified platforms.
+
+The completed preview records below describe historical simulations, not requirements to implement those actions in the live manager.
 
 ## Visual Preview
 
@@ -79,50 +89,61 @@ Dark-theme Gallery, Installed, From GitHub, and uninstall confirmation captures 
 
 ## Plan
 
-These authorized live-data and lifecycle tasks follow Preview Revision. Use temporary fixtures for lifecycle tests; do not install, disable, update, or remove the user's real mods to validate the implementation.
+Implement the live scope in this repository only. Use temporary repositories and disposable app profiles for lifecycle tests. Do not install, update or remove the user's real mods to validate the implementation.
 
-### Execution status
+### Research and execution status
 
-The prerequisite audit found a real public Gallery source, `https://assets.herdr.dev/mods/index.json`, with schema version 1 and repository, recipe-path and mod-folder identities. It also confirmed that installed Herdr App 0.1.14 has no supported persistent enabled-state API or load gate. Hidden copies remain active, and folder deletion does not establish that all instances stop. See [`docs/lifecycle-prerequisites.md`](docs/lifecycle-prerequisites.md) for version-pinned host evidence, source format, permissions, lifecycle behavior and the required host change.
+The public Gallery source is `https://assets.herdr.dev/mods/index.json`. Its schema version 1 identifies repositories, case-sensitive recipe paths and one or more mod folders. It does not provide installed state or a mod version. Root-level direct JavaScript mods and recipe bundles require separate validation.
 
-The first task remains open because usable lifecycle support is missing. Persistent enable/disable and dependent state, update-preservation and lifecycle integration checks are blocked pending that host contract. Read-only discovery and in-app live Gallery work are separable but remain unimplemented in this prerequisite-only change. All live completion criteria remain open; the fixture preview is unchanged. Do not use manager-only booleans, layout hiding, file renames or shipped-file edits as substitutes.
+Herdr App 0.1.14 and the researched upstream revision expose no public all-instance unload API. That is a safety constraint for mutation, not a blocker for read-only discovery or Gallery work. The earlier requirement to wait for upstream enabled-state support is withdrawn: enable/disable is no longer in scope. Folder parking and related restart-state work are also excluded.
 
-Verification for this audit: `npm run ci` passes 129 tests, Biome and JavaScript type checks; `npm run check:mod` and all seven `npm run check:preview` states pass. These are preview regression checks, not evidence that live operations work. No downloaded mod code or lifecycle write probe was run.
+See [live management research and constraints](docs/lifecycle-prerequisites.md) for version-pinned evidence, available APIs, prior art and remaining validation gates. No live implementation task below is complete. The runtime remains the fixture-only preview.
+
+Existing preview evidence: `npm run ci` passes 129 tests, Biome and JavaScript type checks; `npm run check:mod` and all seven `npm run check:preview` states pass. These results do not verify live file operations or native interaction.
+
+### Implementation boundaries
+
+- Read metadata through existing Herdr APIs. Use a tested local I/O adapter for lifecycle file operations and `git`; do not modify Herdr to supply missing primitives.
+- Store manager-owned source records, transaction state and staging data under `appHome()/data/mod-manager/`, outside `mods/`. Record repository, recipe path, mod folder, original destination, installed commit and a file baseline.
+- Validate ownership, paths, dependencies and local changes again immediately before mutation. A missing prerequisite blocks only the affected operation; independent read-only tasks can proceed.
+- Resolve safe no-follow operations, no-replace installation, concurrency locks and recovery in the backend validation task before enabling destructive actions.
+- A native check executes mod JavaScript. Use it for trusted fixtures and the manager; do not run it on downloaded code before review and explicit trust.
 
 ### Tasks
 
-- [ ] Verify a usable Gallery data source and Herdr's APIs for installed-mod discovery, persistent enable/disable state, reload, and removal. Record the source format, identity rules, permissions, and lifecycle behavior against the installed SDK and existing mods. If host support or a data source is missing, document the required change and keep dependent tasks blocked; a browser link or simulated success is not a substitute.
-- [ ] Add installed-mod discovery and shared state. Read actual manifests, sources, and enabled state; identify shipped mods, symbolic links, the manager, and active layout dependencies. Test Gallery-to-local matching, mods absent from the Gallery, identity conflicts, and unreadable state without changing existing mods.
-- [ ] Add in-app Gallery loading, browsing, and search against the verified source. Test metadata rendering, case-insensitive search, empty search, loading, no results, and fetch failures with fixtures.
-- [ ] Replace sample-only Installed data with discovered mods and connect both pages to shared state. Test search, source filters, installed and enabled badges, the required action for each state, and visible reasons for protected or unknown states. Keep fixtures separate from live data.
-- [ ] Add one installation operation for Gallery entries and GitHub repository URLs. Validate `mod.json` and the JavaScript entry before installation, stage downloads outside the live mods directory, reject existing destination paths and identity conflicts, and do not run repository install scripts. Test valid and invalid repositories, partial failures, duplicate requests, and state refresh on both pages.
-- [ ] Add persistent enable and disable operations using the verified Herdr mechanism. Keep files intact and explain any reload requirement. Test both transitions, persistence after reload, failure handling, protected mods, and matching state and actions on both pages.
-- [ ] Add confirmed uninstall for eligible installed mods from either page. Use verified paths and ownership checks; reject symbolic links and unsafe targets, including mods with local changes. Test cancel, successful removal, failures, path traversal, protected targets, and the return to `Install` in the Gallery.
-- [ ] Add updates for manager-installed mods. Use fast-forward-only updates, reject local changes, and exclude symbolic links such as this development checkout. Test successful and rejected updates, preservation of enabled state, and refresh of both pages.
-- [ ] Add integration tests for Gallery → install → disable → enable → uninstall, GitHub installation, and updates using temporary mod fixtures. Verify that duplicate or conflicting actions cannot run and failed operations do not produce false success states or partial live installations.
-- [ ] Update usage and recovery instructions, then run `npm run ci` and native checks for all three initial views. Record results and prepare screenshots and a manual review handoff. Document data-source limits, protected actions, and required reload or restart behavior; do not describe unverified native behavior as complete.
+- [ ] Add read-only installed-mod discovery and shared installation state. Read manifests and verified source records; identify shipped mods, development links, the manager and active dependencies. Test mods absent from the Gallery, unreadable metadata, identity conflicts, symbolic links and unverified provenance without changing existing mods.
+- [ ] Add in-app Gallery loading, browsing and search against the verified source. Validate schema and repository/recipe/mod-folder identity. Test metadata, absent versions, bundles, case-insensitive search, empty search, loading, no results, invalid responses, network failures and retry with fixtures.
+- [ ] Connect both live pages to shared installation state. Test search, source filters, installed badges, eligible Install/Update/Uninstall actions and visible protection reasons. Keep preview fixtures isolated and omit toggle controls from live views.
+- [ ] Verify an application-local lifecycle backend with existing host APIs and explicitly checked platform tools. In temporary roots, prove no-follow path and ownership checks, no-replace staging commits, locking and rollback. Test missing tools, unsafe ancestors, destination races and active or unknown runtime dependencies. Block unsupported operations with a reason; do not patch upstream or silently add a required runtime.
+- [ ] Add one installation operation for Gallery entries and GitHub repository URLs. Validate root `mod.json`/`main.js` or each selected recipe mod folder, stage outside `mods/`, reject existing destinations and identity conflicts, and record verified provenance. Do not run repository scripts or unreviewed code. Test invalid repositories, unsafe file modes and paths, ambiguous bundles, partial failures, duplicate requests and refresh on both pages.
+- [ ] Add confirmed uninstall for eligible installed mods from either page. Revalidate the displayed path and ownership; reject symbolic links, local changes, protected targets and unsafe live dependencies. Test cancel, successful removal, failures, path traversal, stale confirmations and the return to `Install` in the Gallery. Preserve source information for reinstallation.
+- [ ] Add updates for manager-installed mods. Verify fast-forward ancestry, reject local changes and unmanaged or symbolic-link targets, and validate a staged revision before changing the live files. Preserve provenance and a recoverable previous revision. Test successful and rejected updates, partial-write recovery, watcher/reload limits and refresh of both pages without claiming unsupported unload.
+- [ ] Add fixture-based integration tests for Gallery → install → update → uninstall and GitHub installation. Verify persistence of ownership and installed membership after manager reopen, duplicate/conflicting requests, view closure during work, interrupted recovery, and failure states without false success or partial live installations. Remove temporary data and verify the user's installed mods remain unchanged.
+- [ ] Update usage and recovery instructions, run `npm run ci`, `npm run check:mod` and native checks for Gallery, Installed and GitHub, then prepare screenshots and a manual review handoff. Document source limits, required platform tools, blocked actions and verified reload or full restart behavior. Do not describe unverified native behavior as complete.
 
 ## Rollback / Recovery
 
 - Remove failed staging downloads without changing existing mod directories.
-- Preserve the previous enabled state when an enable or disable operation fails. If recovery fails, show the actual state and recovery instructions.
-- Validate an update before changing the live checkout. Retain the previous revision until validation succeeds and report any failed recovery.
+- Persist operation intent before a multi-step change. On interruption or stale ownership, reconcile actual files with the record before permitting another mutation; do not infer success from the record alone.
+- Validate an update before changing live files. Retain the previous revision and file baseline until verification succeeds; report failed recovery and leave the target blocked.
 - Uninstall removes mod files and is not automatically reversible. State this in the confirmation and preserve source information for reinstallation. Never remove files outside the verified target or follow symbolic links.
+- Do not quit, restart, update or replace the user's Herdr App automatically as a recovery action. Keep its shipped files, layouts and keybindings unchanged.
 
 ## Completion Checklist
 
 - [x] The development symbolic link points to this repository.
-- [x] The fixture-only preview demonstrates browsing, search, install, enable, disable, confirmed uninstall, and shared state across both pages without installed-mod discovery or real mod changes. Verified by model and view-handler tests, seven native state checks, and prepared screenshots; remaining native interaction checks have a README handoff.
-- [ ] The in-app Gallery lists real available mods and supports search; an external link is not the only Gallery interface.
-- [ ] Gallery and Installed show matching installed and enabled states, including after an operation or manager reload.
-- [ ] Gallery installation and GitHub installation work without overwriting existing mods or running repository install scripts.
-- [ ] Eligible installed mods can be enabled, disabled, and uninstalled from either page. Disable preserves files; uninstall requires confirmation and restores the Gallery's `Install` action.
-- [ ] Protected mods, symbolic links, unsafe paths, and local changes are not modified by unsupported operations. Rejections explain the reason.
-- [ ] Updates preserve enabled state and reject local changes and unsupported targets.
-- [ ] Fixture-based lifecycle and failure tests, `npm run ci`, and native checks pass. Temporary test data is removed and the user's installed mods remain unchanged.
-- [ ] Usage and recovery instructions are current, and remaining native UI checks have an explicit handoff.
+- [x] The historical fixture-only preview demonstrates its simulated workflow without installed-mod discovery or real mod changes. Model and view tests, native state checks and screenshots are available; this is not live implementation evidence.
+- [ ] The in-app Gallery lists real available mods and supports search; an external link is not the only interface.
+- [ ] Gallery and Installed show matching installed membership and verified source information, including after an operation or manager reopen.
+- [ ] Gallery and GitHub installation work without overwriting existing mods or running repository install scripts or unreviewed code.
+- [ ] Eligible installed mods can be uninstalled from either page after confirmation; cancel changes nothing and successful uninstall restores the Gallery's `Install` action.
+- [ ] Protected mods, symbolic links, unsafe paths, local changes and unsafe live dependencies are not modified. Rejections explain the reason.
+- [ ] Updates are manager-owned and fast-forward-only, reject local changes and unsupported targets, and retain a recoverable previous revision until verification passes.
+- [ ] Fixture lifecycle and failure tests, `npm run ci` and the required native view checks pass. Temporary test data is removed and the user's installed mods remain unchanged.
+- [ ] No upstream Herdr source or binary was patched, no generated SDK was edited by hand, and no shipped mod, layout or keybinding was changed; live views do not expose enable/disable actions.
+- [ ] Usage and recovery instructions match the implemented scope, and remaining native UI or platform checks have an explicit handoff.
 
 ## External Handoff
 
-- Host lifecycle prerequisite — Responsible role: a Herdr maintainer. Prerequisite: a supported authoritative installed/enabled-state contract, persistent load gating and all-instance cleanup. Action and acceptance evidence: see `docs/lifecycle-prerequisites.md` under Required host support and External handoff. Persistent state, reload/removal safety and failure recovery remain unverified and block live-management completion. Host implementation is outside this repository change. Keep this plan until the remaining tasks and completion criteria pass.
-- Preview native UI review — Responsible role: a maintainer with Herdr App access. Prerequisite: the passing checks, screenshots, and fixture-only sequence in `README.md` under Preview review handoff. Action: review both themes, native search and scrolling, keyboard controls, confirmations and feedback, and close/reopen reset. Expected result: visible state and actions agree with the automated workflow tests. These native interactions remain unverified; do not claim release readiness before review. No real mod changes are needed. Live lifecycle validation requires a separate disposable test profile after the Plan tasks are implemented.
+- Native interaction and unavailable platforms — Responsible role: a maintainer with access to the target platform. Prerequisite: passing agent checks, temporary lifecycle fixtures, screenshots and documented platform requirements. Action: check both themes, keyboard controls, search and scrolling, confirmation and failure feedback, and any documented full restart behavior in a disposable app profile. Expected result: native behavior agrees with automated tests, and no other profile or mod is changed. Native checks that the agent can safely prepare remain implementation tasks; only unavailable platform or human interaction checks belong here. Unverified behavior must be named in the usage handoff, and release claims must not include unverified platforms or behavior.
+- Historical preview review — The fixture-only sequence in `README.md` remains a record of the existing preview. Its simulated toggles do not add live requirements. Replace that handoff with the scoped live workflow when live implementation is ready; no Herdr maintainer action or upstream patch is a prerequisite for this plan.

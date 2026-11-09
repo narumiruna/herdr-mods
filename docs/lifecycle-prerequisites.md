@@ -1,10 +1,12 @@
-# Live management prerequisites
+# Live management research and constraints
 
 ## Status
 
-Live management is blocked on Herdr App 0.1.14. The host has no supported persistent enabled-state mechanism. The prerequisite audit is complete, but the live implementation and completion criteria in `PLAN.md` are not complete. The manager remains a fixture-only preview.
+The planned live scope is Gallery browsing, installed-mod discovery, installation, updates and confirmed uninstall. Enable/disable and persistent enabled-state management are excluded by the user's scope decision. Do not implement folder parking, a disabled-mod store or toggle-related restart state.
 
-The audit used read-only commands, the installed SDK and manifests, and the public host source at [`v0.1.14`, commit `2405bf3`](https://github.com/herdrdev/herdr-app/tree/2405bf388c568c3ed479f05b8e405ccfa44b3f2c). No lifecycle operations were run against the user's mods. A newer host version must be checked again before implementation.
+No upstream Herdr change is required by this plan. Missing native lifecycle APIs require application-local safety checks, not a host patch or permission to mutate unsafe targets. The earlier blanket upstream prerequisite is withdrawn. Live implementation and the completion criteria in `PLAN.md` remain incomplete; the runtime is still a fixture-only preview.
+
+Research used read-only commands, the installed SDK and manifests, and public source at [Herdr App v0.1.14, commit `2405bf3`](https://github.com/herdrdev/herdr-app/tree/2405bf388c568c3ed479f05b8e405ccfa44b3f2c) and [researched upstream commit `b721ded`](https://github.com/herdrdev/herdr-app/tree/b721deda985270ec8256552692729a4add389b2a). Their `src/mods.rs` files are identical. No user-mod lifecycle probe or downloaded-code execution was performed. Recheck these contracts when targeting a different host version.
 
 ## Gallery source
 
@@ -35,38 +37,50 @@ Community mods are trusted code, not reviewed packages. The Gallery warns that a
 
 ## Installed host contracts
 
-- **Public API:** `herdr-app commands` lists 71 commands; the only `mod.*` commands are `mod.clone` and `mod.open`. The generated `herdr` SDK has no installed-mod or enabled-state API. There is no supported get/set enabled operation.
-- **Discovery:** [`mods.rs`, lines 336–386](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs#L336-L386) scans folders with `main.js`, skips dot-prefixed IDs and uses folder names as runtime IDs. Manifest hints are `place`, `size` and `focusable`. Missing or invalid manifest hints default.
-  - Read-only metadata discovery is possible, but a manifest does not establish enabled state or verified Gallery identity. Symbolic-link folders can be discovered.
+- **Public API:** `herdr-app commands` lists 71 commands; the only `mod.*` commands are `mod.clone` and `mod.open`. There is no public all-instance unload or uninstall API. Use existing APIs and a verified local backend; do not add host commands.
+- **Discovery:** [`mods.rs`, lines 336–386](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs#L336-L386) scans immediate mod folders with `main.js`, skips dot-prefixed IDs and uses folder names as runtime IDs. Manifest hints are `place`, `size` and `focusable`; missing or invalid hints default.
+  - Read-only inventory can use directory listing and manifests. A manifest does not prove repository identity, ownership or runtime inactivity. The host scan can follow symbolic-link folders; the manager must classify and protect them.
 - **Bookkeeping:** [`mods.rs`, lines 99–135](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs#L99-L135) uses `installed.json` for shipped-file fingerprints. `seen.json` records first-time docking.
-  - Neither file is an authoritative registry of community mods or enabled state. Do not write either as an enable/disable mechanism.
-- **Visibility:** [`window.rs`, lines 1433–1444](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L1433-L1444) keeps copies while their layout, pane or overlay slots exist, including hidden slots. [`mod.open`](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L3302-L3313) toggles one overlay.
-  - Hidden is not disabled. Closing one overlay does not disable all instances or save an enabled state.
+  - Neither is a complete community-mod inventory or source registry. Read shipped metadata for protection; do not rewrite host bookkeeping.
+- **Visibility:** [`window.rs`, lines 1433–1444](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L1433-L1444) retains copies while their layout, pane or overlay slots exist, including hidden slots. [`mod.open`](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L3302-L3313) toggles one overlay.
+  - Removing a file or closing one overlay does not prove all copies stopped. Do not edit layouts or keys to detach a target. Block mutation when dependency or runtime safety cannot be established.
 - **Reload and removal:** [`window.rs`, lines 3871–3939](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L3871-L3939) reloads changed loaded mods internally and rescans removed folders. Copy cleanup depends on ownership slots, not folder absence.
-  - There is no public reload/unload/uninstall operation. Folder deletion does not establish that every running copy stopped.
+  - File-operation success and runtime reload are separate outcomes. Report verified file state and any required full restart; do not claim immediate unload.
+- **Full app restart:** [`window.rs`, lines 463–493](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L463-L493) starts a fresh runtime and inventory. On macOS, [closing the window hides the app](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/window.rs#L556-L568); it is not a full quit.
+  - Verify any update or removal restart instructions in a disposable profile. Do not restart the user's session automatically.
 
-The installed `~/.config/herdr-app/AGENTS.md` also states that hidden copies and their tasks remain alive and a failed reload keeps the previous version running. Separately, `README.md` records that edits through the external development symbolic link required close/reopen during preview validation. Restart behavior for live enable/disable cannot be specified until the host supports it.
+The installed guide also states that hidden copies and their tasks remain alive and a failed reload keeps the previous version running. Separately, `README.md` records that edits through the external development symbolic link required manager close/reopen during preview validation. That observation is not proof of update or uninstall safety.
 
 ### Permissions and file safety
 
-The generated SDK exposes `fs/promises` reads, writes, directory listing, `exists`, `unlink`, empty-directory `rmdir`, and `mkdir`. It does not expose `lstat`, `realpath`, `readlink`, atomic rename or recursive removal. A directory entry has only a name and `isDirectory()`.
+The generated SDK exposes `fs/promises` reads, writes, directory listing, `exists`, `unlink`, empty-directory `rmdir` and `mkdir`. It does not expose `lstat`, `realpath`, `readlink`, atomic rename or recursive removal. A directory entry has only a name and `isDirectory()`.
 
-The [host policy](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs#L1143-L1152) grants filesystem reads under the user's home and writes under the app folder, plus unrestricted execution and network access. `herdr.exec` uses the user's real environment and credentials. These are broad trusted-code facilities, not manager ownership or lifecycle guarantees. The installed guide says not to read or change other mods' code at runtime; a sanctioned discovery and mutation contract is still needed.
+The [host policy](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs#L1143-L1152) grants filesystem reads under the user's home and writes under the app folder, plus unrestricted execution and network access. `herdr.exec` uses the user's real environment and credentials. Broad execution capability does not establish ownership or safe paths.
 
-`readTextFile` and compare-and-write `writeTextFile` are separate host wrappers. In particular, [`writeTextFile` resolves symbolic-link targets](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mod_files.rs#L26-L74); it is not a safe-target check. Do not assume all host file and execution APIs enforce the same filesystem boundary. Before destructive operations, the manager still needs verified ownership, no-follow path checks, local-change detection and protection for shipped mods, itself and active dependencies.
+`readTextFile` and compare-and-write `writeTextFile` are separate wrappers. In particular, [`writeTextFile` resolves symbolic-link targets](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mod_files.rs#L26-L74); it is not a no-follow check. The local backend must verify ownership, paths, local changes, dependencies and destination races. Missing safe primitives block the affected action, not independent browsing or discovery. Do not silently add a required runtime or patch Herdr to fill the gap.
 
-## Required host support
+## Implementation route without upstream changes
 
-A Herdr maintainer must provide a supported lifecycle contract before dependent plan tasks can pass:
+1. Read actual manifests, shipped metadata and manager-owned source records. Keep installation membership separate from runtime activity; enabled-state discovery is not required.
+2. Load and validate the real Gallery source. Match normalized repository identity plus recipe and mod-folder paths, not display names.
+3. Stage repository downloads and ownership records under `appHome()/data/mod-manager/`, outside the live `mods/` directory. Validate root mods or recipe bundles without running repository scripts or unreviewed code.
+4. Use one set of install, update and confirmed-uninstall operations for both pages. Commit only to a verified target, then read back files and source records before reporting success.
+5. Protect shipped mods, the running manager, symbolic links, local changes and unsafe active dependencies. Recheck protection immediately before writes; unknown safety must produce a visible rejection.
+6. Update manager-installed mods only after fast-forward ancestry and clean-file checks. Retain a recoverable previous revision. Do not merge local edits or replace a live folder without validating watcher and recovery behavior.
+7. Do not patch upstream source or binaries or manually edit the generated SDK. Leave shipped files, layouts and keybindings unchanged. Normal SDK generation by Herdr checks is permitted. No enable/disable implementation is part of this route.
 
-1. Read authoritative installed identity and enabled state, with explicit unknown/error results and protection or dependency information, or a sanctioned way to discover that metadata.
-2. Persist enabled-state changes without deleting or renaming mod files. Apply the state at startup, rescans, hot reload and all pane, layout and overlay load paths.
-3. Stop all affected instances safely, including hidden copies and tasks. Specify failure recovery, readback and any reload or restart requirement.
-4. Define supported reload/removal behavior and safe file-operation boundaries so the manager can verify outcomes without following symbolic links or modifying protected targets.
+### Prior art and limits
 
-A manager-only stored boolean, layout visibility change, `seen.json` edit, renamed entry file, or shipped-file change does not satisfy these requirements. An unknown enabled state must remain unknown, with a reason.
+- [`jacksonpires/herdr-app-mod-manager`](https://github.com/jacksonpires/herdr-app-mod-manager/blob/f10831597ca506903713e89071cfd296bf5139a9/mods/mod-manager/core.js) separates core installation logic from the native view. Its replacement and recursive-removal behavior does not establish this plan's ownership, local-change or rollback guarantees.
+- [`manastalukdar/herdr-pkg`](https://github.com/manastalukdar/herdr-pkg/blob/0fad8c14aed0a0f076b84bfc6f6e9f94c2f9baa4/mods/pkg/pkg.py#L631-L694) documents that replacing a mod folder can leave watchers on the previous folder. Its in-place update approach needs failure testing; its local-edit merging is outside the fast-forward-only requirement.
+- [`werlang/herdr-mod-manager`](https://github.com/werlang/herdr-mod-manager/blob/c97ea4cfc2fe581737fbd7ec34f6b17f5771ec1e/mods/mod-manager/main.js#L295-L343) uses folder parking and layout restoration for toggles. That research corrected the earlier blanket upstream blocker, but both toggles and automatic layout changes are now outside scope.
 
-Read-only discovery and Gallery work are technically separable from the lifecycle blocker. They remain unimplemented in this prerequisite-only change; the verified Gallery endpoint does not complete the in-app live Gallery criterion. Persistent enable/disable, consistent state after reload, updates that preserve enabled state, and the full lifecycle integration sequence remain blocked. No live completion checkbox has been waived.
+### Open validation gates
+
+- Verify available platform tools and a local backend with no-follow checks, no-replace staging commits, concurrency locks and interruption recovery using temporary roots.
+- Establish safe eligibility for update and removal without modifying active dependencies or assuming hidden copies stopped. Reject unsafe or unknown cases.
+- Test Gallery → install → update → uninstall, GitHub installation, ownership persistence and state refresh with temporary repositories. Verify cleanup and preservation of existing mods.
+- Run trusted native view checks and prepare screenshots. Verify required reload or full restart behavior in a safely isolated profile; record unavailable native checks in the handoff. Source inspection and community claims are not substitutes for these checks.
 
 ## Reproduce the audit
 
@@ -86,5 +100,5 @@ The existing preview passed `npm run ci` (129 tests, Biome and JavaScript type c
 
 ## External handoff
 
-- **Host lifecycle support — Herdr maintainer.** Prerequisite: a supported enabled-state and lifecycle contract with the behavior above. Implement or identify that contract and its SDK declarations. Then verify state persistence, all-instance cleanup and failure recovery in a disposable profile. These behaviors remain unverified and block live-management completion and release claims. Updating or patching Herdr itself is outside this repository change.
-- **Live integration and native review — Mod Manager maintainer.** After host support and the remaining plan implementation exist, use temporary repositories and a disposable Herdr profile to run the planned lifecycle tests and inspect all three views. Do not validate destructive actions against the user's real mods. The fixture-only native review sequence remains in `README.md`; this audit adds no new UI or screenshots and does not establish release readiness.
+- **Native interaction and unavailable platforms — Mod Manager maintainer.** Prerequisite: implemented scoped operations, passing agent checks, fixture repositories, screenshots and documented platform requirements. Check both themes, keyboard controls, search and scrolling, confirmations, failure feedback and any required full restart in a disposable app profile. Expected result: native behavior matches the automated tests without changing another profile's mods. Prepare safe native checks as agent work where possible; identify genuinely unavailable checks and do not claim release readiness for unverified behavior.
+- **Upstream boundary.** No Herdr maintainer action, upstream API addition or host patch is a prerequisite of this plan. Unsafe local operations remain rejected until their own validation gates pass; do not solve them by changing Herdr. Enable/disable remains excluded.

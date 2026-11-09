@@ -16,9 +16,9 @@ All lifecycle actions are simulated in memory and reset when the manager closes.
 
 ## Live management status
 
-Execution of `PLAN.md` found a public Gallery metadata source, but Herdr App 0.1.14 has no supported persistent mod enable/disable mechanism. Hidden copies can remain active, and deleting a folder does not establish unload. Live management remains incomplete; the runtime is still the sample-only preview described above.
+`PLAN.md` now scopes live work to Gallery browsing, installed-mod discovery, installation, updates and confirmed uninstall. Enable/disable is excluded. Implementation must use existing Herdr APIs and verified local operations without patching Herdr, replacing its binary or manually editing its generated SDK or shipped interface files. Live management remains incomplete; the runtime is still the sample-only preview described above.
 
-See [Live management prerequisites](docs/lifecycle-prerequisites.md) for the source format, version-pinned host evidence, required host support and external handoff. No live acceptance criterion has been waived, and no installed mod was changed by the audit.
+See [Live management research and constraints](docs/lifecycle-prerequisites.md) for the source format, version-pinned host evidence, local implementation route and safety gates. Hidden copies can remain active, and deleting a folder does not establish unload; unsafe operations must be rejected. No installed mod was changed by the research or this planning revision.
 
 ## Open in Herdr
 
