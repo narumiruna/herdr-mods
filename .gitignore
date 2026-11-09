@@ -50,6 +50,10 @@ gpui-kit.d.ts
 # TypeScript cache
 *.tsbuildinfo
 
+# Local Python backend test caches
+__pycache__/
+*.py[cod]
+
 # Optional npm cache directory
 .npm
 

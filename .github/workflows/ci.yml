@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - narumi/feat/interactive-mod-manager-preview
 
 jobs:
   ci:
@@ -20,4 +21,11 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14"
       - run: npm ci
+      - run: npm run check
+      - run: npm test
+      # Herdr generates its SDK locally; real SDK type and native checks need Herdr.
+      - run: git diff --exit-code

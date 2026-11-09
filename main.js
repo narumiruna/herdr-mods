@@ -1,10 +1,11 @@
 import { Button, h_flex, Input, InputState, Scrollbar, v_flex } from "gpui-base"
 import { div, svg, View } from "gpui-kit"
 import { closeOverlay, props, theme } from "herdr"
-import { actionsFor, GALLERY_URL, PreviewSession } from "./preview.js"
+import { actionsFor, GALLERY_URL, ManagerSession } from "./manager.js"
+import { createIO } from "./runtime.js"
 
-/** @import { Color, Context, NativeElement } from "gpui-kit" */
-/** @import { ModAction, PreviewMod, Source } from "./preview.js" */
+/** @import { AsyncContext, Color, Context, NativeElement } from "gpui-kit" */
+/** @import { ManagerMod, ModAction, Source } from "./manager.js" */
 /** @typedef {"installed" | "gallery"} LibrarySection */
 /** @typedef {LibrarySection | "github"} Section */
 
@@ -20,8 +21,6 @@ const ICONS = {
   terminal: "icons/shell.svg",
   search: "mods/workspace-chrome/search.svg",
   plus: "mods/workspace-chrome/plus.svg",
-  minus: "mods/workspace-chrome/minus.svg",
-  check: "mods/workspace-chrome/check.svg",
   close: "mods/workspace-chrome/x.svg",
   arrow: "mods/workspace-chrome/chevron-right.svg",
   grid: "mods/workspace-chrome/layers.svg",
@@ -29,35 +28,27 @@ const ICONS = {
   notes: "mods/workspace-chrome/file-text.svg",
   shield: "mods/workspace-chrome/circle-check.svg",
 }
-
-const ACTION_LABELS = {
-  install: "Install",
-  enable: "Enable",
-  disable: "Disable",
-  uninstall: "Uninstall",
-}
-const ACTION_ICONS = { install: "plus", enable: "check", disable: "minus", uninstall: "close" }
+const ACTION_LABELS = { install: "Install", update: "Update", uninstall: "Uninstall" }
+const ACTION_ICONS = { install: "plus", update: "arrow", uninstall: "close" }
 const PROGRESS_LABELS = {
-  install: "Simulating installation…",
-  enable: "Simulating enable…",
-  disable: "Simulating disable…",
-  uninstall: "Simulating uninstall…",
+  install: "Installing mod…",
+  update: "Updating mod…",
+  uninstall: "Uninstalling mod…",
+  "check-update": "Checking for updates…",
 }
-const RESULT_LABELS = {
-  install: "installed",
-  enable: "enabled",
-  disable: "disabled",
-  uninstall: "uninstalled",
-}
-const STATE_LABELS = {
-  available: "Not installed",
-  enabled: "Installed · Enabled",
-  disabled: "Installed · Disabled",
+const SOURCE_LABELS = {
+  all: "All sources",
+  github: "GitHub",
+  development: "Development",
+  local: "Local",
+  shipped: "Shipped",
 }
 
 /** @param {string} name */
 function icon(name, size = 16) {
-  return svg(ICONS[name]).size(size).flex_none()
+  return svg(ICONS[name] || ICONS.package)
+    .size(size)
+    .flex_none()
 }
 
 /** @param {string} value */
@@ -81,36 +72,82 @@ function scrollArea(id, content) {
 }
 
 export default class ModManager extends View {
-  session = new PreviewSession()
+  /** @type {ManagerSession} */
+  session
   /** @type {Section} */
   section = "gallery"
-  /** @type {Source} */
-  source = "all"
+  /** @type {Record<LibrarySection, Source>} */
+  sources = { gallery: "all", installed: "all" }
   queries = { gallery: "", installed: "" }
+  shown = { gallery: 50, installed: 50 }
   notice = ""
   noticeError = false
+  closed = false
+  loadStarted = false
+  refreshing = false
+  checkingUpdates = false
   /** @type {Record<LibrarySection, import("gpui-base").InputState>} */
   searches
   /** @type {import("gpui-base").InputState} */
   repository
 
-  init() {
-    this.searches = {
-      gallery: InputState.new({ placeholder: "Search available mods…" }),
-      installed: InputState.new({ placeholder: "Search installed samples…" }),
+  createSession() {
+    return new ManagerSession(createIO())
+  }
+
+  /** @param {import("gpui-shell").Props | undefined} _props @param {AsyncContext} cx */
+  init(_props, cx) {
+    if (!this.session) this.session = this.createSession()
+    if (!this.searches) {
+      this.searches = {
+        gallery: InputState.new({ placeholder: "Search available mods…" }),
+        installed: InputState.new({ placeholder: "Search installed mods…" }),
+      }
+      for (const section of /** @type {LibrarySection[]} */ (["gallery", "installed"])) {
+        this.searches[section].on("change", (_event, cx) => {
+          if (this.closed || this.session.confirmation) return
+          this.queries[section] = this.searches[section].value()
+          this.shown[section] = 50
+          cx.notify()
+        })
+      }
+      this.repository = InputState.new({ placeholder: "https://github.com/owner/repository" })
     }
-    for (const section of /** @type {LibrarySection[]} */ (["gallery", "installed"])) {
-      this.searches[section].on("change", (_event, cx) => {
-        this.queries[section] = this.searches[section].value()
-        cx.notify()
-      })
+    if (!this.loadStarted) {
+      this.loadStarted = true
+      this.load(cx, true)
     }
-    this.repository = InputState.new({ placeholder: "https://github.com/owner/repository" })
+  }
+
+  close() {
+    // A committed backend transaction must finish or reconcile on the next open.
+    this.closed = true
+  }
+
+  /** @param {Context} cx */
+  load(cx, initial = false) {
+    if (this.closed || this.refreshing || this.session.pending || this.session.confirmation) return
+    this.refreshing = true
+    this.notice = ""
+    cx.spawn(async (cx) => {
+      try {
+        const changed = () => {
+          if (!this.closed) cx.notify()
+        }
+        await (initial ? this.session.load(changed) : this.session.refresh(changed))
+      } catch (error) {
+        this.reportError(error)
+      } finally {
+        this.refreshing = false
+        if (!this.closed) cx.notify()
+      }
+    })
+    cx.notify()
   }
 
   /** @param {Section} section @param {Context} cx */
   navigate(section, cx) {
-    if (this.session.uninstallId) return
+    if (this.closed || this.session.confirmation) return
     this.section = section
     if (!this.session.pending) this.notice = ""
     cx.notify()
@@ -139,57 +176,100 @@ export default class ModManager extends View {
       .disabled(disabled)
       .opacity(disabled ? 0.45 : 1)
       .when(!disabled, (element) => element.cursor_pointer().hover((style) => style.bg(t.hover)))
-      .on_click((_event, cx) => action(cx))
+      .on_click((_event, cx) => {
+        if (!disabled && !this.closed) action(cx)
+      })
       .child(icon(glyph, 13))
       .child(label)
   }
 
   /** @param {unknown} error */
   reportError(error) {
-    this.notice = error instanceof Error ? error.message : "The preview action failed. Try again."
+    this.notice = error instanceof Error ? error.message : "The operation failed. Try again."
     this.noticeError = true
   }
 
-  /** @param {() => void} start @param {Context} cx */
-  perform(start, cx) {
+  /** @param {() => Promise<{message?: string}>} start @param {Context} cx */
+  perform(start, cx, confirming = false) {
+    if (this.closed || (this.session.confirmation && !confirming)) return
+    if (this.session.pending || this.refreshing || this.checkingUpdates) {
+      this.reportError(new Error("Another operation is in progress. Wait for it to finish."))
+      cx.notify()
+      return
+    }
+    if (this.session.discoveryStatus !== "ready") {
+      this.reportError(
+        new Error("Installed-mod discovery must finish successfully before changes."),
+      )
+      cx.notify()
+      return
+    }
+    // Calling the model now sets pending before another event can start work.
+    let operation
     try {
-      start()
+      operation = start()
     } catch (error) {
       this.reportError(error)
       cx.notify()
       return
     }
-    this.notice = PROGRESS_LABELS[this.session.pending.action]
+    this.notice = this.session.pending ? PROGRESS_LABELS[this.session.pending.action] : "Working…"
     this.noticeError = false
     cx.notify()
     cx.spawn(async (cx) => {
       try {
-        // One bounded delay makes the in-memory operation's progress visible.
-        await cx.sleep(250)
-        const { action, mod } = this.session.complete()
-        this.notice = `Simulated: ${mod.name} ${RESULT_LABELS[action]}. No files were changed.`
+        const result = await operation
+        this.notice = result.message || "File operation verified. Runtime reload is not confirmed."
         this.noticeError = false
       } catch (error) {
-        this.session.fail()
         this.reportError(error)
       }
-      cx.notify()
+      if (!this.closed) cx.notify()
     })
   }
 
   /** @param {ModAction} action @param {string} id @param {Context} cx */
   act(action, id, cx) {
+    if (this.closed || this.session.confirmation) return
     if (action !== "uninstall") {
-      this.perform(() => this.session.start(action, id), cx)
+      this.perform(() => this.session.perform(action, id), cx)
       return
     }
+    if (this.session.pending || this.refreshing || this.checkingUpdates) return
     try {
+      if (this.session.discoveryStatus !== "ready") {
+        throw new Error("Installed-mod discovery must finish successfully before changes.")
+      }
       this.session.requestUninstall(id)
       this.notice = ""
     } catch (error) {
       this.reportError(error)
     }
     cx.notify()
+  }
+
+  /** @param {Context} cx */
+  checkUpdates(cx) {
+    if (this.closed || this.session.confirmation || this.busy()) return
+    this.checkingUpdates = true
+    this.notice = "Checking for updates…"
+    this.noticeError = false
+    cx.notify()
+    cx.spawn(async (cx) => {
+      try {
+        await this.session.checkUpdates()
+        this.notice = "Update check complete. See each mod for results."
+      } catch (error) {
+        this.reportError(error)
+      } finally {
+        this.checkingUpdates = false
+        if (!this.closed) cx.notify()
+      }
+    })
+  }
+
+  busy() {
+    return Boolean(this.session.pending || this.refreshing || this.checkingUpdates)
   }
 
   sidebar() {
@@ -222,7 +302,7 @@ export default class ModManager extends View {
             .when(this.section === section, (element) => element.bg(t.selected))
             .hover((style) => style.bg(t.hover))
             .cursor_pointer()
-            .disabled(Boolean(this.session.uninstallId))
+            .disabled(Boolean(this.session.confirmation))
             .on_click((_event, cx) => this.navigate(section, cx))
             .child(icon(glyph))
             .child(text(label, 12, this.section === section ? t.foreground : t.muted).flex_1())
@@ -245,19 +325,23 @@ export default class ModManager extends View {
               .items_center()
               .text_color(t.accent)
               .child(icon("shield", 13))
-              .child(text("Interactive preview", 11).font_medium()),
+              .child(text("Protected operations", 11).font_medium()),
           )
-          .child(text("Sample actions only. Resets when closed.", 10, t.muted)),
+          .child(text("Only verified, eligible targets can change.", 10, t.muted)),
       )
       .child(text("MOD MANAGER  /  0.0.0", 9, t.dim).px(3).pt(10))
   }
 
-  /** @param {PreviewMod} mod */
+  /** @param {ManagerMod} mod */
   modCard(mod) {
     const t = colors()
-    const development = mod.source === "development"
-    const busy = this.session.pending?.mod.id === mod.id
-    const locked = Boolean(this.session.pending || mod.protectedReason)
+    const pending = this.session.pending
+    const busy = pending?.id === mod.id
+    const reason =
+      mod.protectedReason ||
+      (this.session.discoveryStatus !== "ready" ? "Installed-mod discovery is not ready." : "")
+    const locked = Boolean(this.busy() || this.session.confirmation || reason)
+    const updateError = this.session.updateErrors[mod.id]
     return v_flex()
       .id(`mod-${mod.id}`)
       .w_full()
@@ -280,7 +364,7 @@ export default class ModManager extends View {
               .justify_center()
               .rounded(8)
               .bg(t.selected)
-              .text_color(development ? t.accent : t.foreground)
+              .text_color(mod.source === "development" ? t.accent : t.foreground)
               .child(icon(mod.icon, 21)),
           )
           .child(
@@ -294,32 +378,46 @@ export default class ModManager extends View {
                   .items_center()
                   .child(text(mod.name, 14).font_semibold().truncate())
                   .when(Boolean(mod.version), (element) =>
-                    element.child(text(`v${mod.version}`, 10, t.dim).flex_none()),
+                    element.child(text(`Version ${mod.version}`, 10, t.dim).flex_none()),
                   ),
               )
-              .child(text(mod.description, 11, t.muted).truncate()),
+              .child(text(mod.description || "No description provided.", 11, t.muted)),
           )
           .child(
             badge(
-              busy ? PROGRESS_LABELS[this.session.pending.action] : STATE_LABELS[mod.state],
-              mod.state === "enabled" ? t.accent : t.muted,
+              busy
+                ? PROGRESS_LABELS[pending.action]
+                : mod.state === "installed"
+                  ? "Installed"
+                  : "Not installed",
+              mod.state === "installed" ? t.accent : t.muted,
             ),
           ),
       )
       .child(
         h_flex()
-          .gap(10)
+          .gap(8)
           .items_center()
           .child(
-            h_flex()
+            v_flex()
               .flex_1()
               .min_w(0)
-              .gap(5)
-              .items_center()
-              .text_color(t.dim)
-              .child(icon(development ? "terminal" : "github", 11))
-              .child(text(mod.repository, 10, t.dim).truncate())
-              .child(badge(development ? "Development" : "GitHub")),
+              .gap(6)
+              .child(
+                text(mod.repository || mod.path || "Repository not recorded", 10, t.dim).truncate(),
+              )
+              .child(
+                h_flex()
+                  .gap(5)
+                  .items_center()
+                  .child(badge(SOURCE_LABELS[mod.source]))
+                  .when(mod.state === "installed", (element) =>
+                    element.child(badge(mod.managed ? "Manager-owned" : "Not manager-owned")),
+                  )
+                  .when(Boolean(mod.updateCommit), (element) =>
+                    element.child(badge("Update available", t.accent)),
+                  ),
+              ),
           )
           .children(
             actionsFor(mod).map((action) =>
@@ -329,12 +427,25 @@ export default class ModManager extends View {
                 ACTION_ICONS[action],
                 (cx) => this.act(action, mod.id, cx),
                 locked,
-              ).tooltip(mod.protectedReason || "Simulated action. No real mods are changed."),
+              ).tooltip(reason || `Verify and ${action} this mod.`),
             ),
           ),
       )
-      .when(Boolean(mod.protectedReason), (element) =>
-        element.child(text(mod.protectedReason, 10, t.muted)),
+      .when(Boolean(mod.recipePath), (element) =>
+        element.child(text(`Recipe: ${mod.recipePath} · Mod: ${mod.modName}`, 10, t.dim)),
+      )
+      .when(Boolean(mod.commit), (element) =>
+        element.child(
+          text(
+            `${mod.state === "installed" ? "Installed" : "Gallery"} commit: ${mod.commit.slice(0, 12)}`,
+            10,
+            t.dim,
+          ),
+        ),
+      )
+      .when(Boolean(reason), (element) => element.child(text(reason, 11, t.muted)))
+      .when(Boolean(updateError), (element) =>
+        element.child(text(`Update check failed: ${updateError}`, 11, t.blocked)),
       )
   }
 
@@ -342,51 +453,56 @@ export default class ModManager extends View {
   library(section) {
     const t = colors()
     const gallery = section === "gallery"
-    const mods = this.session.list(section, this.queries[section], gallery ? "all" : this.source)
-    /** @type {Array<[Source, string]>} */
-    const filters = [
-      ["all", "All sources"],
-      ["github", "GitHub"],
-      ["development", "Development"],
-    ]
+    const status = gallery ? this.session.galleryStatus : this.session.discoveryStatus
+    const mods = this.session.list(section, this.queries[section], this.sources[section])
+    const loading = status === "idle" || status === "loading"
     return v_flex()
       .size_full()
       .gap(12)
       .child(
         h_flex()
-          .gap(16)
+          .gap(12)
           .items_center()
           .justify_between()
           .flex_none()
           .child(
             v_flex()
               .gap(6)
+              .flex_1()
               .child(text(gallery ? "Herdr Gallery" : "Installed mods", 23).font_semibold())
               .child(
                 text(
                   gallery
-                    ? "Browse mods and try installing a sample."
-                    : "Enable, disable, or uninstall your installed samples.",
+                    ? "Browse community mods and manage installations."
+                    : "Verified local inventory and installation sources.",
                   12,
                   t.muted,
                 ),
               ),
           )
           .child(
+            this.button("refresh-library", "Refresh", "arrow", (cx) => this.load(cx), this.busy()),
+          )
+          .child(
             gallery
-              ? this.button("open-gallery", "Website", "arrow", (cx) => cx.open_url(GALLERY_URL))
+              ? this.button("open-gallery", "Website", "arrow", (cx) => {
+                  if (!this.session.confirmation) cx.open_url(GALLERY_URL)
+                })
               : this.button("install-github", "From GitHub", "plus", (cx) =>
                   this.navigate("github", cx),
                 ),
           ),
       )
-      .child(
-        h_flex()
-          .gap(8)
-          .items_center()
-          .flex_none()
-          .child(badge("SAMPLE LIBRARY", t.accent))
-          .child(text("Illustrative data, not a live feed or your installed mods.", 11, t.muted)),
+      .when(!gallery, (element) =>
+        element.child(
+          this.button(
+            "check-updates",
+            "Check updates",
+            "arrow",
+            (cx) => this.checkUpdates(cx),
+            this.busy() || status !== "ready",
+          ),
+        ),
       )
       .child(
         h_flex()
@@ -413,39 +529,59 @@ export default class ModManager extends View {
           .gap(5)
           .items_center()
           .flex_none()
-          .when(!gallery, (element) =>
-            element.children(
-              filters.map(([source, label]) =>
+          .children(
+            /** @type {Source[]} */ (["all", "github", "development", "local", "shipped"]).map(
+              (source) =>
                 Button.new(`filter-${source}`)
                   .px(10)
                   .py(6)
                   .rounded(6)
                   .text_size(11)
-                  .text_color(this.source === source ? t.foreground : t.muted)
-                  .when(this.source === source, (element) => element.bg(t.selected))
+                  .text_color(this.sources[section] === source ? t.foreground : t.muted)
+                  .when(this.sources[section] === source, (element) => element.bg(t.selected))
                   .hover((style) => style.bg(t.hover))
                   .cursor_pointer()
                   .on_click((_event, cx) => {
-                    this.source = source
+                    if (this.closed || this.session.confirmation) return
+                    this.sources[section] = source
+                    this.shown[section] = 50
                     cx.notify()
                   })
-                  .child(label),
-              ),
+                  .child(SOURCE_LABELS[source]),
             ),
-          )
-          .when(gallery, (element) =>
-            element.child(text("Available community samples", 11, t.muted)),
           )
           .child(div().flex_1())
           .child(text(`${mods.length} ${mods.length === 1 ? "mod" : "mods"}`, 10, t.dim)),
+      )
+      .when(loading, (element) =>
+        element.child(
+          text(gallery ? "Loading Gallery…" : "Discovering installed mods…", 12, t.accent).id(
+            "library-loading",
+          ),
+        ),
       )
       .child(
         scrollArea(
           `${section}-list`,
           v_flex()
             .gap(10)
-            .children(mods.map((mod) => this.modCard(mod)))
-            .when(mods.length === 0, (element) =>
+            .children(mods.slice(0, this.shown[section]).map((mod) => this.modCard(mod)))
+            .when(mods.length > this.shown[section], (element) =>
+              element.child(
+                this.button(
+                  `show-more-${section}`,
+                  `Show more (${this.shown[section]} of ${mods.length})`,
+                  "plus",
+                  (cx) => {
+                    if (this.session.confirmation) return
+                    this.shown[section] += 50
+                    cx.notify()
+                  },
+                  this.busy(),
+                ),
+              ),
+            )
+            .when(mods.length === 0 && status === "ready", (element) =>
               element.child(
                 v_flex()
                   .py(40)
@@ -470,7 +606,7 @@ export default class ModManager extends View {
           .gap(7)
           .flex_none()
           .child(text("From GitHub", 23).font_semibold())
-          .child(text("Try adding a repository to your sample library.", 12, t.muted)),
+          .child(text("Install a mod from a public GitHub repository.", 12, t.muted)),
       )
       .child(
         scrollArea(
@@ -485,7 +621,6 @@ export default class ModManager extends View {
                 .border_1()
                 .border_color(t.border)
                 .bg(t.surface)
-                .child(badge("SIMULATED INSTALLATION", t.accent))
                 .child(text("Start with a repository", 16).font_semibold())
                 .child(text("Repository URL", 11).font_medium())
                 .child(
@@ -499,7 +634,13 @@ export default class ModManager extends View {
                     .text_color(t.foreground)
                     .text_size(12),
                 )
-                .child(text("URL format only. No repository is fetched or checked.", 11, t.muted))
+                .child(
+                  text(
+                    "Use https://github.com/owner/repository. Ambiguous bundles are rejected; select a Gallery mod instead.",
+                    11,
+                    t.muted,
+                  ),
+                )
                 .child(
                   h_flex()
                     .gap(10)
@@ -512,22 +653,22 @@ export default class ModManager extends View {
                     )
                     .child(
                       this.button(
-                        "preview-install",
-                        "Simulate install",
+                        "install-repository",
+                        "Install",
                         "plus",
                         (cx) =>
                           this.perform(
                             () => this.session.installRepository(this.repository.value()),
                             cx,
                           ),
-                        Boolean(this.session.pending),
+                        this.busy() || this.session.discoveryStatus !== "ready",
                       ),
                     ),
                 ),
             )
             .child(
               text(
-                "Valid URLs add in-memory samples to Installed. Existing Gallery samples keep their identity. Close the manager to reset.",
+                "Community mods run code. Review the repository before installation. The manager does not run repository install scripts or change layouts or keybindings.",
                 12,
                 t.muted,
               ),
@@ -538,46 +679,75 @@ export default class ModManager extends View {
 
   confirmation() {
     const t = colors()
-    const mod = this.session.mod(this.session.uninstallId)
-    return v_flex()
-      .id("uninstall-confirmation")
-      .size_full()
-      .justify_center()
-      .gap(18)
-      .child(badge("SIMULATED UNINSTALL", t.accent))
-      .child(text(`Uninstall ${mod.name}?`, 22).font_semibold())
-      .child(
-        text("This removes the sample from Installed. It can be installed again.", 12, t.muted),
-      )
-      .child(
-        v_flex()
-          .p(18)
-          .gap(10)
-          .rounded(8)
-          .bg(t.surface)
-          .border_1()
-          .border_color(t.border)
-          .child(text(mod.name, 14).font_semibold())
-          .child(text(mod.repository, 11, t.muted))
-          .child(text(`Sample path: /preview/mods/${mod.id}`, 11, t.muted)),
-      )
-      .child(text("Preview only. No files will be removed from your computer.", 12, t.accent))
-      .child(
-        h_flex()
-          .gap(10)
-          .justify_end()
-          .child(
-            this.button("cancel-uninstall", "Cancel", "arrow", (cx) => {
-              this.session.cancelUninstall()
-              cx.notify()
-            }),
-          )
-          .child(
-            this.button("confirm-uninstall", "Uninstall sample", "close", (cx) =>
-              this.perform(() => this.session.start("uninstall", mod.id), cx),
-            ).text_color(t.blocked),
+    const target = this.session.confirmation
+    const pending = Boolean(this.session.pending)
+    return scrollArea(
+      "confirmation-content",
+      v_flex()
+        .gap(18)
+        .py(20)
+        .child(badge("CONFIRM FILE REMOVAL", t.blocked))
+        .child(text(`Uninstall ${target.name}?`, 22).font_semibold())
+        .child(
+          text(
+            "This permanently removes the verified mod folder. This operation is irreversible and is not automatically undone.",
+            12,
+            t.blocked,
           ),
-      )
+        )
+        .child(
+          v_flex()
+            .p(18)
+            .gap(10)
+            .rounded(8)
+            .bg(t.surface)
+            .border_1()
+            .border_color(t.border)
+            .child(text(target.name, 14).font_semibold())
+            .child(text(`Verified absolute path: ${target.path}`, 12))
+            .when(Boolean(target.commit), (element) =>
+              element.child(text(`Installed commit: ${target.commit}`, 11, t.muted)),
+            ),
+        )
+        .child(
+          text(
+            "The manager checks the target again before removal. Removing files does not prove that running copies have stopped.",
+            12,
+            t.muted,
+          ),
+        )
+        .child(
+          h_flex()
+            .gap(10)
+            .justify_end()
+            .child(
+              this.button(
+                "cancel-uninstall",
+                "Cancel",
+                "arrow",
+                (cx) => {
+                  if (this.session.pending || this.session.confirmation !== target) return
+                  this.session.cancelUninstall()
+                  this.notice = ""
+                  cx.notify()
+                },
+                pending,
+              ),
+            )
+            .child(
+              this.button(
+                "confirm-uninstall",
+                "Uninstall",
+                "close",
+                (cx) => {
+                  if (this.session.confirmation !== target) return
+                  this.perform(() => this.session.confirmUninstall(), cx, true)
+                },
+                pending,
+              ).text_color(t.blocked),
+            ),
+        ),
+    ).id("uninstall-confirmation")
   }
 
   render() {
@@ -604,12 +774,14 @@ export default class ModManager extends View {
           .bg(t.chrome)
           .child(icon("package", 24).text_color(t.accent))
           .child(text("Mod Manager", 16).font_semibold())
-          .child(badge("PREVIEW", t.accent))
           .child(div().flex_1())
           .child(text("Herdr extensions, in one place.", 11, t.dim))
           .when(Boolean(overlay), (element) =>
             element.child(
-              this.button("close-manager", "Close", "close", () => closeOverlay(overlay)),
+              this.button("close-manager", "Close", "close", () => {
+                this.close()
+                closeOverlay(overlay)
+              }),
             ),
           ),
       )
@@ -626,6 +798,13 @@ export default class ModManager extends View {
               .min_h(0)
               .p(26)
               .gap(12)
+              .when(Boolean(this.session.pending), (element) =>
+                element.child(
+                  text(PROGRESS_LABELS[this.session.pending.action], 12, t.accent)
+                    .id("operation-progress")
+                    .flex_none(),
+                ),
+              )
               .when(Boolean(this.notice), (element) =>
                 element.child(
                   text(this.notice, 11, this.noticeError ? t.blocked : t.accent)
@@ -636,8 +815,29 @@ export default class ModManager extends View {
                     .bg(t.selected),
                 ),
               )
+              .when(Boolean(this.session.galleryError), (element) =>
+                element.child(
+                  text(`Gallery error: ${this.session.galleryError}`, 11, t.blocked)
+                    .id("gallery-error")
+                    .flex_none(),
+                ),
+              )
+              .when(Boolean(this.session.discoveryError), (element) =>
+                element.child(
+                  text(
+                    `Installed-mod discovery error: ${this.session.discoveryError}`,
+                    11,
+                    t.blocked,
+                  )
+                    .id("discovery-error")
+                    .flex_none(),
+                ),
+              )
+              .children(
+                this.session.warnings.map((warning) => text(warning, 11, t.blocked).flex_none()),
+              )
               .child(
-                this.session.uninstallId
+                this.session.confirmation
                   ? this.confirmation()
                   : this.section === "github"
                     ? this.github()
@@ -655,12 +855,10 @@ export default class ModManager extends View {
           .border_t_1()
           .border_color(t.border)
           .bg(t.chrome)
-          .child(div().size(5).rounded(3).bg(t.accent))
           .child(
-            text("Simulated actions only. No installed mods are read or changed.", 10, t.muted),
+            text("Installation state does not indicate whether a mod is running.", 10, t.muted),
           )
-          .child(div().flex_1())
-          .child(text("Close to reset", 10, t.dim)),
+          .child(div().flex_1()),
       )
   }
 }
