@@ -11,13 +11,11 @@ A native Herdr App interface preview for managing mods.
 
 The preview does not read installed mods, fetch repositories, install mods, or update files. Gallery access starts a browser only when clicked. Versions and repository names in the sample list are illustrative.
 
-## Build and open
+## Open in Herdr
 
-Requires Node.js 26 and an installed Herdr App. Start Herdr once to generate its SDK files.
+Herdr loads root `main.js` and `preview.js` directly. No build, Node.js, or npm dependencies are required to run the mod.
 
 ```sh
-npm ci
-npm run build
 herdr-app check .
 herdr-app do mod.open --name mod-manager
 ```
@@ -30,9 +28,9 @@ Herdr must discover this repository as `mod-manager` under its `mods` folder. Th
 
 `npm start` also toggles the dialog. Press Escape or click the close button to close it. No layout or keybinding changes are required.
 
-The build copies the installed `gpui-kit.d.ts` and `herdr.d.ts` into ignored local files. It uses `HERDR_APP_HOME` when set, otherwise `~/.config/herdr-app`. `main.js` loads the compiled ESM entry from `dist/index.js`.
+Edit the JavaScript files directly. There is no `src` or `dist` directory. Herdr provides `gpui-kit`, `gpui-base`, and `herdr` at runtime.
 
-After a source edit, run `npm run build`. Changes through the external development symbolic link did not reload automatically during validation; close and reopen the dialog to load the new build. A restart was not needed.
+Changes through the external development symbolic link did not reload automatically during validation; close and reopen the dialog after editing. A restart was not needed.
 
 Icons come from Herdr's shipped `icons` and `workspace-chrome` assets. Herdr blocks asset reads through symbolic links that leave its app folder, so this preview does not keep custom SVGs in the development checkout.
 
@@ -56,17 +54,20 @@ herdr-app do layout.switch --name herdr-with-mods
 herdr-app do layout.switch --name main
 ```
 
-The launcher configuration is local to this Herdr installation, not part of the manager's build output. Clones survive restarts but do not receive Herdr's automatic layout and mod updates. Keep the custom layout selected to retain the button.
+The launcher configuration is local to this Herdr installation and is not included in this repository. Clones survive restarts but do not receive Herdr's automatic layout and mod updates. Keep the custom layout selected to retain the button.
 
 ## Checks
 
+Development tools require Node.js 26. Herdr generates the ignored `gpui-kit.d.ts`, including declarations for `herdr`, when it checks or loads the mod. Generate it before running JavaScript type checks.
+
 ```sh
-npm run ci
+npm ci
 npm run check:mod
+npm run ci
 herdr-app status
 herdr-app shot /tmp/herdr-mod-manager-preview.png
 ```
 
-`ci` runs Biome, sample-filter tests, and the TypeScript build against the installed SDK. It needs the local Herdr SDK; the build does not download it. `check:mod` validates the initial native view, not a complete interactive session.
+`ci` runs Biome, sample-filter tests, and `check:types`. The tracked `jsconfig.json` uses `checkJs` and `noEmit`; TypeScript checks JSDoc types against the generated SDK but does not produce files. There is no SDK-copy script or compilation step. `check:mod` validates the initial native view, not a complete interactive session.
 
 Visual review remains manual: check the Installed, From GitHub, and Gallery pages, scroll the sample list, try the search and source filters, and close the dialog with Escape. Review both light and dark themes before release. Installation and updates are not available in this preview.
