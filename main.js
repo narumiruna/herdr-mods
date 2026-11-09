@@ -1,10 +1,11 @@
 import { h_flex, Input, InputState, Scrollbar, v_flex } from "gpui-base"
 import { div, svg, View } from "gpui-kit"
-import { window as appWindow, closeOverlay, exec, props, theme } from "herdr"
-import { filterMods, GALLERY_URL } from "./preview.js"
+import { appHome, closeOverlay, exec, props, readTextFile, theme, writeTextFile } from "herdr"
+import { createManager, errorMessage, filterMods, GALLERY_URL } from "./manager.js"
+import { createRuntime } from "./runtime.js"
 
 /** @import { Color, Context, NativeElement } from "gpui-kit" */
-/** @import { PreviewMod, Source } from "./preview.js" */
+/** @import { Mod, Source } from "./manager.js" */
 /** @typedef {"installed" | "github" | "gallery"} Section */
 
 function colors() {
@@ -63,18 +64,94 @@ export default class ModManager extends View {
   source = "all"
   query = ""
   notice = ""
+  failed = false
+  loading = false
+  busy = false
+  closed = false
+  /** @type {Mod[]} */
+  mods = []
+  /** @type {ReturnType<typeof createManager>} */
+  manager
   /** @type {import("gpui-base").InputState} */
   search
   /** @type {import("gpui-base").InputState} */
   repository
 
-  init() {
-    this.search = InputState.new({ placeholder: "Search your mods…" })
+  /** @param {unknown} _props @param {Context} cx */
+  init(_props, cx) {
+    this.manager = createManager(
+      createRuntime({ exec, read: readTextFile, write: writeTextFile, home: appHome() }),
+    )
+    this.search = InputState.new({ placeholder: "Search installed mods…" })
     this.search.on("change", (_event, cx) => {
       this.query = this.search.value()
       cx.notify()
     })
     this.repository = InputState.new({ placeholder: "https://github.com/owner/repository" })
+    this.refresh(cx)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  /** @param {Context} cx */
+  refresh(cx) {
+    if (this.busy || this.loading) return
+    this.loading = true
+    this.failed = false
+    this.notice = ""
+    cx.spawn(async (cx) => {
+      try {
+        this.mods = await this.manager.list()
+      } catch (error) {
+        this.failed = true
+        this.notice = errorMessage(error)
+      } finally {
+        this.loading = false
+        if (!this.closed) cx.notify()
+      }
+    })
+  }
+
+  /** @param {Context} cx @param {() => Promise<string>} operation */
+  perform(cx, operation) {
+    if (this.busy || this.loading) return
+    this.busy = true
+    this.failed = false
+    this.notice = "Working… Do not edit this checkout or quit Herdr until the operation finishes."
+    cx.notify()
+    let finish = () => {}
+    const completed = new Promise((resolve) => {
+      finish = () => resolve(undefined)
+    })
+    // The unowned transaction never uses a view context. A separate owned task redraws the view.
+    cx.spawn(
+      async () => {
+        try {
+          this.notice = await operation()
+          if (!this.closed) {
+            try {
+              this.mods = await this.manager.list()
+            } catch (error) {
+              this.failed = true
+              this.notice += ` Refresh failed: ${errorMessage(error)}`
+            }
+          }
+        } catch (error) {
+          this.failed = true
+          this.notice = errorMessage(error)
+        } finally {
+          this.busy = false
+          finish()
+        }
+      },
+      { owner: null },
+    )
+    cx.spawn(async (cx) => {
+      await completed
+      if (!this.closed) cx.notify()
+    })
   }
 
   /**
@@ -83,7 +160,6 @@ export default class ModManager extends View {
    */
   navigate(section, cx) {
     this.section = section
-    this.notice = ""
     cx.notify()
   }
 
@@ -148,7 +224,9 @@ export default class ModManager extends View {
             .on_click((_event, cx) => this.navigate(section, cx))
             .child(icon(glyph))
             .child(text(label, 12, this.section === section ? t.foreground : t.muted).flex_1())
-            .when(section === "installed", (element) => element.child(text("4", 11, t.dim))),
+            .when(section === "installed", (element) =>
+              element.child(text(String(this.mods.length), 11, t.dim)),
+            ),
         ),
       )
       .child(div().flex_1())
@@ -165,17 +243,18 @@ export default class ModManager extends View {
               .items_center()
               .text_color(t.accent)
               .child(icon("shield", 13))
-              .child(text("Just a preview", 11, t.foreground).font_medium()),
+              .child(text("Safe Git updates", 11, t.foreground).font_medium()),
           )
-          .child(text("Your mods stay untouched.", 10, t.muted)),
+          .child(text("Local changes are protected.", 10, t.muted)),
       )
       .child(text("MOD MANAGER  /  0.0.0", 9, t.dim).px(3).pt(10))
   }
 
-  /** @param {PreviewMod} mod */
+  /** @param {Mod} mod */
   modCard(mod) {
     const t = colors()
     const development = mod.source === "development"
+    const sourceLabel = development ? "Development" : mod.source === "github" ? "GitHub" : "Local"
     return h_flex()
       .id(`mod-${mod.id}`)
       .w_full()
@@ -209,7 +288,7 @@ export default class ModManager extends View {
               .gap(9)
               .items_center()
               .child(text(mod.name, 14).font_semibold())
-              .child(text(`v${mod.version}`, 10, t.dim)),
+              .when(Boolean(mod.version), (element) => element.child(text(mod.version, 10, t.dim))),
           )
           .child(text(mod.description, 11, t.muted))
           .child(
@@ -218,20 +297,29 @@ export default class ModManager extends View {
               .items_center()
               .text_color(t.dim)
               .child(icon(development ? "terminal" : "github", 11))
-              .child(text(mod.repository, 10, t.dim)),
-          ),
+              .child(text(mod.repository, 10, t.dim).truncate()),
+          )
+          .when(Boolean(mod.problem), (element) => element.child(text(mod.problem, 10, t.blocked))),
       )
-      .child(badge(development ? "Development" : "GitHub", development ? t.accent : t.muted))
+      .child(badge(sourceLabel, development ? t.accent : t.muted))
+      .child(
+        mod.managed
+          ? this.button(`update-${mod.id}`, this.busy ? "Working…" : "Update", "arrow", (cx) =>
+              this.perform(cx, () => this.manager.update(mod.id)),
+            )
+          : badge("Read only"),
+      )
   }
 
   installed() {
     const t = colors()
-    const mods = filterMods(this.query, this.source)
+    const mods = filterMods(this.mods, this.query, this.source)
     /** @type {Array<[Source, string]>} */
     const filters = [
       ["all", "All mods"],
       ["github", "GitHub"],
       ["development", "Development"],
+      ["local", "Local"],
     ]
     return v_flex()
       .size_full()
@@ -245,13 +333,18 @@ export default class ModManager extends View {
           .child(
             v_flex()
               .gap(6)
-              .child(text("Your mods", 23).font_semibold())
+              .child(text("Installed mods", 23).font_semibold())
               .child(text("Manage extensions for your Herdr workspace.", 12, t.muted)),
           )
           .child(
-            this.button("install-github", "Install from GitHub", "plus", (cx) =>
-              this.navigate("github", cx),
-            ),
+            h_flex()
+              .gap(8)
+              .child(this.button("refresh-mods", "Refresh", "search", (cx) => this.refresh(cx)))
+              .child(
+                this.button("install-github", "Install from GitHub", "plus", (cx) =>
+                  this.navigate("github", cx),
+                ),
+              ),
           ),
       )
       .child(
@@ -259,8 +352,8 @@ export default class ModManager extends View {
           .gap(8)
           .items_center()
           .flex_none()
-          .child(badge("SAMPLE LIBRARY", t.accent))
-          .child(text("Illustrative data, not your installed mods.", 11, t.muted)),
+          .child(badge("LOCAL LIBRARY", t.accent))
+          .child(text("Only manager-installed GitHub checkouts can be updated.", 11, t.muted)),
       )
       .child(
         h_flex()
@@ -306,15 +399,22 @@ export default class ModManager extends View {
           v_flex()
             .gap(10)
             .children(mods.map((mod) => this.modCard(mod)))
-            .when(mods.length === 0, (element) =>
+            .when(this.loading || mods.length === 0, (element) =>
               element.child(
                 v_flex()
                   .py(50)
                   .items_center()
                   .gap(10)
                   .child(icon("search", 26).text_color(t.dim))
-                  .child(text("No matching mods", 14).font_medium())
-                  .child(text("Try another search or source filter.", 12, t.muted)),
+                  .child(
+                    text(
+                      this.loading ? "Reading installed mods…" : "No matching mods",
+                      14,
+                    ).font_medium(),
+                  )
+                  .child(
+                    text("Use Refresh, change the filter, or install from GitHub.", 12, t.muted),
+                  ),
               ),
             ),
         ),
@@ -331,7 +431,7 @@ export default class ModManager extends View {
           .gap(7)
           .flex_none()
           .child(text("From GitHub", 23).font_semibold())
-          .child(text("Add a mod from a GitHub repository.", 12, t.muted)),
+          .child(text("Install a trusted mod from a public GitHub repository.", 12, t.muted)),
       )
       .child(
         scrollArea(
@@ -378,17 +478,18 @@ export default class ModManager extends View {
                   h_flex()
                     .justify_between()
                     .items_center()
-                    .child(text("UI preview · nothing will be downloaded", 11, t.muted))
+                    .child(text("Installing can immediately run trusted mod code.", 11, t.muted))
                     .child(
-                      this.button("preview-install", "Preview install", "plus", (cx) => {
-                        this.notice =
-                          "Preview only. No repository was fetched and no files were changed."
-                        cx.notify()
-                      }),
+                      this.button(
+                        "install-mod",
+                        this.busy ? "Working…" : "Install trusted mod",
+                        "plus",
+                        (cx) => {
+                          const url = this.repository.value()
+                          this.perform(cx, () => this.manager.install(url))
+                        },
+                      ),
                     ),
-                )
-                .when(Boolean(this.notice), (element) =>
-                  element.child(text(this.notice, 12, t.accent).p(12).rounded(7).bg(t.selected)),
                 ),
             )
             .child(
@@ -401,18 +502,18 @@ export default class ModManager extends View {
                     .items_center()
                     .text_color(t.accent)
                     .child(icon("shield", 17))
-                    .child(text("Planned installation checks", 13).font_medium()),
+                    .child(text("Installation checks", 13).font_medium()),
                 )
                 .child(
                   text(
-                    "Planned: validate the mod before installation and refuse existing paths.",
+                    "Requires root mod.json and main.js. Existing paths, symbolic links, and submodules are refused.",
                     12,
                     t.muted,
                   ),
                 )
                 .child(
                   text(
-                    "Installation and update actions are not connected in this preview.",
+                    "No install scripts or Git hooks run. Structural checks do not prove a mod is safe.",
                     12,
                     t.muted,
                   ),
@@ -424,22 +525,15 @@ export default class ModManager extends View {
 
   /** @param {Context} cx */
   openGallery(cx) {
-    cx.spawn(async (cx) => {
-      try {
-        const platform = appWindow().platform
-        const result =
-          platform === "windows"
-            ? await exec("rundll32", ["url.dll,FileProtocolHandler", GALLERY_URL])
-            : await exec(platform === "macos" ? "open" : "xdg-open", [GALLERY_URL])
-        this.notice =
-          result.code === 0
-            ? "Gallery opened in your browser."
-            : "Could not open the browser. Use the Gallery URL below."
-      } catch {
-        this.notice = "Could not open the browser. Use the Gallery URL below."
-      }
-      cx.notify()
-    })
+    try {
+      cx.open_url(GALLERY_URL)
+      this.failed = false
+      this.notice = "Gallery link sent to your browser."
+    } catch {
+      this.failed = true
+      this.notice = "Could not open the browser. Use the Gallery URL below."
+    }
+    cx.notify()
   }
 
   gallery() {
@@ -491,9 +585,12 @@ export default class ModManager extends View {
                 )
                 .child(text(GALLERY_URL, 11, t.dim)),
             )
-            .child(text("No Gallery feed is loaded in this preview.", 11, t.muted))
-            .when(Boolean(this.notice), (element) =>
-              element.child(text(this.notice, 12, t.accent)),
+            .child(
+              text(
+                "Gallery browsing uses the website; no supported feed is configured.",
+                11,
+                t.muted,
+              ),
             ),
         ),
       )
@@ -532,7 +629,7 @@ export default class ModManager extends View {
               .child(icon("package", 21)),
           )
           .child(text("Mod Manager", 16).font_semibold())
-          .child(badge("PREVIEW", t.accent))
+          .child(badge("GITHUB MODS", t.accent))
           .child(div().flex_1())
           .child(text("Herdr extensions, in one place.", 11, t.dim))
           .when(Boolean(overlay), (element) =>
@@ -551,6 +648,14 @@ export default class ModManager extends View {
                 .child(icon("close", 15)),
             ),
           ),
+      )
+      .when(Boolean(this.notice), (element) =>
+        element.child(
+          text(this.notice, 12, this.failed ? t.blocked : t.accent)
+            .px(20)
+            .py(10)
+            .flex_none(),
+        ),
       )
       .child(
         h_flex()
@@ -584,7 +689,15 @@ export default class ModManager extends View {
           .border_color(t.border)
           .bg(t.chrome)
           .child(div().size(5).rounded(3).bg(t.accent))
-          .child(text("Visual preview only. No installed mods are read or changed.", 10, t.muted))
+          .child(
+            text(
+              this.busy
+                ? "Operation continues if this dialog closes."
+                : "Git · uv · Python 3 required. Updates never reset local changes.",
+              10,
+              t.muted,
+            ),
+          )
           .child(div().flex_1())
           .child(text("Esc to close", 10, t.dim)),
       )

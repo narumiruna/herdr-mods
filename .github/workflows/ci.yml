@@ -20,4 +20,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - uses: astral-sh/setup-uv@v10.3.3
       - run: npm ci
+      - run: npm run check
+      - run: npm test
