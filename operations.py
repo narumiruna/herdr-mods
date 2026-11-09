@@ -1400,8 +1400,10 @@ class Operations:
         with self.fs.directory(self.work, "staged/" + name) as prepared:
             snapshot, contents = self.fs.snapshot(prepared)
         files = self.install_files
-        if set(contents) != set(files) or any(contents[p] != data or snapshot["files"][p]["mode"] != mode for p, (data, mode) in files.items()):
-            fail("Whole-package staging changed")
+        directories = {"/".join(parts(path)[:n]) for path in files for n in range(1, len(parts(path)))}
+        if set(contents) != set(files) or set(snapshot["directories"]) != directories or any(contents[p] != data or snapshot["files"][p]["mode"] != mode for p, (data, mode) in files.items()):
+            self.retain_work = True
+            fail("Whole-package staging changed; retained data/mod-manager/" + self.work_name)
         self.live_dirs[name] = dict(snapshot["directories"])
         self.live_files[name] = dict(snapshot["files"])
         self.touched.add(name)
@@ -1977,8 +1979,10 @@ class Operations:
                 self._store(self.work, "prepared/" + name + "/" + path, data, mode)
             with self.fs.directory(self.work, "prepared/" + name) as staged:
                 snapshot, contents = self.fs.snapshot(staged)
-            if any(contents.get(path) != data or snapshot["files"][path]["mode"] != mode for path, (data, mode) in files.items()):
-                fail("Prepared files changed")
+            directories = {"/".join(parts(path)[:n]) for path in files for n in range(1, len(parts(path)))}
+            if set(contents) != set(files) or set(snapshot["directories"]) != directories or any(contents.get(path) != data or snapshot["files"][path]["mode"] != mode for path, (data, mode) in files.items()):
+                self.retain_work = True
+                fail("Prepared files changed; retained data/mod-manager/" + self.work_name)
             token = self.work_name.removeprefix("work-")
             stage = {"version": 1, "token": token, "workspaceInode": identity(os.fstat(self.work)), "before": record, "commit": commit, "folder": folder, "snapshot": snapshot}
             if record.get("kind") == "git":

@@ -50,7 +50,7 @@ A runtime snapshot is not a runtime lock. Do not edit the target, open another c
 
 ## Live file publication
 
-Each mutation uses a per-profile exclusive lock and verifies root, directory, file, source, and ownership identities. New files use complete private staging and no-overwrite publication. Existing files are moved to retained storage and checked before replacement. A conflict does not authorize deletion or adoption of the conflicting object.
+Each mutation uses a per-profile exclusive lock and verifies root, directory, file, source, and ownership identities. Staged file and directory sets must exactly match the selected source before package publication or a preparation receipt is issued. Unexpected entries stop the operation and keep the workspace. New files use complete private staging and no-overwrite publication. Existing files are moved to retained storage and checked before replacement. A conflict does not authorize deletion or adoption of the conflicting object.
 
 Metadata publication carries the original hash and inode through the same move, verify, and exclusive-publication boundary. A later registry edit is not silently overwritten. Metadata preimages remain outside `mods`.
 

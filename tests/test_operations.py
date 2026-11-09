@@ -1147,6 +1147,51 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual((saved / "sentinel").read_text(), "unrelated directory")
         self.assertTrue(detached.is_dir())
 
+    def test_preparation_cannot_adopt_unknown_entries_before_manifest_publication(self):
+        self.install()
+        before = self.confirmation()
+        self.write_mod(text="export default {v:2};\n")
+        candidate = self.commit()
+        for directory in (False, True):
+            with self.subTest(directory=directory):
+                leaf = "foreign.directory" if directory else "foreign.txt"
+                class Changed(self.backend):
+                    def _store(inner, base, path, data, mode):
+                        result = super()._store(base, path, data, mode)
+                        if path == "prepared/fixture/mod.json":
+                            if directory:
+                                with inner.fs.directory(base, "prepared/fixture") as staged:
+                                    os.mkdir(leaf, dir_fd=staged)
+                            else:
+                                super()._store(base, "prepared/fixture/" + leaf, b"foreign stage data", 0o644)
+                        return result
+                self.bad(self.run_request("prepare-update", backend=Changed, **before, targetCommit=candidate), "Prepared files changed")
+                retained = list(self.state.glob("work-*/prepared/fixture/" + leaf))
+                self.assertEqual(len(retained), 1)
+                self.assertTrue(retained[0].is_dir() if directory else retained[0].read_bytes() == b"foreign stage data")
+                self.assertFalse((self.home / "mods/fixture" / leaf).exists())
+                self.assertEqual(self.confirmation()["expectedCommit"], before["expectedCommit"])
+                self.assertFalse((self.state / "transaction.json").exists())
+
+    def test_install_rejects_and_retains_unknown_whole_package_staging_entries(self):
+        for directory in (False, True):
+            with self.subTest(directory=directory):
+                leaf = "foreign.directory" if directory else "foreign.txt"
+                class Changed(self.backend):
+                    def _transaction(inner, *args):
+                        super()._transaction(*args)
+                        if directory:
+                            with inner.fs.directory(inner.work, "staged/fixture") as staged:
+                                os.mkdir(leaf, dir_fd=staged)
+                        else:
+                            inner._store(inner.work, "staged/fixture/" + leaf, b"foreign stage data", 0o644)
+                self.bad(self.run_request("install", backend=Changed, repository="example/fixture"), "Whole-package staging changed")
+                retained = list(self.state.glob("work-*/staged/fixture/" + leaf))
+                self.assertEqual(len(retained), 1)
+                self.assertTrue(retained[0].is_dir() if directory else retained[0].read_bytes() == b"foreign stage data")
+                self.assertFalse((self.home / "mods/fixture").exists())
+                self.assertFalse((self.state / "transaction.json").exists())
+
     def test_prepare_update_is_read_only_and_commit_uses_no_git(self):
         self.install()
         before = self.confirmation()
