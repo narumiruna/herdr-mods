@@ -44,6 +44,11 @@ jspm_packages/
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
+# Herdr-generated SDK and editor configuration
+gpui-kit.d.ts
+herdr.d.ts
+jsconfig.json
+
 # TypeScript cache
 *.tsbuildinfo
 

@@ -1,13 +1,16 @@
 {
-  "name": "typescript-template",
+  "name": "herdr-mod-manager",
+  "private": true,
+  "type": "module",
   "version": "0.0.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/narumiruna/typescript-template.git"
+    "url": "git+https://github.com/narumiruna/herdr-mod-manager.git"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "node scripts/prepare-sdk.mjs && tsc",
+    "start": "herdr-app do mod.open --name mod-manager",
+    "check:mod": "herdr-app check .",
     "check": "biome ci .",
     "test": "vitest run",
     "ci": "npm run check && npm test && npm run build",

@@ -1,11 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2024"],
+    "types": [],
+    "paths": { "herdr": ["./herdr.d.ts"] },
+    "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "dist",
     "strict": true
   },
-  "include": ["src"]
+  "include": ["src", "gpui-kit.d.ts"]
 }
