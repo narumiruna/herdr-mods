@@ -1275,18 +1275,20 @@ class Operations:
             self._stage_files(stage)
             with self.fs.directory(self.mods, name) as fd:
                 snapshot, contents = self._clean(fd, record)
-            for path in sorted(files, key=lambda p: (p == "main.js", p)):
-                data, mode = files[path]
-                previous = (contents[path], snapshot["files"][path]["mode"], snapshot["files"][path]["inode"]) if path in contents else None
-                if previous and previous[:2] == (data, mode):
-                    continue
-                self._write_live(name, record["inode"], path, data, mode, previous)
+            # Retire old paths before publication so files can become directories
+            # and directories can become files. Rollback restores these last.
             obsolete = set(record["files"]) - set(files)
             for path in sorted(obsolete):
                 baseline = snapshot["files"][path]
                 self._remove_live_file(name, record["inode"], path, contents[path], baseline["mode"], baseline["inode"])
             wanted_dirs = {"/".join(parts(path)[:n]) for path in files for n in range(1, len(parts(path)))}
             self._prune(name, record["inode"], {p: i for p, i in snapshot["directories"].items() if p not in wanted_dirs})
+            for path in sorted(files, key=lambda p: (p == "main.js", p)):
+                data, mode = files[path]
+                previous = (contents[path], snapshot["files"][path]["mode"], snapshot["files"][path]["inode"]) if path in contents else None
+                if previous and previous[:2] == (data, mode):
+                    continue
+                self._write_live(name, record["inode"], path, data, mode, previous)
             verified = self._verify_package(name, record["inode"], files)
             updated = self._record(name, record["repository"], record["recipePath"], folder, commit, verified)
             self.registry["mods"][name] = updated
