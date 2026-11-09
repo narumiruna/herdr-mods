@@ -4,7 +4,7 @@
 
 The planned live scope is Gallery browsing, installed-mod discovery, installation, updates and confirmed uninstall. Enable/disable and persistent enabled-state management are excluded by the user's scope decision. Do not implement folder parking, a disabled-mod store or toggle-related restart state.
 
-No upstream Herdr change is required by this plan. Missing native lifecycle APIs require application-local safety checks, not a host patch or permission to mutate unsafe targets. The earlier blanket upstream prerequisite is withdrawn. Live implementation and the completion criteria in `PLAN.md` remain incomplete; the runtime is still a fixture-only preview.
+The live manager uses existing Herdr APIs, a shared JavaScript model and an optional local Python/Git filesystem backend. No upstream Herdr change is required. Missing native lifecycle APIs require application-local safety checks, not a host patch or permission to mutate unsafe targets. Automated lifecycle checks, real JS-to-Python integration, native view checks and source review pass. Live Gallery, Installed and GitHub views were captured and inspected. Native interaction limits remain a separate handoff; these checks do not establish release readiness.
 
 Research used read-only commands, the installed SDK and manifests, and public source at [Herdr App v0.1.14, commit `2405bf3`](https://github.com/herdrdev/herdr-app/tree/2405bf388c568c3ed479f05b8e405ccfa44b3f2c) and [researched upstream commit `b721ded`](https://github.com/herdrdev/herdr-app/tree/b721deda985270ec8256552692729a4add389b2a). Their `src/mods.rs` files are identical. No user-mod lifecycle probe or downloaded-code execution was performed. Recheck these contracts when targeting a different host version.
 
@@ -31,7 +31,7 @@ mods:<lowercase-owner>/<lowercase-repository>/<case-sensitive-recipe-path>
 
 An empty recipe path is valid. A listing can contain multiple `modNames`; it is not necessarily one installable mod or a repository-root `main.js`. The installed guide describes recipe folders containing `mods/<name>/`, `RECIPE.md`, a preview, and an optional `keys.json` snippet. For example, the observed `ChmaraX/herdr-nvim` listing has path `herdr-app` and two mod names. The website also has example cards; the community index is not a complete list of every website card.
 
-A future installer must validate the repository, recipe path, commit and each mod folder. Match local mods through verified repository and folder provenance, not the recipe title or folder name alone. Normalize repository owner and name without changing path case. Reject identity conflicts, unsafe paths and existing destinations. Index metadata alone does not prove local ownership or repository safety.
+The installer validates the repository, recipe path, commit and each selected mod folder. Match local mods through verified repository and folder provenance, not the recipe title or folder name alone. Normalize repository owner and name without changing path case. Reject identity conflicts, unsafe paths and existing destinations. Index metadata alone does not prove local ownership or repository safety.
 
 Community mods are trusted code, not reviewed packages. The Gallery warns that an agent must inspect the files. The installed guide requires disclosure of network use, program execution and file reads outside a mod's folder. Do not execute downloaded code, repository scripts or a native check of untrusted code as a substitute for that review. Authentication, private repositories and API rate limits were not validated.
 
@@ -64,9 +64,9 @@ The [host policy](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed47
 1. Read actual manifests, shipped metadata and manager-owned source records. Keep installation membership separate from runtime activity; enabled-state discovery is not required.
 2. Load and validate the real Gallery source. Match normalized repository identity plus recipe and mod-folder paths, not display names.
 3. Stage repository downloads and ownership records under `appHome()/data/mod-manager/`, outside the live `mods/` directory. Validate root mods or recipe bundles without running repository scripts or unreviewed code.
-4. Use one set of install, update and confirmed-uninstall operations for both pages. Commit only to a verified target, then read back files and source records before reporting success.
+4. Use one set of install, update and confirmed-uninstall operations for both pages. Updates prepare the checked revision outside `mods/`, then obtain a fresh layout/pane/overlay snapshot before a separate commit call. The commit consumes a stage token, does not download again, and revalidates ownership, local files and metadata. Read back files and source records before reporting success.
 5. Protect shipped mods, the running manager, symbolic links, local changes and unsafe active dependencies. Recheck protection immediately before writes; unknown safety must produce a visible rejection.
-6. Update manager-installed mods only after fast-forward ancestry and clean-file checks. Retain a recoverable previous revision. Do not merge local edits or replace a live folder without validating watcher and recovery behavior.
+6. Update manager-installed mods only after fast-forward ancestry and clean-file checks. Pin the checked target commit and reject a moved remote. Keep the live root directory identity, preserve displaced original files, and publish complete replacement files without truncating existing inodes. Retain recovery data until verification passes; do not merge local edits.
 7. Do not patch upstream source or binaries or manually edit the generated SDK. Leave shipped files, layouts and keybindings unchanged. Normal SDK generation by Herdr checks is permitted. No enable/disable implementation is part of this route.
 
 ### Prior art and limits
@@ -75,12 +75,13 @@ The [host policy](https://github.com/herdrdev/herdr-app/blob/2405bf388c568c3ed47
 - [`manastalukdar/herdr-pkg`](https://github.com/manastalukdar/herdr-pkg/blob/0fad8c14aed0a0f076b84bfc6f6e9f94c2f9baa4/mods/pkg/pkg.py#L631-L694) documents that replacing a mod folder can leave watchers on the previous folder. Its in-place update approach needs failure testing; its local-edit merging is outside the fast-forward-only requirement.
 - [`werlang/herdr-mod-manager`](https://github.com/werlang/herdr-mod-manager/blob/c97ea4cfc2fe581737fbd7ec34f6b17f5771ec1e/mods/mod-manager/main.js#L295-L343) uses folder parking and layout restoration for toggles. That research corrected the earlier blanket upstream blocker, but both toggles and automatic layout changes are now outside scope.
 
-### Open validation gates
+### Validation and platform limits
 
-- Verify available platform tools and a local backend with no-follow checks, no-replace staging commits, concurrency locks and interruption recovery using temporary roots.
-- Establish safe eligibility for update and removal without modifying active dependencies or assuming hidden copies stopped. Reject unsafe or unknown cases.
-- Test Gallery → install → update → uninstall, GitHub installation, ownership persistence and state refresh with temporary repositories. Verify cleanup and preservation of existing mods.
-- Run trusted native view checks and prepare screenshots. Verify required reload or full restart behavior in a safely isolated profile; record unavailable native checks in the handoff. Source inspection and community claims are not substitutes for these checks.
+- The local adapter uses optional uv offline mode, cached Python, Git and POSIX no-follow directory handles, locks and hardlinks. It does not install tools. Unsupported mutation is rejected, while native read-only inventory and Gallery remain available.
+- JavaScript tests cover schema validation, source matching, shared lifecycle state, confirmation identity, readback, source errors and closed views. The real JS-to-Python integration bridge uses only temporary local Git transports; production has no local-repository test mode.
+- Python fixture tests cover complete lifecycle operations, fast-forward rejection, local changes, unsafe paths and file modes, ownership and metadata conflicts, concurrent locks, rollback and interrupted transactions. Passing security-review regressions include post-validation swaps, hardlinks, prepared-update freshness, receipt tampering and rollback isolation. Unknown local files, including generated-looking editor helpers, are protected rather than adopted by filename.
+- Native checks use trusted temporary UI fixtures for all three pages and later loading/error/confirmation/update states. A live Gallery capture and read-only inventory provide additional evidence, not proof of native keyboard behavior or live runtime unload.
+- macOS is the local validation platform; Linux filesystem tests run in CI. Native Linux interaction and Windows mutation remain unverified or unsupported. No release claim includes those unverified paths. See `README.md` for the retained native review and recovery handoff.
 
 ## Reproduce the audit
 
@@ -96,7 +97,7 @@ curl --fail --location --max-time 30 \
   https://raw.githubusercontent.com/herdrdev/herdr-app/2405bf388c568c3ed479f05b8e405ccfa44b3f2c/src/mods.rs
 ```
 
-The existing preview passed `npm run ci` (129 tests, Biome and JavaScript type checks), `npm run check:mod`, and `npm run check:preview` (Gallery, Installed, GitHub, confirmation, pending, error and empty-search states). These checks do not verify real management, persistent state, repository downloads or native interaction.
+Run `npm run ci`, `npm run check:mod` and `npm run check:preview` for the current implementation. Repository CI runs fixture checks on Linux; real SDK type checks and native checks also require Herdr locally. The production HTTPS transport was also checked with a real public repository in a disposable profile: install and confirmed uninstall passed, a missing repository was rejected, and downloaded code was not executed. Exact final counts and results are recorded in the implementation pull request. Fixture checks do not establish native interaction or guarantee that arbitrary community code is compatible or safe.
 
 ## External handoff
 
