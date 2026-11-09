@@ -446,6 +446,123 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse((self.home / "mods/fixture/old").exists())
         self.assertEqual((self.home / "mods/fixture/new/added.txt").read_text(), "new")
 
+    def prepare_path_type_update(self):
+        assets = self.repo / "assets"
+        assets.mkdir()
+        (assets / "file").write_text("old file")
+        (assets / "file").chmod(0o755)
+        (assets / "directory/nested").mkdir(parents=True)
+        (assets / "directory/nested/old.txt").write_text("old nested file")
+        (assets / "directory/sibling.txt").write_text("old sibling file")
+        (assets / "keep.txt").write_text("unchanged")
+        self.commit()
+        self.install()
+        before = self.confirmation()
+        safe = operations.SafeFS(str(self.home))
+        try:
+            with safe.directory(safe.root, "mods/fixture") as target:
+                baseline = safe.snapshot(target)
+        finally:
+            safe.close()
+        (assets / "file").unlink()
+        (assets / "file/new").mkdir(parents=True)
+        (assets / "file/new/added.txt").write_text("new nested file")
+        shutil.rmtree(assets / "directory")
+        (assets / "directory").write_text("new executable file")
+        (assets / "directory").chmod(0o755)
+        (self.repo / "main.js").write_text("export default {updated:true};")
+        candidate = self.commit()
+        return before, baseline, candidate
+
+    def assert_path_type_update_rolled_back(self, before, baseline):
+        safe = operations.SafeFS(str(self.home))
+        try:
+            with safe.directory(safe.root, "mods/fixture") as target:
+                self.assertEqual(safe.snapshot(target), baseline)
+        finally:
+            safe.close()
+        mod = self.discover(runtimeKnown=True)["mods"][0]
+        self.assertEqual(mod["commit"], before["expectedCommit"])
+        self.assertEqual(mod["identityToken"], before["identityToken"])
+        self.assertNotIn("protectedReason", mod)
+        self.assertFalse((self.state / "transaction.json").exists())
+        self.assertFalse(list(self.state.glob("work-*")))
+
+    def test_update_file_and_directory_type_changes(self):
+        before, baseline, candidate = self.prepare_path_type_update()
+        self.assertEqual(self.good(self.run_request("check-update", id="fixture"))["updateCommit"], candidate)
+        written = []
+        class Track(self.backend):
+            def _write_live(inner, name, inode, path, *args, **kwargs):
+                super()._write_live(name, inode, path, *args, **kwargs)
+                written.append(path)
+        self.good(self.run_request("update", backend=Track, **before, targetCommit=candidate))
+        target = self.home / "mods/fixture"
+        self.assertEqual(operations.identity(target.stat()), baseline[0]["inode"])
+        self.assertEqual((target / "assets/file/new/added.txt").read_text(), "new nested file")
+        self.assertEqual((target / "assets/directory").read_text(), "new executable file")
+        self.assertEqual((target / "assets/directory").stat().st_mode & 0o777, 0o755)
+        self.assertEqual(operations.identity((target / "assets/keep.txt").stat()), baseline[0]["files"]["assets/keep.txt"]["inode"])
+        self.assertEqual(written[-1], "main.js")
+        mod = self.discover(runtimeKnown=True)["mods"][0]
+        self.assertEqual(mod["commit"], candidate)
+        self.assertNotIn("protectedReason", mod)
+        self.assertFalse((self.state / "transaction.json").exists())
+        self.assertFalse(list(self.state.glob("work-*")))
+        self.good(self.run_request("uninstall", **self.confirmation()))
+        self.assertFalse(target.exists())
+
+    def test_path_type_update_rollback_after_file_retirement(self):
+        before, baseline, candidate = self.prepare_path_type_update()
+        class Failure(self.backend):
+            def _remove_live_file(inner, name, inode, path, *args):
+                super()._remove_live_file(name, inode, path, *args)
+                if path == "assets/file":
+                    raise OSError("type update retirement failed")
+        self.bad(self.run_request("update", backend=Failure, **before, targetCommit=candidate), "type update retirement failed")
+        self.assert_path_type_update_rolled_back(before, baseline)
+
+    def test_path_type_update_rollback_after_directory_retirement(self):
+        before, baseline, candidate = self.prepare_path_type_update()
+        class Failure(self.backend):
+            def _prune(inner, *args):
+                super()._prune(*args)
+                raise OSError("type update prune failed")
+        self.bad(self.run_request("update", backend=Failure, **before, targetCommit=candidate), "type update prune failed")
+        self.assert_path_type_update_rolled_back(before, baseline)
+
+    def test_path_type_update_rollback_after_replacement_publication(self):
+        before, baseline, candidate = self.prepare_path_type_update()
+        class Failure(self.backend):
+            def _write_live(inner, name, inode, path, *args, **kwargs):
+                if path == "main.js":
+                    raise OSError("type update entry failed")
+                super()._write_live(name, inode, path, *args, **kwargs)
+        self.bad(self.run_request("update", backend=Failure, **before, targetCommit=candidate), "type update entry failed")
+        self.assert_path_type_update_rolled_back(before, baseline)
+
+    def test_path_type_update_preserves_a_new_conflicting_destination(self):
+        before, baseline, candidate = self.prepare_path_type_update()
+        target = self.home / "mods/fixture"
+        conflicting = target / "assets/directory"
+        class Race(self.backend):
+            def _write_live(inner, name, inode, path, *args, **kwargs):
+                if path == "assets/directory":
+                    conflicting.write_text("concurrent user file")
+                super()._write_live(name, inode, path, *args, **kwargs)
+        self.bad(self.run_request("update", backend=Race, **before, targetCommit=candidate), "Rollback could not be verified")
+        self.assertEqual(conflicting.read_text(), "concurrent user file")
+        self.assertEqual(operations.identity(target.stat()), baseline[0]["inode"])
+        transaction = json.loads((self.state / "transaction.json").read_text())
+        work = self.state / transaction["workspace"]
+        for path in ("assets/file", "assets/directory/nested/old.txt", "assets/directory/sibling.txt"):
+            saved = work / "displaced/fixture" / path
+            self.assertEqual(saved.read_bytes(), baseline[1][path])
+            self.assertEqual(operations.identity(saved.stat()), baseline[0]["files"][path]["inode"])
+        self.assertEqual((target / "main.js").read_bytes(), baseline[1]["main.js"])
+        self.assertEqual(json.loads((self.state / "registry.json").read_text())["mods"]["fixture"]["commit"], before["expectedCommit"])
+        self.bad(self.run_request("install", repository="example/other"), "Interrupted transaction")
+
     def test_missing_git_has_visible_error(self):
         with mock.patch.object(operations.shutil, "which", return_value=None):
             self.bad(self.run_request("install", repository="example/fixture", backend=operations.Operations), "git is unavailable")
