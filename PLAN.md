@@ -4,7 +4,7 @@
 
 Build a Herdr App mod manager with an in-app [Herdr Gallery](https://herdr.dev/gallery/?type=mods). Users can browse and search available mods, install them, see which are installed, and enable, disable, update, or uninstall installed mods.
 
-Current authorization: resolve the preview review findings with clearly marked sample data and simulated management actions. Follow Herdr's direct JavaScript convention without `src`, `dist`, or a build step. Real Gallery data, installed-mod discovery, installation, updates, and persistent enable/disable state require later implementation authorization. Do not change the user's installed mods.
+Current authorization: execute this plan, including live Gallery data, installed-mod discovery and lifecycle implementation where supported. Follow Herdr's direct JavaScript convention without `src`, `dist`, or a build step. Use temporary fixtures for lifecycle validation; do not change the user's installed mods. Missing host support remains a prerequisite blocker, not permission to simulate live success or change Herdr itself.
 
 ## Context
 
@@ -79,7 +79,17 @@ Dark-theme Gallery, Installed, From GitHub, and uninstall confirmation captures 
 
 ## Plan
 
-These live-data and lifecycle tasks follow Preview Revision and require later implementation authorization. Use temporary fixtures for lifecycle tests; do not install, disable, update, or remove the user's real mods to validate the implementation.
+These authorized live-data and lifecycle tasks follow Preview Revision. Use temporary fixtures for lifecycle tests; do not install, disable, update, or remove the user's real mods to validate the implementation.
+
+### Execution status
+
+The prerequisite audit found a real public Gallery source, `https://assets.herdr.dev/mods/index.json`, with schema version 1 and repository, recipe-path and mod-folder identities. It also confirmed that installed Herdr App 0.1.14 has no supported persistent enabled-state API or load gate. Hidden copies remain active, and folder deletion does not establish that all instances stop. See [`docs/lifecycle-prerequisites.md`](docs/lifecycle-prerequisites.md) for version-pinned host evidence, source format, permissions, lifecycle behavior and the required host change.
+
+The first task remains open because usable lifecycle support is missing. Persistent enable/disable and dependent state, update-preservation and lifecycle integration checks are blocked pending that host contract. Read-only discovery and in-app live Gallery work are separable but remain unimplemented in this prerequisite-only change. All live completion criteria remain open; the fixture preview is unchanged. Do not use manager-only booleans, layout hiding, file renames or shipped-file edits as substitutes.
+
+Verification for this audit: `npm run ci` passes 129 tests, Biome and JavaScript type checks; `npm run check:mod` and all seven `npm run check:preview` states pass. These are preview regression checks, not evidence that live operations work. No downloaded mod code or lifecycle write probe was run.
+
+### Tasks
 
 - [ ] Verify a usable Gallery data source and Herdr's APIs for installed-mod discovery, persistent enable/disable state, reload, and removal. Record the source format, identity rules, permissions, and lifecycle behavior against the installed SDK and existing mods. If host support or a data source is missing, document the required change and keep dependent tasks blocked; a browser link or simulated success is not a substitute.
 - [ ] Add installed-mod discovery and shared state. Read actual manifests, sources, and enabled state; identify shipped mods, symbolic links, the manager, and active layout dependencies. Test Gallery-to-local matching, mods absent from the Gallery, identity conflicts, and unreadable state without changing existing mods.
@@ -114,4 +124,5 @@ These live-data and lifecycle tasks follow Preview Revision and require later im
 
 ## External Handoff
 
+- Host lifecycle prerequisite — Responsible role: a Herdr maintainer. Prerequisite: a supported authoritative installed/enabled-state contract, persistent load gating and all-instance cleanup. Action and acceptance evidence: see `docs/lifecycle-prerequisites.md` under Required host support and External handoff. Persistent state, reload/removal safety and failure recovery remain unverified and block live-management completion. Host implementation is outside this repository change. Keep this plan until the remaining tasks and completion criteria pass.
 - Preview native UI review — Responsible role: a maintainer with Herdr App access. Prerequisite: the passing checks, screenshots, and fixture-only sequence in `README.md` under Preview review handoff. Action: review both themes, native search and scrolling, keyboard controls, confirmations and feedback, and close/reopen reset. Expected result: visible state and actions agree with the automated workflow tests. These native interactions remain unverified; do not claim release readiness before review. No real mod changes are needed. Live lifecycle validation requires a separate disposable test profile after the Plan tasks are implemented.
