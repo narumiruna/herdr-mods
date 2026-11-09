@@ -4,12 +4,15 @@ A native Herdr App interface preview for managing mods.
 
 ## Preview scope
 
-- Browse four clearly marked sample mods.
-- Search the samples and filter by GitHub or development source.
-- Open the GitHub form. **Preview install** only shows a message.
-- Open the Herdr Gallery in the default browser from the Gallery page.
+- Open the in-app Gallery with three community samples: enabled, disabled, and not installed.
+- Search Gallery and Installed independently by name, description, or repository. Installed also has GitHub and development source filters.
+- Simulate **Install**, **Enable**, **Disable**, and **Uninstall** from either page. Both pages and the Installed count use the same state.
+- Confirm or cancel uninstall. The confirmation shows the sample name and path; the Gallery entry remains available for reinstallation.
+- See disabled actions and the reason for the protected development manager sample.
+- Use **From GitHub** to validate a repository URL and simulate installation. Matching Gallery entries are reused; new samples appear in Installed only. Duplicate installations are rejected.
+- Open the real Herdr Gallery with **Website**, only when clicked.
 
-The preview does not read installed mods, fetch repositories, install mods, or update files. Gallery access starts a browser only when clicked. Versions and repository names in the sample list are illustrative.
+All lifecycle actions are simulated in memory and reset when the manager closes. They do not read installed mods, fetch repositories, change enabled state in Herdr, or write files. A short progress state blocks conflicting actions. Versions, repositories, and `/preview/mods/` paths are illustrative. GitHub validation checks URL format, not repository contents. Real installation, updates, and persistent enable/disable state are not available.
 
 ## Open in Herdr
 
@@ -68,6 +71,32 @@ herdr-app status
 herdr-app shot /tmp/herdr-mod-manager-preview.png
 ```
 
-`ci` runs Biome, sample-filter tests, and `check:types`. The tracked `jsconfig.json` uses `checkJs` and `noEmit`; TypeScript checks JSDoc types against the generated SDK but does not produce files. There is no SDK-copy script or compilation step. `check:mod` validates the initial native view, not a complete interactive session.
+`ci` runs Biome, model and mocked-view workflow tests, and `check:types`. The tracked `jsconfig.json` uses `checkJs` and `noEmit`; TypeScript checks JSDoc types against the generated SDK but does not produce files. There is no SDK-copy script or compilation step. The view tests exercise the real event handlers with native element and context adapters; they do not test native layout or keyboard dispatch.
 
-Visual review remains manual: check the Installed, From GitHub, and Gallery pages, scroll the sample list, try the search and source filters, and close the dialog with Escape. Review both light and dark themes before release. Installation and updates are not available in this preview.
+Check all three pages and the confirmation, pending, error, and empty-search states:
+
+```sh
+npm run check:preview
+```
+
+This command creates temporary copies, runs native checks, and removes the copies. It does not add runtime test options or change the app's mods or configuration. Native checks validate eager elements, not paint or a complete interactive session.
+
+## Preview review handoff
+
+Dark-theme captures of Gallery, Installed, From GitHub, and uninstall confirmation were inspected. Non-default captures used temporary initial-state setup, which was removed after capture:
+
+- Gallery: `/tmp/herdr-mod-manager-gallery-preview.png`
+- Installed: `/tmp/herdr-mod-manager-installed-preview.png`
+- From GitHub: `/tmp/herdr-mod-manager-github-preview.png`
+- Uninstall confirmation: `/tmp/herdr-mod-manager-uninstall-preview.png`
+
+A maintainer with Herdr App access must check native interaction and both themes before release. The captures and automated tests do not establish keyboard, scroll, or native close/reopen reset behavior. Use this fixture-only sequence; no real mod installation is required:
+
+1. In Gallery, search by name, description, and repository. Clear the search and install Terminal Tools. The Installed count changes from 3 to 4.
+2. Open Installed. Disable Terminal Tools, then return to Gallery and enable it. Both pages must show the same state. Check source filters separately from enabled state.
+3. Request uninstall and cancel it. The sample must remain installed. Request uninstall again and confirm it. The count returns to 3 and Gallery offers Install again.
+4. Check that the development manager's actions are disabled and its reason is visible after scrolling.
+5. In From GitHub, submit an invalid URL, then `https://github.com/example/terminal-tools.git/`. The valid URL reuses the Gallery sample. A second install must be rejected. Try `https://github.com/owner/custom-sample` and confirm that it appears in Installed, not Gallery.
+6. Close with Escape or Close, then reopen. The original sample states and count of 3 must return. Repeat the flow with keyboard controls and in the other theme.
+
+Expected result: native state, actions, and confirmations agree with the automated workflow tests. These native interactions remain unverified until the maintainer performs them; do not claim release readiness before review. Real lifecycle operations remain outside this preview's scope.
