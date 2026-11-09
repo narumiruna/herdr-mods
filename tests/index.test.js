@@ -104,6 +104,27 @@ describe("structural validation", () => {
     expect(() => validateManifest(json, "export default class Mod {} ")).toThrow()
   })
 
+  test.each([undefined, "none", "left", "right", "top", "bottom"])(
+    "keeps main placement compatibility: %s",
+    (place) => {
+      const manifest = { title: "Docking mod", ...(place === undefined ? {} : { place }) }
+      expect(validateManifest(JSON.stringify(manifest), "// entry")).toEqual(manifest)
+    },
+  )
+
+  test.each([
+    { size: -1 },
+    { size: null },
+    { title: "" },
+    { title: false },
+    { overlay: { width: 0 } },
+    { overlay: { height: 0 } },
+    { overlay: { width: "20" } },
+    { overlay: { kind: null } },
+  ])("retains main field validators: %j", (manifest) => {
+    expect(() => validateManifest(JSON.stringify(manifest), "// entry")).toThrow()
+  })
+
   test("refuses an empty entry", () => {
     expect(() => validateManifest("{}", " \n\t")).toThrow(/nonempty/)
   })

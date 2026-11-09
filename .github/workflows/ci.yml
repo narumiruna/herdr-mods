@@ -21,6 +21,11 @@ jobs:
           node-version: 26
           cache: npm
       - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.14"
+          enable-cache: false
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # Herdr generates the SDK locally; type/native checks also run against the installed app.
+      - run: git diff --exit-code
