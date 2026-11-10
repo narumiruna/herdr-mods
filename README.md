@@ -79,6 +79,44 @@ Closing the manager does not cancel a mutation transaction. The transaction star
 
 File success does not prove runtime unload or reload. Herdr can retain hidden copies, and a broken reload can keep old code running. A full app restart may be needed. On macOS, closing the red window button can hide the app; it is not a full quit. The manager does not restart Herdr, its terminals, or dependent programs. Stop programs started by a mod separately when needed.
 
+## Self-update
+
+Self-update is an **explicit external CLI operation**, not the Gallery **Update** action. There is no automatic or live self-update. The running manager remains protected in the UI and file backend.
+
+The command supports an ordinary, complete Git checkout of this official repository on `main`, on macOS or Linux. Run the updater from the installation to change. For a development link, it reports and updates the resolved source checkout; it does not replace the link. The exact reported path must be confirmed during apply. Package copies, shipped copies, linked worktrees, shallow clones, detached HEAD, development branches, and non-official origins are not supported. Older installations without `self_update.py` need a manual update first.
+
+A checkout must have **no staged, unstaged, untracked, or ignored files**. This includes `node_modules`, generated SDK files, and Python caches. Preserve these outside the checkout before use; do not delete them with `git clean`. Local Git filters, includes, URL rewrites, attributes, and other unsupported settings also block the command. The updater does not change configuration or adopt registry ownership. A normal development checkout can therefore remain ineligible.
+
+Use the same separately installed Git, uv, and cached Python 3.9+ as the file backend. Process inspection also requires `ps`. No Node.js, Python packages, or tool downloads are needed:
+
+```sh
+uv run --no-project --offline --no-python-downloads python -I -S self_update.py check
+```
+
+A successful check returns JSON with `path`, `installedCommit`, `targetCommit`, and `updateAvailable`. It downloads the fixed official HTTPS `main` into temporary storage without changing the installation. Review and trust both commits. These are source commits, not signed release artifacts or semantic versions.
+
+If an update is available, preserve a complete checkout backup. **Fully quit every Herdr app instance**, including hidden windows. Use an external terminal; a terminal inside Herdr can lose its owner during quit. Do not start Herdr or another Git writer until the command finishes. Substitute the exact values from `check`:
+
+```sh
+uv run --no-project --offline --no-python-downloads python -I -S self_update.py apply \
+  --expected-path /absolute/path/from/check \
+  --expected-commit INSTALLED_COMMIT_FROM_CHECK \
+  --target-commit TARGET_COMMIT_FROM_CHECK \
+  --app-stopped
+```
+
+`apply` checks the source again and rejects a changed official `main` tip. It verifies ancestry in the official source, serializes competing updaters with a persistent `.git/herdr-self-update.lock`, and applies only the confirmed fast-forward. Hooks, credential helpers, prompts, global/system Git settings, and inherited Git settings are disabled. Unknown local configuration, hidden index flags, unsafe source trees, non-ASCII source paths, and linked Git metadata are rejected. No Git hooks, package scripts, or candidate code are executed.
+
+Process inspection rejects known GUI executable names `Herdr`, `herdr`, and `herdr-app` across profiles. It does not reject `herdr-core`, which can keep terminals alive separately. Unavailable or malformed process evidence blocks apply. Process inspection cannot identify renamed executables, prove unrestricted process visibility, or prevent a concurrent launch. `--app-stopped` is the owner's confirmation, not a host lifecycle lock.
+
+Success verifies the installed commit and tracked file bytes/modes. It does not prove runtime reload. Reopen Herdr and verify the manager loads before normal use.
+
+### Failed self-update
+
+Git fast-forward checkout is **not an atomic filesystem transaction**. A failed or interrupted Git operation can leave old HEAD with new working files. No automatic reset, clean, stash, downgrade, lock deletion, or restart is attempted. Error JSON includes the confirmed commits and, when inspection is safe, current HEAD and working state. A terminated process might return no JSON.
+
+Keep Herdr stopped. Preserve the checkout, Git metadata, backup, and reported commits. Inspect `git status` and have a maintainer verify recovery before restarting. Do not force a retry or bypass a Git lock. Recovering source files does not downgrade or restore manager registry data; use a verified complete profile backup when state recovery is needed.
+
 ## State and recovery
 
 Manager data stays under `appHome()/data/mod-manager/`:
@@ -141,5 +179,6 @@ Hosted Linux CI runs formatting and fixture tests. Real-SDK type checks and nati
 1. **Profile owner — actual migration.** After disposable migration/recovery checks pass, make and verify a complete profile backup, review the exact migration summary, and stop conflicting writers. Run only the explicitly confirmed migration. Actual-profile migration is not established by fixture tests; unattended migration must remain disabled.
 2. **Platform maintainer — native interaction and runtime behavior.** Use a disposable profile and fixture repository to inspect both themes, native keyboard controls, scrolling/batches, source failures, confirmation/cancel, close-during-operation, and full-restart instructions. Verify runtime copies and dependent programs separately. Native initial-render checks do not prove these paths; retain that release restriction until review.
 3. **Platform maintainer — unavailable platforms.** Validate native filesystem, migration, and UI behavior before claiming support on a platform not exercised by the agent. Windows mutation remains unsupported, with read-only browsing available. A stale screenshot is not visual acceptance, and successful URL delivery is not proof that a browser displayed the page.
+4. **Profile owner — actual self-update and restart.** After merge and disposable updater tests, verify a complete checkout backup, review the reported path and commits, fully quit all Herdr app instances, and apply from an external terminal without concurrent Git writers. Reopen Herdr only after verified success or maintainer-verified recovery, then verify manager loading and browsing. Disposable Git tests do not establish actual-profile update or restart behavior. Automatic/live self-update remains unsupported.
 
 These handoffs do not authorize automated user-profile mutation, account actions, app restart, or release. No package publication, version tag, or release workflow dispatch is part of this change.
