@@ -166,6 +166,7 @@ function fixture() {
     discoveryError: "",
     operateError: "",
     checkError: "",
+    galleryWarnings: [],
     warnings: [],
     migration: undefined,
     galleryGate: null,
@@ -196,7 +197,7 @@ function fixture() {
           collectedCount: entries.length,
           blacklistedCount: 0,
           skippedCount: 0,
-          warnings: [],
+          warnings: state.galleryWarnings,
         },
         mods: entries,
       })
@@ -584,14 +585,12 @@ describe("live manager view with fixture I/O", () => {
     expect(find(view, `mod-${galleryId("focus-mode")}`)).toBeDefined()
   })
 
-  test("shows source errors and warnings without an empty-state lie and retries from Refresh", async () => {
+  test("shows source errors without an empty-state lie and retries from Refresh", async () => {
     const backend = fixture()
     backend.state.galleryError = "Fixture Gallery offline"
-    backend.state.warnings = ["Fixture unreadable manifest"]
     const { view, cx, flush } = setup({ backend })
     await flush()
     expect(contents(find(view, "gallery-error"))).toContain("Fixture Gallery offline")
-    expect(contents(view.render())).toContain("Fixture unreadable manifest")
     expect(contents(view.render())).not.toContain("No matching mods")
     click(view, "nav-installed", cx)
     expect(find(view, `mod-${galleryId("focus-mode")}`)).toBeDefined()
@@ -610,6 +609,23 @@ describe("live manager view with fixture I/O", () => {
     expect(find(view, `action-install-${galleryId("terminal-tools")}`).attributes.disabled).toBe(
       true,
     )
+  })
+
+  test("keeps nonfatal source warnings in the session without displaying them", async () => {
+    const backend = fixture()
+    backend.state.galleryWarnings = [
+      "example/skipped:RECIPE.md skipped: RECIPE.md exceeds 64 KB or has an unknown size.",
+    ]
+    backend.state.warnings = ["Fixture unreadable manifest"]
+    const { view, cx, flush } = setup({ backend })
+    await flush()
+    const warnings = [...backend.state.galleryWarnings, ...backend.state.warnings]
+    expect(view.session.warnings).toEqual(warnings)
+    for (const section of ["gallery", "installed", "github"]) {
+      click(view, `nav-${section}`, cx)
+      const rendered = contents(view.render())
+      for (const warning of warnings) expect(rendered).not.toContain(warning)
+    }
   })
 
   test("installs through a rendered card and updates shared Installed membership only after readback", async () => {
@@ -1048,16 +1064,16 @@ describe("live manager view with fixture I/O", () => {
     expect(view.notice).toContain("Could not open the browser")
   })
 
-  test("both install routes show code trust and docking policy before mutation", async () => {
+  test("both install routes omit trust warnings and keep docking policy visible", async () => {
     const { view, cx, flush, io } = setup()
     await flush()
     const card = contents(find(view, `mod-${galleryId("terminal-tools")}`))
-    expect(card).toContain("Community mods run code")
-    expect(card).toContain("may load immediately")
+    expect(card).not.toContain("Community mods run code")
+    expect(card).not.toContain("may load immediately")
     expect(card).toContain("omitted, none, left, right, top and bottom")
     expect(card).toContain("may dock immediately")
     click(view, "nav-github", cx)
-    expect(contents(view.render())).toContain("Community mods run code")
+    expect(contents(view.render())).not.toContain("Community mods run code")
     expect(contents(view.render())).toContain("may dock immediately")
     expect(io.operate).not.toHaveBeenCalled()
   })
