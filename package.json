@@ -9,8 +9,8 @@
   },
   "scripts": {
     "start": "herdr-app do mod.open --name mod-manager",
-    "check:mod": "herdr-app check .",
-    "check:views": "node scripts/check-preview.js",
+    "check:mod": "node scripts/check-mod.mjs",
+    "check:views": "node scripts/check-views.mjs",
     "check:types": "tsc --project jsconfig.json",
     "check": "biome ci .",
     "test": "vitest run && npm run test:operations",

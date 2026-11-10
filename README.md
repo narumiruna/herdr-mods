@@ -127,11 +127,10 @@ Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.14:
 npm ci
 npm run check:mod
 npm run ci
-npm run check:views
 git diff --check
 ```
 
-`check:mod` generates the ignored real SDK for no-emit JavaScript type checks. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` uses temporary native fixtures for all pages and later loading, error, confirmation, migration, protection, and archive states with an isolated `HERDR_APP_HOME`.
+`check:mod` runs the native entry check, generates the ignored real SDK for no-emit JavaScript type checks, and runs all native view fixtures. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
 
 Tests use disposable profiles and real local Git repositories. Test-only transport injection is not a production local-install mode. Cross-version fixtures cover both stores, mixed ownership, explicit confirmation, directory/busy/corrupt locks, retained Git data, ref failures, and recovery. Never use the user's mods for lifecycle tests.
 
