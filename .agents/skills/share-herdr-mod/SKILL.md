@@ -1,5 +1,4 @@
 ---
-
 name: share-herdr-mod
 description: Prepare or publish a Herdr mod for the Community gallery with a rebuildable RECIPE.md, mod files, preview.png, optional keys.json, and the public GitHub topic herdr-mod.
 ---
