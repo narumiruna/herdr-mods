@@ -1,165 +1,19 @@
-# Herdr Mod Manager
+# Herdr Mods
 
-A native Herdr App mod for browsing the Gallery, discovering installed mods, installing trusted public GitHub mods, checking updates, and confirmed uninstall. It has no enable/disable controls.
+A monorepo for Herdr App mods, managed with npm workspaces.
 
-## Open in Herdr
+## Repository structure
 
-Herdr loads the root JavaScript files directly. No build, Node.js, or npm packages are required at runtime. Put this repository in `mods/mod-manager` under the app home, or use the existing development link:
+- [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
+- `scripts/`: shared repository scripts.
+- `biome.json`: shared formatting and lint rules.
+- `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
 
-```text
-~/.config/herdr-app/mods/mod-manager → /Users/narumi/src/herdr-mod-manager
-```
+Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly; no build output or npm packages are needed at runtime.
 
-```sh
-herdr-app check .
-herdr-app do mod.open --name mod-manager
-```
+## Development
 
-`npm start` also toggles the dialog. Escape or Close closes it. External development-link edits can require closing and reopening the dialog. There is no `src` or `dist` output. The local sidebar launcher is described below.
-
-## Browse and install
-
-- **Gallery** loads the same public mod index as the Gallery website: [`assets.herdr.dev/mods/index.json`](https://assets.herdr.dev/mods/index.json). It supports search, source filters, and batches of 50 cards. Search covers the full list, including folder IDs and cards not yet rendered.
-- **Installed** reads actual local manifests. GitHub, development, local, and shipped sources are distinct. A name alone does not establish source identity or ownership. Gallery and Installed share verified membership.
-- **From GitHub** accepts `https://github.com/owner/repository`, with an optional `.git` suffix, for a repository-root mod. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
-- Gallery selections preserve the exact recipe path and mod folder. For a bundle, select the specific mod card. The manager does not apply recipe layouts or keybindings or install companion mods automatically.
-- A Gallery failure is shown as an error, not an empty successful list. A slow Gallery request does not block an otherwise-ready Installed page or its operations.
-
-The index has a versioned metadata schema, repository commits, recipe paths, and mod-folder names. It does not certify JavaScript safety, semantic versions, permissions, or host compatibility. Listing and card counts change. The manager does not scrape HTML or invent versions from commits.
-
-**Mods are trusted code. They can run programs, use the network, and read files with your account's access. Review the repository and code before selecting Install.** Structural validation never runs the downloaded entry, repository scripts, a package manager, or a native check of the downloaded code.
-
-Installation accepts an object `mod.json` and nonempty UTF-8 root `main.js` in the selected package. Omitted placement and valid `none`, `left`, `right`, `top`, and `bottom` placements remain supported. Manifest fields are checked; manifests are not rewritten. Herdr can dock and run a newly discovered mod immediately. The manager itself does not edit layouts or keybindings.
-
-Downloads are staged outside `mods/`. Complete validated packages are published with atomic no-overwrite rename. Existing destinations, source conflicts, symbolic links, submodules, and unsafe paths or modes are refused. Hooks, credential helpers, configured checkout filters, prompts, and global/system Git configuration are disabled. Unsupported filesystems and cross-device publication fail closed. File limits and timeouts do not impose a complete disk-use limit on Git history downloads.
-
-## Requirements and read-only mode
-
-Gallery and native read-only inventory work without the local backend. File operations require **Git, uv, and an already available Python 3.9 or newer** on a supported POSIX system. Development checks use Python 3.14. The backend requires no-follow directory handles, file locking, hardlinks, and atomic no-overwrite rename. macOS and Linux filesystem tests are required; Windows mutation remains rejected until a safe native implementation is validated. Read-only browsing remains available there.
-
-The runner uses isolated standard-library Python with no project discovery or downloads:
-
-```sh
-uv run --no-project --offline --no-python-downloads python -I -S --version
-git --version
-```
-
-Install missing tools separately. The mod does not install tools, Python versions, or dependencies. A backend failure leaves inventory read-only, displays the reason, and does not adopt ownership. Source labels can be incomplete in this fallback because native directory listing cannot verify Git provenance or file identities.
-
-## Ownership migration
-
-Discovery never migrates data. If an older manager store is detected, normal file actions remain blocked until **Review migration** and explicit confirmation. The summary lists each folder, absolute path, source, and package/Git kind. Cancel changes nothing.
-
-Two legacy stores are recognized:
-
-1. PR #5: a version 1 `registry.json`, file/inode baselines, and a persistent regular-file/flock lock.
-2. PR #6: real Git checkouts with `.git/herdr-mod-manager.json`, formerly protected by a directory lock.
-
-The new registry and regular-file lock use version 2. Valid, disjoint records can migrate together. Migration verifies both source formats, records durable preimages, and upgrades an existing regular lock in the same inode while holding its exclusive flock. Older writers cannot safely operate against version 2; return to read-only use or restore a verified complete profile backup instead of bypassing the protocol.
-
-Git checkouts remain Git checkouts. Migration does not remove `.git`, local branches, objects, or history. Unknown directories are not adopted. Dirty checkouts, unknown generated files, linked Git metadata, source collisions, altered backups, active writers, or unverified interrupted state block migration.
-
-A legacy **directory lock** cannot be proved stale from its name or age. It is not removed automatically. Do not delete it, the registry, or a journal just to enable actions. Have the profile owner inspect the original operation and backups before resolving it.
-
-Interrupted migration has a separate, retained journal. Its immutable intent is pinned by hash and inode in a separate receipt; a complete-phase label also needs a completion receipt. A verified pending journal can be resumed only through another explicit confirmation; altered records or conflicting preimages remain blocked. Migration on the user's actual profile is a separate owner action and is not performed by development tests.
-
-## Updates and uninstall
-
-Use **Check updates** to obtain a validated fast-forward candidate. **Update** uses only that checked revision. Preparation rejects a source revision that no longer matches the checked candidate. Candidate preparation finishes before a fresh runtime/dependency snapshot and commit request.
-
-All mutations recheck ownership, identity, file state, and configured/runtime dependencies. Shipped mods, the running manager, development links, dirty targets, unsafe paths, and active or configured dependencies are protected. Unknown dependency safety blocks mutation. Inactive layouts and keybindings matter too; unrelated display names or theme strings are not mod references.
-
-Updates do not merge user edits, rebase, reset, clean, or stash an installed mod. Untracked files also block mutation, including generated `gpui-kit.d.ts` or `jsconfig.json`. A filename does not prove manager ownership. Review and preserve those files outside the checkout before retrying.
-
-Migrated Git checkouts keep their recorded branch and full Git history. Git writes only to private preparation; live apply publishes pinned pack/index data through no-follow directory descriptors and native Git lock files. It verifies the exact old ref and publishes the checked ref before working files and the index. Existing file modes and reflogs are retained; manager updates do not append a reflog entry. An occupied ref lock is rejected without leaving old HEAD and new working files. Rollback restores only verified manager changes; an external conflict retains a blocking journal rather than discarding data.
-
-**Uninstall** requires name/path/revision/identity confirmation. A stale confirmation is rejected. Package uninstall removes verified manager-owned files; retained source history is not a promise that a revision can be downloaded again. For a migrated Git checkout, confirmation shows the exact retained archive path: the complete checkout and history move outside `mods/` and are **not deleted**. Archives are not automatically cleaned up.
-
-Closing the manager does not cancel a mutation transaction. The transaction starts in an unowned task; an independent view-owned task redraws only while the view remains open. Do not externally edit a target, run another Git writer there, or quit Herdr during an operation.
-
-File success does not prove runtime unload or reload. Herdr can retain hidden copies, and a broken reload can keep old code running. A full app restart may be needed. On macOS, closing the red window button can hide the app; it is not a full quit. The manager does not restart Herdr, its terminals, or dependent programs. Stop programs started by a mod separately when needed.
-
-## Self-update
-
-Self-update is an **explicit external CLI operation**, not the Gallery **Update** action. There is no automatic or live self-update. The running manager remains protected in the UI and file backend.
-
-The command supports an ordinary, complete Git checkout of this official repository on `main`, on macOS or Linux. Run the updater from the installation to change. For a development link, it reports and updates the resolved source checkout; it does not replace the link. The exact reported path must be confirmed during apply. Package copies, shipped copies, linked worktrees, shallow clones, detached HEAD, development branches, and non-official origins are not supported. Older installations without `self_update.py` need a manual update first.
-
-A checkout must have **no staged, unstaged, untracked, or ignored files**. This includes `node_modules`, generated SDK files, and Python caches. Preserve these outside the checkout before use; do not delete them with `git clean`. Local Git filters, includes, URL rewrites, attributes, and other unsupported settings also block the command. The updater does not change configuration or adopt registry ownership. A normal development checkout can therefore remain ineligible.
-
-Use the same separately installed Git, uv, and cached Python 3.9+ as the file backend. Process inspection also requires `ps`. No Node.js, Python packages, or tool downloads are needed:
-
-```sh
-uv run --no-project --offline --no-python-downloads python -I -S self_update.py check
-```
-
-A successful check returns JSON with `path`, `installedCommit`, `targetCommit`, and `updateAvailable`. It downloads the fixed official HTTPS `main` into temporary storage without changing the installation. Review and trust both commits. These are source commits, not signed release artifacts or semantic versions.
-
-If an update is available, preserve a complete checkout backup. **Fully quit every Herdr app instance**, including hidden windows. Use an external terminal; a terminal inside Herdr can lose its owner during quit. Do not start Herdr or another Git writer until the command finishes. Substitute the exact values from `check`:
-
-```sh
-uv run --no-project --offline --no-python-downloads python -I -S self_update.py apply \
-  --expected-path /absolute/path/from/check \
-  --expected-commit INSTALLED_COMMIT_FROM_CHECK \
-  --target-commit TARGET_COMMIT_FROM_CHECK \
-  --app-stopped
-```
-
-`apply` checks the source again and rejects a changed official `main` tip. It verifies ancestry in the official source, serializes competing updaters with a persistent `.git/herdr-self-update.lock`, and applies only the confirmed fast-forward. Hooks, credential helpers, prompts, global/system Git settings, and inherited Git settings are disabled. Unknown local configuration, hidden index flags, unsafe source trees, non-ASCII source paths, and linked Git metadata are rejected. No Git hooks, package scripts, or candidate code are executed.
-
-Process inspection rejects known GUI executable names `Herdr`, `herdr`, and `herdr-app` across profiles. It does not reject `herdr-core`, which can keep terminals alive separately. Unavailable or malformed process evidence blocks apply. Process inspection cannot identify renamed executables, prove unrestricted process visibility, or prevent a concurrent launch. `--app-stopped` is the owner's confirmation, not a host lifecycle lock.
-
-Success verifies the installed commit and tracked file bytes/modes. It does not prove runtime reload. Reopen Herdr and verify the manager loads before normal use.
-
-### Failed self-update
-
-Git fast-forward checkout is **not an atomic filesystem transaction**. A failed or interrupted Git operation can leave old HEAD with new working files. No automatic reset, clean, stash, downgrade, lock deletion, or restart is attempted. Error JSON includes the confirmed commits and, when inspection is safe, current HEAD and working state. A terminated process might return no JSON.
-
-Keep Herdr stopped. Preserve the checkout, Git metadata, backup, and reported commits. Inspect `git status` and have a maintainer verify recovery before restarting. Do not force a retry or bypass a Git lock. Recovering source files does not downgrade or restore manager registry data; use a verified complete profile backup when state recovery is needed.
-
-## State and recovery
-
-Manager data stays under `appHome()/data/mod-manager/`:
-
-| Path                            | Purpose                                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| `registry.json`                 | Version 2 source identity, commit, file baseline, and package/Git ownership                |
-| `lock`                          | Version 2 persistent regular file protected by flock                                       |
-| `migration.json`, `migration-*` | Migration workspaces, immutable intent receipts, completion receipts, and source preimages |
-| `.metadata-*`                   | Retained metadata preimages from verified retirement/publication                           |
-| `transaction.json`              | Intent for an interrupted or unverified live-file transaction                              |
-| `work-*`, `stage-*.json`        | Downloads, pinned preparations, receipts, backups, and recovery evidence                   |
-| `archive-*`                     | Complete Git checkouts retained after confirmed uninstall                                  |
-
-Recovery steps:
-
-1. Stop starting file actions. Do not delete locks or journals or run a destructive Git command.
-2. Preserve the complete profile, registry, journals, and their named workspaces. Inspect the exact target and recorded identities, hashes, revisions, and preimages without following links.
-3. Resume only a migration whose current summary verifies its journal and backups. An unverified live transaction requires maintainer recovery; the manager must not guess which user edits to discard.
-4. Verify either the complete previous state or the complete new state before removing a recovery marker. An uncertain rollback stays blocked with its original evidence. Restore a verified complete profile backup when independent recovery cannot be established.
-
-Prepared but unused updates and retained metadata preimages can remain outside `mods/`. They are not committed installs. Registry publication compares the original hash and inode after preserving the old file; it does not silently overwrite a later edit. Preserve receipts and workspaces referenced by a transaction; inspect unused data before manual cleanup. Complete migration preimages and Git uninstall archives are retained deliberately. Do not treat an older binary as a migration rollback tool.
-
-See [lifecycle contracts and integration design](docs/lifecycle-prerequisites.md) for host boundaries and protocol details.
-
-## Sidebar launcher
-
-The existing local `herdr-with-mods` layout keeps its **Mods** row directly above **Settings**:
-
-- Layout: `~/.config/herdr-app/layouts/herdr-with-mods.json`, cloned from `main`.
-- Footer mod: `~/.config/herdr-app/mods/mod-manager-sidebar/`, cloned from `workspace-chrome`.
-- Only that cloned layout uses the 97 px footer; the row runs `mod.open` with `{ name: "mod-manager" }`.
-
-This local launcher is not distributed by this repository. Shipped mods, layouts, settings, and keybindings are not edited. Clones survive restarts but do not receive Herdr's automatic updates.
-
-```sh
-herdr-app do layout.switch --name herdr-with-mods
-herdr-app do layout.switch --name main  # restore the original layout
-```
-
-## Development checks
-
-Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.14:
+Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.14. Run these commands from the repository root:
 
 ```sh
 npm ci
@@ -168,17 +22,30 @@ npm run ci
 git diff --check
 ```
 
-`check:mod` runs the native entry check, generates the ignored real SDK for no-emit JavaScript type checks, and runs all native view fixtures. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
+`check:mod` runs native checks and generates the ignored Herdr SDK declarations inside each mod. Run it before `check:types` or `ci`. Hosted Linux CI runs formatting and fixture tests without the local SDK.
 
-Tests use disposable profiles and real local Git repositories. Test-only transport injection is not a production local-install mode. Cross-version fixtures cover both stores, mixed ownership, explicit confirmation, directory/busy/corrupt locks, retained Git data, ref failures, and recovery. Never use the user's mods for lifecycle tests.
+Root `check` checks the whole repository. Root `test`, `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
 
-Hosted Linux CI runs formatting and fixture tests. Real-SDK type checks and native rendering also run against the installed local Herdr version. No build output is produced.
+```sh
+npm test --workspace herdr-mod-manager
+npm run check:mod --workspace herdr-mod-manager
+```
 
-## External handoff before release
+Shared hooks, Changesets, and release commands run from the root.
 
-1. **Profile owner — actual migration.** After disposable migration/recovery checks pass, make and verify a complete profile backup, review the exact migration summary, and stop conflicting writers. Run only the explicitly confirmed migration. Actual-profile migration is not established by fixture tests; unattended migration must remain disabled.
-2. **Platform maintainer — native interaction and runtime behavior.** Use a disposable profile and fixture repository to inspect both themes, native keyboard controls, scrolling/batches, source failures, confirmation/cancel, close-during-operation, and full-restart instructions. Verify runtime copies and dependent programs separately. Native initial-render checks do not prove these paths; retain that release restriction until review.
-3. **Platform maintainer — unavailable platforms.** Validate native filesystem, migration, and UI behavior before claiming support on a platform not exercised by the agent. Windows mutation remains unsupported, with read-only browsing available. A stale screenshot is not visual acceptance, and successful URL delivery is not proof that a browser displayed the page.
-4. **Profile owner — actual self-update and restart.** After merge and disposable updater tests, verify a complete checkout backup, review the reported path and commits, fully quit all Herdr app instances, and apply from an external terminal without concurrent Git writers. Reopen Herdr only after verified success or maintainer-verified recovery, then verify manager loading and browsing. Disposable Git tests do not establish actual-profile update or restart behavior. Automatic/live self-update remains unsupported.
+## Open Mod Manager
 
-These handoffs do not authorize automated user-profile mutation, account actions, app restart, or release. No package publication, version tag, or release workflow dispatch is part of this change.
+Link `<checkout>/mods/mod-manager` to `<app-home>/mods/mod-manager`, not the repository root. Existing development links to the old repository root must be changed by the profile owner with Herdr fully stopped. Reopen Herdr after the link change and verify that the manager loads. Repository checks do not change or verify the live profile link.
+
+```sh
+herdr-app check mods/mod-manager
+npm start
+```
+
+`npm start` opens or closes the installed `mod-manager` dialog; it does not create an installation link. See the [Mod Manager guide](mods/mod-manager/README.md) for installation, runtime requirements, file operations, and recovery.
+
+## Self-update
+
+Self-update is an explicit CLI operation. The script is now at `mods/mod-manager/self_update.py`. It checks and updates the **entire Git checkout**, including all workspaces and shared files. Source downloads use `narumiruna/herdr-mods`; checkout origins with the previous repository name remain accepted. Review the full repository changes before confirmation.
+
+Older flat installations cannot update directly to this layout with their original updater. Preserve the old checkout, create a fresh clone, and have the profile owner change the development link to the nested mod directory. Do not use reset or clean to discard local files. See the [self-update guide](mods/mod-manager/README.md#self-update) for requirements and recovery.

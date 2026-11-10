@@ -14,8 +14,14 @@ import sys
 import tempfile
 
 
-SOURCE = "https://github.com/narumiruna/herdr-mod-manager.git"
-ORIGINS = {SOURCE, SOURCE.removesuffix(".git"), "git@github.com:narumiruna/herdr-mod-manager.git"}
+SOURCE = "https://github.com/narumiruna/herdr-mods.git"
+# Existing checkout origins remain valid after the repository rename.
+ORIGINS = {
+    SOURCE, SOURCE.removesuffix(".git"), "git@github.com:narumiruna/herdr-mods.git",
+    "https://github.com/narumiruna/herdr-mod-manager.git",
+    "https://github.com/narumiruna/herdr-mod-manager",
+    "git@github.com:narumiruna/herdr-mod-manager.git",
+}
 COMMIT = re.compile(r"[0-9a-f]{40}")
 LOCK = "herdr-self-update.lock"
 NOTICE = "Files verified. Reopen Herdr to load the update; runtime success is not verified."
@@ -44,10 +50,16 @@ class Updater:
     def __init__(self, script):
         require(sys.platform in {"darwin", "linux"}, "Self-update supports macOS and Linux only")
         require(sys.version_info >= (3, 9), "Python 3.9 or newer is required")
-        self.root = Path(script).resolve(strict=True).parent
+        manager = Path(script).resolve(strict=True).parent
+        self.root = manager
+        # Accept only a flat checkout or the exact monorepo package location.
+        # Never discover a repository by searching arbitrary ancestors.
+        if not (manager / ".git").exists() and not (manager / ".git").is_symlink():
+            if manager.name == "mod-manager" and manager.parent.name == "mods":
+                self.root = manager.parent.parent
         self.gitdir = self.root / ".git"
         self.identities = {}
-        for path in [*reversed(self.root.parents), self.root, self.gitdir]:
+        for path in [*reversed(manager.parents), manager, self.gitdir]:
             require(stat.S_ISDIR(path.lstat().st_mode), f"Real directory required: {path}; linked worktrees and packages are unsupported")
             self.identities[path] = stamp(path)
         self.git = shutil.which("git")
@@ -139,12 +151,15 @@ class Updater:
             total += int(size)
             require(len(tree) < 10000 and int(size) <= 8 * 1024 * 1024 and total <= 128 * 1024 * 1024, "Source tree exceeds self-update limits")
             tree[path] = (mode, blob)
+        # Select the layout for each revision, including flat-to-monorepo updates.
+        # A partial nested package must not fall back to flat manager files.
+        prefix = "mods/mod-manager/" if any(name.startswith("mods/mod-manager/") for name in tree) else ""
         for name in ["mod.json", "main.js", "manager.js", "runtime.js", "operations.py", "self_update.py"]:
-            require(name in tree, f"Incomplete manager source: {name}")
-        manifest = json.loads(self._command(["cat-file", "blob", tree["mod.json"][1]], cwd))
-        require(isinstance(manifest, dict), "mod.json must be an object")
+            require(prefix + name in tree, f"Incomplete manager source: {prefix}{name}")
+        manifest = json.loads(self._command(["cat-file", "blob", tree[prefix + "mod.json"][1]], cwd))
+        require(isinstance(manifest, dict), f"{prefix}mod.json must be an object")
         for name in ["main.js", "manager.js", "runtime.js", "operations.py", "self_update.py"]:
-            require(self._command(["cat-file", "blob", tree[name][1]], cwd).decode("utf-8").strip(), f"Empty manager source: {name}")
+            require(self._command(["cat-file", "blob", tree[prefix + name][1]], cwd).decode("utf-8").strip(), f"Empty manager source: {prefix}{name}")
         return tree
 
     def _verify_files(self, tree):

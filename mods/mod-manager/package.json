@@ -1,0 +1,21 @@
+{
+  "name": "herdr-mod-manager",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narumiruna/herdr-mods.git",
+    "directory": "mods/mod-manager"
+  },
+  "scripts": {
+    "start": "herdr-app do mod.open --name mod-manager",
+    "check:mod": "node scripts/check-mod.mjs",
+    "check:views": "node scripts/check-views.mjs",
+    "check:types": "tsc --project jsconfig.json",
+    "check": "biome ci .",
+    "test": "vitest run && npm run test:operations",
+    "test:operations": "uv run --no-project --offline --no-python-downloads python -I -S -m unittest discover -s tests -p 'test_*.py' -v",
+    "ci": "npm run check && npm test && npm run check:types"
+  }
+}
