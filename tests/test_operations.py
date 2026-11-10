@@ -1471,6 +1471,62 @@ class LifecycleTests(unittest.TestCase):
         (self.home / "settings.json").write_text('{"description":"fixture.extra:refresh"}')
         self.good(self.run_request("uninstall", **before))
 
+    def test_builtin_namespace_dotted_mod_binding_blocks_update_and_uninstall(self):
+        self.install(modNames=["app.extra"])
+        before = self.confirmation("app.extra")
+        self.write_mod(text="export default {version: 2};\n")
+        candidate = self.commit()
+        token = self.good(self.run_request("prepare-update", **before, targetCommit=candidate))["stageToken"]
+        original = (self.home / "mods/app.extra/main.js").read_bytes()
+        registry = (self.state / "registry.json").read_bytes()
+        for binding in ("app.extra.refresh", {"command": "app.extra.refresh"}):
+            with self.subTest(binding=binding):
+                (self.home / "keys.json").write_text(json.dumps({"global": {"ctrl-r": binding}}))
+                mod = next(m for m in self.discover(runtimeKnown=True)["mods"] if m["id"] == "app.extra")
+                self.assertIn("dependency", mod.get("protectedReason", "").lower())
+                self.bad(self.run_request("update", **before, targetCommit=candidate, stageToken=token), "dependency")
+                self.bad(self.run_request("uninstall", **before), "dependency")
+                self.assertEqual((self.home / "mods/app.extra/main.js").read_bytes(), original)
+                self.assertEqual((self.state / "registry.json").read_bytes(), registry)
+                self.assertTrue((self.state / ("stage-" + token + ".json")).is_file())
+        (self.home / "keys.json").unlink()
+        self.good(self.run_request("update", **before, targetCommit=candidate, stageToken=token))
+        self.assertEqual(self.confirmation("app.extra")["expectedCommit"], candidate)
+
+    def test_known_builtin_prefixes_use_longest_mod_id(self):
+        prefixes = ("space", "tab", "pane", "terminal", "agent", "layout", "overlay", "app", "herdr", "window", "text", "editor")
+        for prefix in prefixes:
+            for name in (prefix, prefix + ".extra", prefix + ".extra.tools"):
+                (self.home / "mods" / name).mkdir()
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix):
+                target = prefix + ".extra.tools"
+                (self.home / "keys.json").write_text(json.dumps({"ctrl-r": target + ".refresh"}))
+                backend = self.backend(str(self.home))
+                try:
+                    protected, unknown = backend._protection({})
+                finally:
+                    backend.close()
+                self.assertFalse(unknown)
+                self.assertIn(target, protected)
+                self.assertNotIn(prefix + ".extra", protected)
+                self.assertNotIn(prefix, protected)
+
+    def test_actual_builtin_commands_do_not_protect_matching_mod_names(self):
+        for name in ("app", "app.extra", "layout", "layout.extra"):
+            (self.home / "mods" / name).mkdir()
+        (self.home / "keys.json").write_text(json.dumps({"global": {
+            "ctrl-q": "app.zoom_in", "ctrl-f": {"command": "app.zoom_out"},
+            "ctrl-l": "layout.switch", "ctrl-r": "app.extras.refresh",
+        }}))
+        backend = self.backend(str(self.home))
+        try:
+            protected, unknown = backend._protection({})
+        finally:
+            backend.close()
+        self.assertFalse(unknown)
+        self.assertEqual(set(protected), {"mod-manager"})
+
     def test_registry_edit_inside_final_baseline_check_is_never_overwritten(self):
         self.install()
         foreign = b"concurrent user registry edit\n"

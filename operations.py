@@ -939,10 +939,10 @@ class Operations:
                     target, _, action = command.partition(":")
                     if valid_id(target) and action and target not in builtin:
                         protected.setdefault(target, reason)
-                elif "." in command and command.partition(".")[0] not in builtin:
+                elif "." in command:
                     candidates = [name for name in known_mods if command.startswith(name + ".")]
                     target = max(candidates, key=len) if candidates else command.partition(".")[0]
-                    if valid_id(target):
+                    if valid_id(target) and target not in builtin:
                         protected.setdefault(target, reason)
 
         def collect(value, reason, bindings=False):
