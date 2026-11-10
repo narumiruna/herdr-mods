@@ -38,8 +38,6 @@ const PROGRESS_LABELS = {
   "check-update": "Checking for updates…",
   migrate: "Migrating ownership…",
 }
-const INSTALL_WARNING =
-  "Community mods run code and may load immediately. Review and trust the source before installation."
 const PLACEMENT_POLICY =
   "Placement: omitted, none, left, right, top and bottom are accepted. A mod may dock immediately. The manager does not edit layouts or keybindings."
 const SOURCE_LABELS = {
@@ -472,9 +470,7 @@ export default class ModManager extends View {
           ),
       )
       .when(mod.state === "available", (element) =>
-        element
-          .child(text(INSTALL_WARNING, 11, t.blocked))
-          .child(text(PLACEMENT_POLICY, 11, t.muted)),
+        element.child(text(PLACEMENT_POLICY, 11, t.muted)),
       )
       .when(Boolean(mod.recipePath), (element) =>
         element.child(text(`Recipe: ${mod.recipePath} · Mod: ${mod.modName}`, 10, t.dim)),
@@ -724,7 +720,6 @@ export default class ModManager extends View {
                     ),
                 ),
             )
-            .child(text(INSTALL_WARNING, 12, t.blocked))
             .child(text(PLACEMENT_POLICY, 12, t.muted))
             .child(
               text(
@@ -1052,9 +1047,6 @@ export default class ModManager extends View {
                 ),
               )
               .when(this.mutationBlocked(), (element) => element.child(this.migrationStatus()))
-              .children(
-                this.session.warnings.map((warning) => text(warning, 11, t.blocked).flex_none()),
-              )
               .child(
                 this.session.confirmation
                   ? this.confirmation()

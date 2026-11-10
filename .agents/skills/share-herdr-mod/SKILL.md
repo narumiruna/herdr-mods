@@ -10,7 +10,7 @@ Do not publish to GitHub unless the user approves the external changes.
 
 ## Inspect the Mod
 
-1. Read repository instructions and identify the source mod, required companion mods, and output folder.
+1. Read repository instructions and identify the existing mod root for each source mod and required companion mod.
    - Resolve an unclear source or destination before writing.
    - Preserve existing workspace paths and live installations.
 2. Read every source file and required asset before describing the mod.
@@ -20,24 +20,27 @@ Do not publish to GitHub unless the user approves the external changes.
 3. Use the [Tmux prefix recipe](https://github.com/herdrdev/herdr-layout-examples/blob/main/tmux-prefix/RECIPE.md) as a format reference, not as code to execute.
    - Use the installed Herdr SDK and observed behavior to verify technical details.
    - Do not infer API support or test success from the example.
+   - Do not copy the example's directory structure over the repository's mod-root structure.
 
 ## Prepare the Bundle
 
-Choose one recipe folder per shareable entry.
-A single entry can use the repository root; a repository with several entries can use a separate folder for each one.
-Each recipe folder must contain these paths:
+Prepare each shareable entry in its existing mod root, the directory that contains `mod.json` and `main.js`.
+Place `RECIPE.md` beside those files, not in an outer recipe folder.
+In this repository, each mod root is `mods/<name>/`:
 
 ```text
-RECIPE.md
-preview.png
-mods/<name>/mod.json
-mods/<name>/main.js
-mods/<name>/<required runtime files and assets>
-keys.json (only when keybindings are needed)
+mods/<name>/
+  RECIPE.md
+  preview.png
+  mod.json
+  main.js
+  <required runtime files and assets>
+  keys.json (only when keybindings are needed)
 ```
 
-- Use stable lowercase kebab-case names for new mod folders.
-- Include required companion mods under the same recipe folder's `mods/` directory and explain their roles.
+- Do not place a mod recipe at the repository root or add another `mods/` directory inside a mod root.
+- Use stable lowercase kebab-case names for new mod roots.
+- Keep required companion mods in their own mod roots and explain their roles and installation paths.
 - Keep runtime imports and assets available within the bundle.
 - Do not include a `layouts/` directory or copy a whole Herdr profile.
   - Explain how to add the mod to an existing layout or open its overlay instead.
@@ -63,7 +66,7 @@ Use these sections, based on the inspected files and verified behavior:
 2. **What you see:** describe placement, dimensions, content, theme use, and relevant visual states.
    - For a mod without visible UI, state that explicitly.
 3. **How it behaves:** describe triggers, commands, interactions, state changes, dismissal, and relevant failure behavior.
-4. **Built from:** list the mod folders, manifest settings, important APIs, dependencies, and customization points.
+4. **Built from:** list the mod roots, manifest settings, important APIs, dependencies, and customization points.
    - Explain installation into the existing setup without distributing a layout.
    - Describe optional keybindings and conflict handling.
    - Record the Herdr version actually checked; label unverified compatibility as unknown.
@@ -76,11 +79,13 @@ Do not invent behavior, dependencies, API names, compatibility, or successful ch
 ## Validate Locally
 
 1. Inspect the complete output file list and confirm that all required files exist.
+   - Confirm that each `RECIPE.md` is beside its mod's `mod.json` and `main.js`, without an outer recipe folder or an extra nested `mods/` directory.
+   - Check recipe links and preview paths relative to that mod root.
    - Parse each JSON file and check runtime imports and referenced assets.
    - Confirm that `preview.png` is a readable PNG and matches the mod.
    - Confirm that the bundle has no `layouts/` directory, private data, or links to files outside the bundle.
 2. Run the repository's documented checks.
-3. With the matching Herdr binary, run `herdr-app check <recipe-folder>/mods/<name>` for each included mod.
+3. With the matching Herdr binary, run `herdr-app check <mod-root>` for each included mod.
    - Keep generated SDK declarations out of the shared bundle.
 4. Test the recipe's acceptance checks in a disposable Herdr profile.
    - Do not change the user's installed mods, layout, or keybindings to test sharing.
