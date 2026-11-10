@@ -1,201 +1,248 @@
-/** @import { ExecResult } from "herdr" */
-/** @typedef {(command: string, args?: string[], options?: {cwd?: string, timeout?: number}) => Promise<ExecResult>} Exec */
+// biome-ignore lint/style/useNodejsImportProtocol: Herdr provides this module without node:.
+import * as fs from "fs/promises"
+import { appHome, exec, layout, panes, readTextFile } from "herdr"
 
-// Herdr lacks lstat and atomic no-clobber rename. This trusted standard-library helper supplies
-// those primitives. Isolated Python ignores PYTHONPATH/site hooks; uv never installs dependencies.
-// All input is JSON, not executable source. No repository code is imported or run.
-const HELPER = `
-import ctypes
-import json
-import os
-import shutil
-import stat
-import subprocess
-import sys
-import tempfile
-
-request = json.loads(sys.argv[1])
-root = os.path.abspath(request["root"])
-mods = os.path.join(root, "mods")
-work = os.path.join(root, "data", "mod-manager")
-lock = os.path.join(work, "lock")
-action = request["action"]
-args = request.get("args", [])
-
-def kind(path):
-    try:
-        info = os.lstat(path)
-    except FileNotFoundError:
-        return "missing"
-    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-        return "link"
-    if stat.S_ISDIR(info.st_mode):
-        return "directory"
-    if stat.S_ISREG(info.st_mode):
-        return "file"
-    return "other"
-
-def check():
-    for path in [root, mods, os.path.join(root, "data"), work]:
-        if kind(path) not in ["directory", "missing"]:
-            raise RuntimeError("Unsafe directory: " + path)
-
-def staging(path):
-    path = os.path.abspath(path)
-    if os.path.normcase(os.path.dirname(path)) != os.path.normcase(work) or not os.path.basename(path).startswith("install."):
-        raise RuntimeError("Unexpected staging path")
-    if kind(path) != "directory":
-        raise RuntimeError("Staging directory is missing or is a link")
-
-def publish(source, destination):
-    source, destination = os.path.abspath(source), os.path.abspath(destination)
-    staging(source)
-    if os.path.normcase(os.path.dirname(destination)) != os.path.normcase(mods):
-        raise RuntimeError("Unexpected destination")
-    if sys.platform == "win32":
-        # os.rename on Windows never replaces an existing destination.
-        os.rename(source, destination)
-        return True
-    library = ctypes.CDLL(None, use_errno=True)
-    if sys.platform == "darwin":
-        rename = library.renamex_np
-        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-        result = rename(os.fsencode(source), os.fsencode(destination), 4) # RENAME_EXCL
-    elif sys.platform.startswith("linux") and hasattr(library, "renameat2"):
-        rename = library.renameat2
-        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-        result = rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1) # RENAME_NOREPLACE
-    else:
-        raise RuntimeError("Atomic no-clobber rename is unavailable on this platform")
-    if result:
-        number = ctypes.get_errno()
-        raise OSError(number, os.strerror(number), destination)
-    return True
-
-def run():
-    if action == "kind":
-        return kind(args[0])
-    if action == "git":
-        # Drop inherited Git overrides. Ignore global/system config, templates, hooks, credential
-        # helpers, fsmonitor and global filters. Only HTTPS transport is permitted in production.
-        environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-        environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
-            GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="", SSH_ASKPASS="",
-            GIT_ALLOW_PROTOCOL="https", GIT_ATTR_NOSYSTEM="1", GIT_LFS_SKIP_SMUDGE="1")
-        command = shutil.which("git")
-        if not command:
-            raise RuntimeError("Git is not installed or is not on PATH")
-        config = ["core.hooksPath=" + os.devnull, "core.fsmonitor=false",
-            "core.attributesFile=" + os.devnull, "credential.helper=", "protocol.allow=never",
-            "protocol.https.allow=always", "http.followRedirects=false", "maintenance.auto=false",
-            "gc.auto=0", "core.protectHFS=true", "core.protectNTFS=true"]
-        command_args = [command, "--no-optional-locks"]
-        for setting in config:
-            command_args.extend(["-c", setting])
-        result = subprocess.run(command_args + args[1], cwd=args[0], env=environment,
-            stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="strict", timeout=110)
-        return {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
-    check()
-    if action == "check":
-        return None
-    if action == "list":
-        return sorted(os.listdir(mods))
-    if action == "acquire":
-        os.makedirs(work, exist_ok=True)
-        os.makedirs(mods, exist_ok=True)
-        check()
-        try:
-            os.mkdir(lock)
-        except FileExistsError:
-            raise RuntimeError("Mod Manager is locked. Another operation may be running. See README recovery instructions.")
-    elif action == "release":
-        if kind(lock) != "directory":
-            raise RuntimeError("Unsafe or missing operation lock")
-        os.rmdir(lock)
-    elif action == "stage":
-        return tempfile.mkdtemp(prefix="install.", dir=work)
-    elif action == "cleanup":
-        staging(args[0])
-        shutil.rmtree(args[0])
-    elif action == "publish":
-        try:
-            return publish(args[0], args[1])
-        except FileExistsError:
-            return False
-    else:
-        raise RuntimeError("Unknown filesystem operation")
-    return None
-
-try:
-    print(json.dumps({"ok": True, "value": run()}))
-except Exception as error:
-    print(json.dumps({"ok": False, "error": str(error)}))
-    sys.exit(1)
-`
-
+/** @typedef {{code:number, stdout:string, stderr:string}} CommandResult */
+/** @typedef {Record<string, unknown>} Request */
 /**
- * @param {{exec: Exec, read: (path: string) => Promise<string | null>, write: (path: string, text: string, expected: string | null) => Promise<unknown>, home: string}} host
+ * @typedef {object} Host
+ * @property {() => string} root
+ * @property {(program:string,args:string[],options?:{timeout?:number}) => Promise<CommandResult>} exec
+ * @property {() => unknown} layout
+ * @property {() => unknown} panes
+ * @property {(url:string) => Promise<{ok:boolean,status:number,text:()=>Promise<string>}>} fetch
+ * @property {(path:string) => Promise<string|null>} read
+ * @property {typeof fs.readdir} list
+ * @property {typeof fs.exists} exists
+ * @property {(ms:number) => Promise<void>} [wait]
  */
-export function createRuntime(host) {
-  // Git accepts forward slashes on Windows too; Python normalizes filesystem paths there.
-  const root = host.home.replace(/\\/g, "/").replace(/\/+$/, "")
-  const work = `${root}/data/mod-manager`
 
-  /** @param {string} action @param {unknown[]} [args] */
-  async function call(action, args = []) {
-    let result
-    try {
-      result = await host.exec(
-        "uv",
-        [
-          "run",
-          "--no-project",
-          "--offline",
-          "--no-python-downloads",
-          "python",
-          "-I",
-          "-S",
-          "-c",
-          HELPER,
-          JSON.stringify({ root, action, args }),
-        ],
-        { cwd: root, timeout: 120_000 },
-      )
-    } catch (error) {
-      throw new Error(`Local mod management requires Git, uv, and Python 3. ${String(error)}`)
-    }
-    let response
-    try {
-      response = JSON.parse(result.stdout)
-    } catch {
-      throw new Error(result.stderr.trim() || "Install uv and Python 3 before managing local mods.")
-    }
-    if (!response.ok || result.code !== 0) throw new Error(response.error || result.stderr.trim())
-    return response.value
-  }
+const INDEX_URL = "https://assets.herdr.dev/mods/index.json"
 
-  return {
-    mods: `${root}/mods`,
-    work,
-    lock: `${work}/lock`,
-    read: host.read,
-    write: host.write,
-    checkPaths: () => call("check"),
-    /** @param {string} path @returns {Promise<string>} */
-    kind: (path) => call("kind", [path]),
-    /** @returns {Promise<string[]>} */
-    list: () => call("list"),
-    acquire: () => call("acquire"),
-    release: () => call("release"),
-    /** @returns {Promise<string>} */
-    stage: async () => (await call("stage")).replace(/\\/g, "/"),
-    /** @param {string} stage */
-    cleanup: (stage) => call("cleanup", [stage]),
-    /** @param {string} stage @param {string} destination @returns {Promise<boolean>} */
-    publish: (stage, destination) => call("publish", [stage, destination]),
-    /** @param {string} cwd @param {string[]} args @returns {Promise<ExecResult>} */
-    git: (cwd, args) => call("git", [cwd, args]),
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function object(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+/** Collect references, not display names. Hidden layout nodes also matter.
+ * @param {unknown} value @param {Set<string>} names
+ */
+function references(value, names) {
+  if (Array.isArray(value)) {
+    for (const item of value) references(item, names)
+  } else if (object(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (["mod", "terminal_menu", "toast_mod"].includes(key) && typeof child === "string") {
+        names.add(child)
+      }
+      references(child, names)
+    }
   }
 }
 
-/** @typedef {ReturnType<typeof createRuntime>} Runtime */
+/** @param {Host} host */
+async function runtimeContext(host) {
+  const dependencies = new Set()
+  try {
+    const tree = host.layout()
+    const allPanes = host.panes()
+    if (!object(tree) || !Array.isArray(allPanes)) throw new Error("Unavailable runtime inventory")
+    references(tree, dependencies)
+    references(allPanes, dependencies)
+    const result = await host.exec("herdr-app", ["status"], { timeout: 10_000 })
+    if (result.code !== 0) throw new Error("Unavailable app status")
+    const status = JSON.parse(result.stdout)
+    if (!object(status) || !Array.isArray(status.errors) || !Array.isArray(status.overlays)) {
+      throw new Error("Invalid app status")
+    }
+    if (status.errors.length) throw new Error("Herdr reports runtime errors")
+    references(status, dependencies)
+    for (const overlay of status.overlays) {
+      // Herdr status reports mod NAMES, not overlay IDs. Preserve any mod- prefix.
+      // A layout overlay or a copy not loaded yet does not name its dependencies.
+      if (
+        typeof overlay !== "string" ||
+        overlay === "layout" ||
+        !/^[a-z0-9][a-z0-9_.-]{0,127}$/i.test(overlay)
+      ) {
+        throw new Error("Unknown overlay dependency")
+      }
+      dependencies.add(overlay)
+    }
+    return { runtimeKnown: true, dependencies: [...dependencies] }
+  } catch {
+    return { runtimeKnown: false, dependencies: [...dependencies] }
+  }
+}
+
+/** @param {Host} host @param {Request} request */
+async function backend(host, request) {
+  const root = host.root()
+  const context = await runtimeContext(host)
+  let result
+  try {
+    result = await host.exec(
+      "uv",
+      [
+        "run",
+        "--no-project",
+        "--offline",
+        "--no-python-downloads",
+        "python",
+        "-I",
+        "-S",
+        `${root}/mods/mod-manager/operations.py`,
+        root,
+        JSON.stringify({ ...request, ...context }),
+      ],
+      { timeout: 240_000 },
+    )
+  } catch {
+    throw new Error(
+      "Local file backend unavailable. File actions need uv, a cached Python and Git. No tools are installed automatically.",
+    )
+  }
+  if (result.code !== 0) {
+    throw new Error(
+      `Local file backend failed: ${result.stderr.trim().slice(0, 600) || "check uv, cached Python and Git"}`,
+    )
+  }
+  let value
+  try {
+    value = JSON.parse(result.stdout)
+  } catch {
+    throw new Error("Local file backend returned invalid data. No success was verified.")
+  }
+  if (!object(value) || value.ok !== true) {
+    throw new Error(
+      object(value) && typeof value.error === "string" ? value.error : "Local operation failed",
+    )
+  }
+  return /** @type {Record<string, unknown>} */ ({
+    ...value,
+    message: value.message || value.notice || "Files verified. Runtime reload is not confirmed.",
+  })
+}
+
+/** Read-only fallback: tool availability must not hide actual installed mods.
+ * No ownership is adopted and no file actions are allowed from this inventory.
+ * @param {Host} host @param {string} reason
+ */
+async function readonlyInventory(host, reason) {
+  const root = host.root()
+  const entries = await host.list(`${root}/mods`, { withFileTypes: true })
+  /** @type {Record<string,unknown>} */
+  let shipped = {}
+  const warnings = [reason]
+  try {
+    const raw = await host.read(`${root}/installed.json`)
+    const value = raw ? JSON.parse(raw) : null
+    if (!object(value)) throw new Error("Invalid shipped-mod bookkeeping")
+    shipped = value
+  } catch {
+    warnings.push("Shipped-mod metadata is unreadable. File actions remain blocked.")
+  }
+  const mods = []
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue
+    const path = `${root}/mods/${entry.name}`
+    if (!(await host.exists(`${path}/main.js`)) && !(await host.exists(`${path}/mod.json`)))
+      continue
+    /** @type {Record<string,unknown>} */
+    let manifest = {}
+    try {
+      const raw = await host.read(`${path}/mod.json`)
+      const value = raw ? JSON.parse(raw) : null
+      if (!object(value)) throw new Error("Invalid manifest")
+      manifest = value
+    } catch {
+      warnings.push(`${entry.name}: manifest unreadable; metadata is incomplete.`)
+    }
+    const source = Object.hasOwn(shipped, entry.name)
+      ? "shipped"
+      : !entry.isDirectory() || entry.name === "mod-manager"
+        ? "development"
+        : "local"
+    mods.push({
+      id: entry.name,
+      modName: entry.name,
+      name: typeof manifest.title === "string" ? manifest.title : entry.name,
+      description: typeof manifest.description === "string" ? manifest.description : "",
+      version: typeof manifest.version === "string" ? manifest.version : "",
+      repository: "",
+      recipePath: "",
+      source,
+      managed: false,
+      path,
+      protectedReason:
+        "Read-only inventory: ownership and safe local file operations are unavailable.",
+    })
+  }
+  return { mods, warnings }
+}
+
+// No host calls occur at module evaluation. Mutations run inside unowned tasks.
+/** @param {Host} [host] @param {(ms:number) => Promise<void>} [wait] */
+export function createIO(host, wait) {
+  /** @type {Host} */
+  const adapter = host || {
+    root: appHome,
+    exec,
+    layout,
+    panes,
+    fetch: (url) => fetch(url),
+    read: readTextFile,
+    list: fs.readdir,
+    exists: fs.exists,
+  }
+  return {
+    wait: wait || adapter.wait,
+    async discover() {
+      try {
+        const value = await backend(adapter, { action: "discover" })
+        if (!Array.isArray(value.mods) || !Array.isArray(value.warnings)) {
+          throw new Error("Local inventory returned invalid data")
+        }
+        return /** @type {any} */ (value)
+      } catch (error) {
+        return readonlyInventory(
+          adapter,
+          error instanceof Error ? error.message : "Local inventory failed",
+        )
+      }
+    },
+    async fetchGallery() {
+      const response = await adapter.fetch(INDEX_URL)
+      if (!response.ok)
+        throw new Error(`Gallery request failed (HTTP ${response.status}). Retry later.`)
+      const raw = await response.text()
+      if (raw.length > 2_000_000) throw new Error("Gallery response exceeds the supported size")
+      return JSON.parse(raw)
+    },
+    /** @param {Request} request */
+    async operate(request) {
+      if (
+        !["install", "update", "uninstall", "check-update", "migrate"].includes(
+          String(request.action),
+        )
+      ) {
+        throw new Error("Unsupported local operation")
+      }
+      if (request.action === "update") {
+        // Downloads finish before collecting the commit-time host snapshot.
+        const prepared = await backend(adapter, { ...request, action: "prepare-update" })
+        if (
+          typeof prepared.stageToken !== "string" ||
+          !/^[a-f0-9]{32}$/.test(prepared.stageToken) ||
+          prepared.commit !== request.targetCommit
+        ) {
+          throw new Error("Update staging did not verify the checked revision")
+        }
+        return /** @type {any} */ (
+          await backend(adapter, { ...request, stageToken: prepared.stageToken })
+        )
+      }
+      return /** @type {any} */ (await backend(adapter, request))
+    },
+  }
+}
