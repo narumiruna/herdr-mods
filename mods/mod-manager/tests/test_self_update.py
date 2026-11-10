@@ -108,7 +108,29 @@ class SelfUpdateTests(unittest.TestCase):
         self.git(self.base, "clone", "--no-local", "--no-checkout", "--template=", "--", str(self.source), str(root))
         self.git(root, "reset", "--hard", self.installed)
         self.git(root, "config", "remote.origin.url", self_update.SOURCE)
-        return root, self.backend(root / "self_update.py")
+        script = root / "self_update.py"
+        if not script.exists():
+            script = root / "mods/mod-manager/self_update.py"
+        return root, self.backend(script)
+
+    def nest_manager(self):
+        package = self.source / "mods/mod-manager"
+        package.mkdir(parents=True)
+        for name in ["mod.json", "main.js", "manager.js", "runtime.js", "operations.py", "self_update.py"]:
+            (self.source / name).rename(package / name)
+        (self.source / "package.json").write_text('{"private":true,"workspaces":["mods/*"]}\n')
+        (self.source / "tools").mkdir()
+        (self.source / "tools/check.mjs").write_text("// Shared repository tool\n")
+        self.target = self.commit()
+        return package
+
+    def monorepo_checkout(self):
+        package = self.nest_manager()
+        self.installed = self.target
+        (package / "main.js").write_text("export default {version: 3};\n")
+        (self.source / "tools/check.mjs").write_text("// Updated shared repository tool\n")
+        self.target = self.commit()
+        self.root, self.updater = self.checkout()
 
     def apply(self, updater=None, **changes):
         updater = updater or self.updater
@@ -239,6 +261,143 @@ class SelfUpdateTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in after.items() if not k.startswith(".git")},
                          {k: v for k, v in before.items() if not k.startswith(".git")})
 
+    def test_monorepo_check_and_apply_update_the_whole_checkout(self):
+        self.monorepo_checkout()
+        before = self.snapshot(self.root)
+        checked = self.updater.check()
+        self.assertEqual(checked["path"], str(self.root))
+        self.assertEqual(checked["installedCommit"], self.installed)
+        self.assertEqual(checked["targetCommit"], self.target)
+        self.assertEqual(self.snapshot(self.root), before)
+        result = self.apply()
+        self.assertEqual(result["path"], str(self.root))
+        self.assertEqual(self.head(), self.target)
+        self.assertEqual((self.root / "tools/check.mjs").read_bytes(),
+                         (self.source / "tools/check.mjs").read_bytes())
+        self.assertEqual((self.root / "mods/mod-manager/main.js").read_bytes(),
+                         (self.source / "mods/mod-manager/main.js").read_bytes())
+        self.assertEqual(self.git(self.root, "status", "--porcelain", "--ignored"), b"")
+        self.assertTrue((self.root / ".git" / self_update.LOCK).is_file())
+        self.assertTrue(self.backend(self.root / "mods/mod-manager/self_update.py").check()["ok"])
+
+    def test_monorepo_development_link_resolves_to_checkout_root(self):
+        self.monorepo_checkout()
+        link = self.base / "development-link"
+        link.symlink_to(self.root / "mods/mod-manager", target_is_directory=True)
+        updater = self.backend(link / "self_update.py")
+        self.assertEqual(updater.check()["path"], str(self.root))
+        with self.assertRaisesRegex(self_update.UpdateError, "path changed"):
+            self.apply(updater, expected_path=str(link))
+        with self.assertRaisesRegex(self_update.UpdateError, "path changed"):
+            self.apply(updater, expected_path=str(link.resolve()))
+        self.assertTrue(self.apply(updater)["ok"])
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.resolve(), self.root / "mods/mod-manager")
+        self.assertEqual(self.head(), self.target)
+
+    def test_adapted_flat_updater_can_migrate_to_monorepo(self):
+        self.nest_manager()
+        self.assertEqual(self.updater.check()["targetCommit"], self.target)
+        result = self.apply()
+        self.assertEqual(result["path"], str(self.root))
+        self.assertEqual(self.head(), self.target)
+        self.assertFalse((self.root / "self_update.py").exists())
+        updater = self.backend(self.root / "mods/mod-manager/self_update.py")
+        self.assertEqual(updater.check()["path"], str(self.root))
+        self.assertFalse(updater.check()["updateAvailable"])
+
+    def test_updater_does_not_search_arbitrary_ancestor_repositories(self):
+        self.monorepo_checkout()
+        for location in ["packages/mod-manager", "mods/other", "mod-manager", "mods/mod-manager/extra"]:
+            with self.subTest(location=location):
+                package = self.root / location
+                package.mkdir(parents=True, exist_ok=True)
+                script = package / "self_update.py"
+                script.write_text(SCRIPT.read_text())
+                before = self.snapshot(self.root)
+                with self.assertRaises((self_update.UpdateError, OSError)):
+                    self.backend(script)
+                self.assertEqual(self.snapshot(self.root), before)
+
+    def test_nested_package_without_ordinary_checkout_is_rejected(self):
+        for kind in ["missing", "git-file", "git-symlink", "package-git-file"]:
+            with self.subTest(kind=kind):
+                root = self.base / kind
+                package = root / "mods/mod-manager"
+                package.mkdir(parents=True)
+                script = package / "self_update.py"
+                script.write_text(SCRIPT.read_text())
+                if kind in {"git-file", "package-git-file"}:
+                    gitdir = package / ".git" if kind == "package-git-file" else root / ".git"
+                    gitdir.write_text("gitdir: " + str(self.root / ".git") + "\n")
+                elif kind == "git-symlink":
+                    (root / ".git").symlink_to(self.root / ".git", target_is_directory=True)
+                with self.assertRaises((self_update.UpdateError, OSError)):
+                    self.backend(script)
+
+    def test_monorepo_candidate_requires_complete_safe_nested_sources(self):
+        self.monorepo_checkout()
+        prefix = "mods/mod-manager/"
+        cases = [({prefix + name: None}, "Incomplete manager source") for name in
+                 ["mod.json", "main.js", "manager.js", "runtime.js", "operations.py", "self_update.py"]]
+        cases += [
+            ({prefix + "runtime.js": ("100644", b" \n")}, "Empty manager source"),
+            ({prefix + "mod.json": ("100644", b"[]")}, "must be an object"),
+            ({prefix + "main.js": ("120000", b"../../../main.js")}, "symlinks and submodules"),
+            ({"tools/linked": ("120000", b"check.mjs")}, "symlinks and submodules"),
+            ({"tools/.gitattributes": ("100644", b"* filter=evil")}, "attributes"),
+            ({"tools/bad:name": ("100644", b"x")}, "Unsafe source path"),
+            ({prefix + "runtime.js": None, "runtime.js": ("100644", b"// Flat fallback\n")},
+             "Incomplete manager source"),
+        ]
+        for changes, message in cases:
+            with self.subTest(paths=list(changes)):
+                self.source_tree(changes)
+                before = self.snapshot(self.root)
+                with self.assertRaisesRegex(self_update.UpdateError, message):
+                    self.updater.check()
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertEqual(self.head(), self.installed)
+
+    def test_candidate_rejects_wrong_package_locations_and_partial_nested_layout(self):
+        names = ["mod.json", "main.js", "manager.js", "runtime.js", "operations.py", "self_update.py"]
+        for location in ["packages/mod-manager", "mods/other", "mods/mod-manager/extra"]:
+            with self.subTest(location=location):
+                changes = {name: None for name in names}
+                changes.update({location + "/" + name: ("100644", (self.source / name).read_bytes())
+                                for name in names})
+                self.source_tree(changes)
+                before = self.snapshot(self.root)
+                with self.assertRaisesRegex(self_update.UpdateError, "Incomplete manager source"):
+                    self.updater.check()
+                self.assertEqual(self.snapshot(self.root), before)
+        # Complete flat sources do not excuse an incomplete nested package.
+        self.source_tree({"mods/mod-manager/main.js": ("100644", b"// Partial nested package\n")})
+        with self.assertRaisesRegex(self_update.UpdateError, "Incomplete manager source: mods/mod-manager/mod.json"):
+            self.updater.check()
+
+    def test_monorepo_package_directory_identity_is_pinned(self):
+        self.monorepo_checkout()
+        package = self.root / "mods/mod-manager"
+        outside = self.base / "preserved-package"
+        package.rename(outside)
+        shutil.copytree(outside, package)
+        self.assertEqual(self.git(self.root, "status", "--porcelain"), b"")
+        before = self.snapshot(self.root)
+        with self.assertRaisesRegex(self_update.UpdateError, "Installation directory changed"):
+            self.updater.check()
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertEqual(self.updater.clone_calls, 0)
+
+    def test_monorepo_working_files_outside_manager_are_verified(self):
+        self.monorepo_checkout()
+        os.link(self.root / "tools/check.mjs", self.base / "shared-tool-link")
+        before = self.snapshot(self.root)
+        with self.assertRaisesRegex(self_update.UpdateError, "Linked or unsafe working file"):
+            self.updater.check()
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertEqual(self.updater.clone_calls, 0)
+
     def test_confirmation_validation_fails_before_transport(self):
         cases = [
             ({"app_stopped": False}, "--app-stopped"),
@@ -328,7 +487,16 @@ class SelfUpdateTests(unittest.TestCase):
             self.assertNotIn(key, updater.env)
         self.assertEqual(updater.env["GIT_CONFIG_GLOBAL"], "/dev/null")
 
+    def test_current_and_legacy_repository_origins_are_accepted(self):
+        for origin in sorted(self_update.ORIGINS):
+            with self.subTest(origin=origin):
+                self.git(self.root, "config", "remote.origin.url", origin)
+                checked = self.updater.check()
+                self.assertEqual(checked["source"], "https://github.com/narumiruna/herdr-mods.git")
+                self.assertEqual(checked["installedCommit"], self.installed)
+
     def test_production_transport_is_fixed_https_main_without_test_configuration(self):
+        self.assertEqual(self_update.SOURCE, "https://github.com/narumiruna/herdr-mods.git")
         destination = self.base / "private-source.git"
         with mock.patch.object(self.updater, "_command") as command:
             self_update.Updater._clone(self.updater, destination)
