@@ -148,18 +148,54 @@ See [lifecycle contracts and integration design](docs/lifecycle-prerequisites.md
 
 ## Sidebar launcher
 
-The existing local `herdr-with-mods` layout keeps its **Mods** row directly above **Settings**:
+The same `mod-manager` installation provides both the dialog and a sidebar footer. In a personal layout cloned from `main`, use this footer block:
 
-- Layout: `~/.config/herdr-app/layouts/herdr-with-mods.json`, cloned from `main`.
-- Footer mod: `~/.config/herdr-app/mods/mod-manager-sidebar/`, cloned from `workspace-chrome`.
-- Only that cloned layout uses the 97 px footer; the row runs `mod.open` with `{ name: "mod-manager" }`.
+```json
+{
+  "id": "sidebar-footer",
+  "type": "block",
+  "content": {
+    "mod": "mod-manager",
+    "props": { "footer": true }
+  },
+  "size": { "px": 97 }
+}
+```
 
-This local launcher is not distributed by this repository. Shipped mods, layouts, settings, and keybindings are not edited. Clones survive restarts but do not receive Herdr's automatic updates.
+Keep the header on shipped `workspace-chrome`. Without `footer: true`, the mod keeps its existing dialog behavior. The footer does not create a manager session, inputs, or background tasks. Gallery and inventory load only when the dialog opens.
+
+The footer keeps **Mods**, **Settings**, and **Add machine** in that order. Mods toggles the `mod-manager` dialog; the other rows retain their original actions. Below 160 px sidebar width, rows show icons with tooltips. The Settings update indicator follows the app's update-ready state. Icons come from shipped `workspace-chrome`, including when the manager is installed through an external development link.
+
+### Migrate an existing sidebar layout
+
+This repository no longer distributes the separate `mod-manager-sidebar` clone. No automatic layout migration is performed. A personal layout such as `~/.config/herdr-app/layouts/herdr-with-mods.json` remains outside this repository.
+
+The profile owner must perform these steps:
+
+1. Preserve the personal layout and old sidebar installation outside the checkout before updating it. Fully quit Herdr before changing installation files or links.
+2. Keep the manager installation at `<app-home>/mods/mod-manager`. Change the personal footer's mod reference from `mod-manager-sidebar` to `mod-manager`, using the block above. Keep `footer: true`, the 97 px height, and the shipped header.
+3. Remove the old installed sidebar only after confirming that no personal layout or keybinding still references it.
+4. Reopen Herdr. Verify that the footer loads, Mods opens and closes the dialog, and the footer remains usable after closing it. Old runtime copies can require a full app restart.
+
+Shipped mods, layouts, settings, and keybindings must not be edited. Repository checks use disposable profiles; they do not change or verify the live profile. Personal clones survive restarts but do not receive Herdr's automatic layout updates.
+
+### Sidebar recovery
+
+If the combined footer fails, fully quit Herdr and restore the saved personal layout and old sidebar installation. Alternatively, use the shipped `main` layout to remove the custom footer dependency. Keep the manager installation available for dialog use. Reopen Herdr and verify loading. Do not reset or clean the checkout, delete manager data, or change registry ownership for this UI rollback.
+
+When Herdr is running, these commands select the personal layout or the shipped fallback:
 
 ```sh
 herdr-app do layout.switch --name herdr-with-mods
-herdr-app do layout.switch --name main  # restore the original layout
+herdr-app do layout.switch --name main
 ```
+
+### Sidebar verification handoff
+
+1. **Profile owner — actual layout migration.** After repository gates pass, preserve the layout and old sidebar installation, fully quit Herdr, and apply the migration steps above. Expected result: Mods toggles the dialog while the footer stays usable. Actual-profile loading, old runtime copies, and restart behavior remain unverified by fixtures. Do not claim automatic migration or completed profile migration before this check.
+2. **Platform maintainer — native interaction and visual review.** After native fixtures pass, use a disposable profile with the documented block. Check both themes, expanded/narrow widths, tooltips, icons, the update indicator, all three actions, and repeated open/close cycles. Expected result: the existing footer behavior remains intact and closing the dialog leaves the footer active. Initial-render checks do not prove appearance, native event routing, or footer/dialog coexistence. Do not claim native interaction acceptance on unreviewed platforms. Windows mutation restrictions remain unchanged.
+
+These handoffs do not authorize automated profile edits, app restart, or release.
 
 ## Development checks
 
@@ -172,7 +208,7 @@ npm run ci
 git diff --check
 ```
 
-Root commands delegate to the npm workspaces. To select only this mod, use `npm test --workspace herdr-mod-manager` or `npm run check:mod --workspace herdr-mod-manager`. `check:mod` runs the native entry check, generates the ignored real SDK at `mods/mod-manager/gpui-kit.d.ts` for no-emit JavaScript type checks, and runs all native view fixtures. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `mods/mod-manager/scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
+Root commands delegate to the npm workspaces. To select only this mod, use `npm test --workspace herdr-mod-manager` or `npm run check:mod --workspace herdr-mod-manager`. `check:mod` runs the native entry check, generates the ignored real SDK at `mods/mod-manager/gpui-kit.d.ts` for no-emit JavaScript type checks, and runs all native view fixtures, including expanded/narrow footers with and without an app update indicator. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `mods/mod-manager/scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
 
 Tests use disposable profiles and real local Git repositories. Test-only transport injection is not a production local-install mode. Cross-version fixtures cover both stores, mixed ownership, explicit confirmation, directory/busy/corrupt locks, retained Git data, ref failures, and recovery. Never use the user's mods for lifecycle tests.
 

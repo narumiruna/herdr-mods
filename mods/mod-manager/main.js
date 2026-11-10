@@ -3,6 +3,7 @@ import { div, svg, View } from "gpui-kit"
 import { closeOverlay, props, theme } from "herdr"
 import { actionsFor, GALLERY_URL, ManagerSession } from "./manager.js"
 import { createIO } from "./runtime.js"
+import { renderSidebarFooter } from "./sidebar.js"
 
 /** @import { AsyncContext, Color, Context, NativeElement } from "gpui-kit" */
 /** @import { ManagerMod, ModAction, Source } from "./manager.js" */
@@ -79,6 +80,8 @@ function scrollArea(id, content) {
 export default class ModManager extends View {
   /** @type {ManagerSession} */
   session
+  /** @type {boolean | undefined} */
+  footer
   /** @type {Section} */
   section = "gallery"
   /** @type {Record<LibrarySection, Source>} */
@@ -101,8 +104,11 @@ export default class ModManager extends View {
     return new ManagerSession(createIO(undefined, wait))
   }
 
-  /** @param {import("gpui-shell").Props | undefined} _props @param {AsyncContext} cx */
-  init(_props, cx) {
+  /** @param {import("gpui-shell").Props | undefined} initialProps @param {AsyncContext} cx */
+  init(initialProps, cx) {
+    // Resolve once for this copy; another copy can be an independent dialog.
+    this.footer ??= (initialProps ?? props())?.footer === true
+    if (this.footer) return
     if (!this.session) this.session = this.createSession((ms) => cx.sleep(ms))
     if (!this.searches) {
       this.searches = {
@@ -956,6 +962,7 @@ export default class ModManager extends View {
   }
 
   render() {
+    if (this.footer) return renderSidebarFooter()
     const t = colors()
     const overlay = props()?.overlay
     return v_flex()

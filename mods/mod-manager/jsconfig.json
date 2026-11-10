@@ -11,5 +11,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["main.js", "manager.js", "runtime.js", "gpui-kit.d.ts"]
+  "include": ["main.js", "sidebar.js", "manager.js", "runtime.js", "gpui-kit.d.ts"]
 }
