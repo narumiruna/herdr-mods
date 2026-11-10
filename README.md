@@ -2,6 +2,10 @@
 
 A monorepo for Herdr App mods, managed with npm workspaces.
 
+## Share Mod Manager
+
+The root [Mod Manager recipe](RECIPE.md) is a build brief for `mods/mod-manager/`. The bundle is incomplete: an inspected screenshot at `preview.png` and native interaction checks are still required. No layout or keybinding file is distributed. GitHub publication requires separate approval.
+
 ## Repository structure
 
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
