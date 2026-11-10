@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 const taskScope = new AsyncLocalStorage()
 
@@ -50,7 +50,11 @@ const native = vi.hoisted(() => {
   }
   return {
     element,
-    input,
+    input: vi.fn(input),
+    props: vi.fn(() => ({ overlay: "fixture-overlay" })),
+    layout: vi.fn(),
+    updates: vi.fn(),
+    run: vi.fn(),
     closeOverlay: vi.fn(),
     openUrl: vi.fn(),
     createIO: vi.fn(() => {
@@ -80,7 +84,10 @@ vi.mock("gpui-base", () => ({
 }))
 vi.mock("herdr", () => ({
   closeOverlay: native.closeOverlay,
-  props: () => ({ overlay: "fixture-overlay" }),
+  props: native.props,
+  layout: native.layout,
+  updates: native.updates,
+  run: native.run,
   theme: () => ({}),
 }))
 vi.mock("../runtime.js", () => ({ createIO: native.createIO }))
@@ -291,7 +298,7 @@ function setup(options = {}) {
       tasks.push(Promise.resolve().then(() => taskScope.run(owner, () => body(taskCx))))
     }),
   }
-  view.init(undefined, cx)
+  view.init(options.props, cx)
   return {
     view,
     cx,
@@ -313,6 +320,193 @@ async function settleUntil(predicate) {
   for (let count = 0; count < 50 && !predicate(); count++) await Promise.resolve()
   expect(predicate()).toBe(true)
 }
+
+describe("sidebar footer through the manager entry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    native.props.mockReturnValue({ overlay: "fixture-overlay" })
+    native.layout.mockReturnValue({
+      id: "root",
+      children: [{ id: "lists" }, { children: [{ id: "sidebar", size: { px: 268 } }] }],
+    })
+    native.updates.mockReturnValue({ app: { ready: null } })
+  })
+
+  afterEach(() => {
+    native.props.mockReturnValue({ overlay: "fixture-overlay" })
+    vi.clearAllMocks()
+  })
+
+  function expectNoManagerWork(fixture) {
+    expect(fixture.view.session).toBeUndefined()
+    expect(fixture.view.searches).toBeUndefined()
+    expect(fixture.view.repository).toBeUndefined()
+    expect(fixture.view.loadStarted).toBe(false)
+    for (const fn of [
+      fixture.create,
+      native.createIO,
+      native.input,
+      fixture.cx.spawn,
+      fixture.cx.notify,
+      fixture.io.fetchGallery,
+      fixture.io.discover,
+      fixture.io.operate,
+    ]) {
+      expect(fn).not.toHaveBeenCalled()
+    }
+  }
+
+  test.each([
+    ["explicit props", { footer: true }, {}],
+    ["host fallback", undefined, { footer: true }],
+    ["null props fallback", null, { footer: true }],
+  ])("renders and closes without manager work: %s", async (_name, initialProps, hostProps) => {
+    native.props.mockReturnValue(hostProps)
+    const fixture = setup({ props: initialProps })
+    expect(fixture.view.render().attributes.id).toBe("mod-manager-footer")
+    fixture.view.close()
+    await fixture.flush()
+    expectNoManagerWork(fixture)
+  })
+
+  test.each([undefined, {}, { footer: false }, { footer: "true" }, { footer: 1 }])(
+    "keeps dialog behavior for non-footer props: %j",
+    async (props) => {
+      const fixture = setup({ props })
+      fixture.view.init(props, fixture.cx)
+      await fixture.flush()
+      expect(fixture.view.render().attributes.id).toBe("mod-manager")
+      expect(fixture.create).toHaveBeenCalledTimes(1)
+      expect(fixture.io.fetchGallery).toHaveBeenCalledTimes(1)
+      expect(fixture.io.discover).toHaveBeenCalledTimes(1)
+      expect(native.input).toHaveBeenCalledTimes(3)
+    },
+  )
+
+  test("explicit dialog props override footer host props", async () => {
+    native.props.mockReturnValue({ footer: true })
+    const fixture = setup({ props: { footer: false } })
+    await fixture.flush()
+    expect(fixture.view.render().attributes.id).toBe("mod-manager")
+    expect(fixture.create).toHaveBeenCalledTimes(1)
+  })
+
+  test("keeps the resolved mode when init runs again with other props", async () => {
+    const fixture = setup({ props: { footer: true } })
+    native.props.mockReturnValue({ overlay: "another-copy" })
+    fixture.view.init({ footer: false }, fixture.cx)
+    expect(fixture.view.render().attributes.id).toBe("mod-manager-footer")
+    await fixture.flush()
+    expectNoManagerWork(fixture)
+  })
+
+  test.each([76, 268])("preserves row order, assets, and exact actions at %i px", (width) => {
+    native.layout.mockReturnValue({ id: "sidebar", size: { px: width } })
+    const { view, cx } = setup({ props: { footer: true } })
+    const root = view.render()
+    expect(root.nodes.map((node) => node.attributes.id)).toEqual(["mods", "settings", "machine"])
+    expect(
+      descendants(root)
+        .filter((node) => node.type === "svg")
+        .map((node) => node.attributes.id),
+    ).toEqual(["layers", "settings", "plus"].map((name) => `mods/workspace-chrome/${name}.svg`))
+    expect(root.attributes.pt).toBe(4)
+    expect(root.attributes.pb).toBe(8)
+    for (const id of ["mods", "settings", "machine"]) {
+      expect(find(view, id).attributes.h).toBe(28)
+      click(view, id, cx)
+    }
+    expect(native.run.mock.calls).toEqual([
+      ["mod.open", { name: "mod-manager" }],
+      ["app.settings"],
+      ["mod.open", { name: "machine-add" }],
+    ])
+  })
+
+  test.each([
+    [44, true],
+    [76, true],
+    [159, true],
+    [160, false],
+    [268, false],
+  ])("uses live layout width %i, collapsed=%s", (width, collapsed) => {
+    const { view } = setup({ props: { footer: true } })
+    expect(contents(view.render())).toContain("Mods")
+    native.layout.mockReturnValue({ children: [{ id: "sidebar", size: { px: width } }] })
+    for (const [id, label] of [
+      ["mods", "Mods"],
+      ["settings", "Settings"],
+      ["machine", "Add machine"],
+    ]) {
+      const row = find(view, id)
+      expect(contents(row).trim()).toBe(collapsed ? "" : label)
+      if (collapsed) {
+        expect(row.attributes.tooltip).toBe(label)
+        expect(row.attributes.w).toBe(32)
+        expect(row.attributes.px).toBe(0)
+      } else {
+        expect(row.attributes).not.toHaveProperty("tooltip")
+        expect(row.attributes.px).toBe(8)
+      }
+    }
+    expect(view.render().attributes.px).toBe(collapsed ? 0 : 8)
+  })
+
+  test.each([undefined, null, {}, { children: [{ id: "other" }] }, { id: "sidebar" }])(
+    "defaults to expanded when sidebar width is unavailable: %j",
+    (layout) => {
+      native.layout.mockReturnValue(layout)
+      const { view } = setup({ props: { footer: true } })
+      expect(contents(view.render())).toBe(" Mods  Settings  Add machine")
+      expect(find(view, "mods").attributes).not.toHaveProperty("tooltip")
+    },
+  )
+
+  test.each([
+    [76, null],
+    [76, "0.1.15"],
+    [268, null],
+    [268, "0.1.15"],
+  ])("places the update indicator at %i px with ready=%s", (width, ready) => {
+    native.layout.mockReturnValue({ id: "sidebar", size: { px: width } })
+    native.updates.mockReturnValue({ app: { ready } })
+    const { view } = setup({ props: { footer: true } })
+    const tree = view.render()
+    const indicator = descendants(tree).find((node) => node.attributes.id === "app-update-ready")
+    if (!ready) {
+      expect(indicator).toBeUndefined()
+      return
+    }
+    const settings = descendants(tree).find((node) => node.attributes.id === "settings")
+    expect(descendants(settings)).toContain(indicator)
+    expect(indicator.attributes.size).toBe(6)
+    if (width < 160) {
+      expect(indicator.attributes).toHaveProperty("absolute")
+      expect(indicator.attributes.top).toBe(5)
+      expect(indicator.attributes.right).toBe(6)
+    } else {
+      expect(indicator.attributes).not.toHaveProperty("absolute")
+    }
+  })
+
+  test("closing a separate dialog leaves the footer usable", async () => {
+    const footer = setup({ props: { footer: true } })
+    const dialog = setup()
+    await dialog.flush()
+    // A later init must not change the dialog into the other copy's mode either.
+    dialog.view.init({ footer: true }, dialog.cx)
+    click(dialog.view, "close-manager", dialog.cx)
+    expect(native.closeOverlay).toHaveBeenCalledWith("fixture-overlay")
+    expect(dialog.view.closed).toBe(true)
+    expect(footer.view.closed).toBe(false)
+    expect(footer.view.session).toBeUndefined()
+    expect(footer.create).not.toHaveBeenCalled()
+    for (let count = 0; count < 2; count++) click(footer.view, "mods", footer.cx)
+    expect(native.run).toHaveBeenCalledTimes(2)
+    expect(native.run).toHaveBeenLastCalledWith("mod.open", { name: "mod-manager" })
+    expect(footer.cx.spawn).not.toHaveBeenCalled()
+  })
+})
 
 // These fixtures use the real ManagerSession. Only its I/O is replaced.
 describe("live manager view with fixture I/O", () => {

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -43,6 +43,13 @@ const cases = [
     "update-error",
     'this.session.updateErrors["mods:example/focus-mode//focus-mode"] = "Fixture update lookup failed."',
   ],
+  ...[268, 76].flatMap((width) =>
+    [false, true].map((ready) => [
+      `footer-${width}-${ready ? "update" : "current"}`,
+      'if (this.session || this.searches || this.repository || this.loadStarted) throw new Error("Footer initialized manager state")',
+      { width, ready },
+    ]),
+  ),
 ]
 
 const fixture = `import { ManagerSession } from "./manager.js"
@@ -99,15 +106,28 @@ try {
     'export function createIO() { throw new Error("Live runtime is forbidden in native fixture checks") }\n',
   )
   writeFileSync(join(directory, "fixture.js"), fixture)
-  for (const [name, setup] of cases) {
+  // Stub only live layout/update snapshots in the temporary source copy.
+  // Theme, commands, elements, and the entry lifecycle still use the real SDK.
+  const sidebar = readFileSync(new URL("../sidebar.js", import.meta.url), "utf8")
+  const stubbedSidebar = sidebar.replace('from "herdr"', 'from "./sidebar-host.js"')
+  if (stubbedSidebar === sidebar) throw new Error("Sidebar host import was not replaced")
+  writeFileSync(join(directory, "sidebar.js"), stubbedSidebar)
+  for (const [name, setup, footer] of cases) {
+    writeFileSync(
+      join(directory, "sidebar-host.js"),
+      `export { run, theme } from "herdr"
+export function layout() { return {children: [{id: "sidebar", size: {px: ${footer?.width ?? 268}}}]} }
+export function updates() { return {app: {ready: ${footer?.ready ? '"0.1.15"' : "null"}}} }
+`,
+    )
     writeFileSync(
       join(directory, "main.js"),
       `import ModManager from "./view.js"
 import { fixtureSession, migration } from "./fixture.js"
 export default class extends ModManager {
-  createSession() { return fixtureSession() }
+  createSession() { ${footer ? 'throw new Error("Footer must not create a session")' : "return fixtureSession()"} }
   init(props, cx) {
-    super.init(props, cx)
+    super.init(${footer ? "{footer: true}" : "props"}, cx)
     ${setup}
   }
 }
