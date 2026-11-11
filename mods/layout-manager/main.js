@@ -209,6 +209,7 @@ export default class LayoutManager extends View {
     )
   }
 
+  /** Save one guarded layout change; reveal only when the action must show a mod. */
   saveChange(cx, transform, notice, reveal = null) {
     if (!this.canEdit()) return
     const snapshot = this.snapshot
@@ -328,6 +329,7 @@ export default class LayoutManager extends View {
     }
   }
 
+  /** Place a mod, or reorder its existing slot without changing the live active tab. */
   placeMod(cx, name, position, before = undefined) {
     if (!this.canEdit()) return
     const mod = this.mods.find((item) => item.name === name)
@@ -354,7 +356,22 @@ export default class LayoutManager extends View {
         return next
       },
       `Saved ${mod.title}${position ? ` in the ${position} panel` : " in the panel"}.`,
-      name,
+      slot && before !== undefined ? null : name,
+    )
+  }
+
+  /** Move a managed tab one step (-1 or 1), without revealing it or reading draft props. */
+  movePanel(cx, name, direction) {
+    if (!this.canEdit()) return
+    const slots = this.snapshot.slots
+    const index = slots.findIndex((slot) => slot.name === name)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= slots.length) return
+    const before = direction < 0 ? slots[target].name : (slots[target + 1]?.name ?? null)
+    this.saveChange(
+      cx,
+      (tree) => reorderPanel(tree, name, before),
+      `Moved ${slots[index].title} ${direction < 0 ? "earlier" : "later"} in the tab order.`,
     )
   }
 
@@ -520,6 +537,37 @@ export default class LayoutManager extends View {
       )
   }
 
+  /** Native buttons let keyboard users reorder each card without selecting it first. */
+  reorderControls(slot, index) {
+    const t = colors()
+    return h_flex()
+      .gap(4)
+      .px(4)
+      .pb(4)
+      .children(
+        [
+          { text: "Earlier", direction: -1 },
+          { text: "Later", direction: 1 },
+        ].map(({ text, direction }) => {
+          const target = index + direction
+          const disabled = !this.canEdit() || target < 0 || target >= this.snapshot.slots.length
+          return this.button(
+            `move-tab-${slot.name}-${text.toLowerCase()}`,
+            text,
+            (cx) => this.movePanel(cx, slot.name, direction),
+            { disabled },
+          )
+            .h(24)
+            .px(6)
+            .text_size(10)
+            .flex_1()
+            .tab_stop(!disabled)
+            .accessibility_label(`Move ${slot.title} tab ${text.toLowerCase()}`)
+            .focus((style) => style.border_color(t.accent))
+        }),
+      )
+  }
+
   panelPreview(position) {
     const t = colors()
     const slots = this.snapshot.slots
@@ -552,21 +600,27 @@ export default class LayoutManager extends View {
           .gap(3)
           .overflow_y_scrollbar()
           .children(
-            slots.map((slot) =>
+            slots.map((slot, index) =>
               this.dropZone(
-                h_flex()
+                v_flex()
                   .id(`preview-tab-${slot.name}`)
                   .flex_none()
                   .min_w(0)
                   .gap(3)
-                  .items_center()
                   .rounded(4)
                   .border_1()
                   .border_color(t.border)
                   .bg(this.selected === slot.name ? t.selected : t.surface)
                   .on_click((_event, cx) => this.selectMod(slot.name, cx))
-                  .child(this.dragHandle(`drag-tab-${slot.name}`, "mod", slot.name, "⠿"))
-                  .child(label(slot.title, 10).truncate().tooltip(`Drop before ${slot.title}`)),
+                  .child(
+                    h_flex()
+                      .min_w(0)
+                      .gap(3)
+                      .items_center()
+                      .child(this.dragHandle(`drag-tab-${slot.name}`, "mod", slot.name, "⠿"))
+                      .child(label(slot.title, 10).truncate().tooltip(`Drop before ${slot.title}`)),
+                  )
+                  .child(this.reorderControls(slot, index)),
                 { kind: "tab", before: slot.name, key: `tab-${slot.name}` },
               ),
             ),

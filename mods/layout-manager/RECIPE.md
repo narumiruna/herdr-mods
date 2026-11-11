@@ -8,7 +8,7 @@ A native graphical editor for one managed Herdr mod panel. Drag installed mods i
 - A 58px `chrome` header: **Layout Manager**, current layout, **Refresh**, and **Close**.
 - A 240px full-height inventory with a search field and scrolling mod cards. Each card has a **⠿** grip, title, and availability status.
 - A scrolling editor with 22px padding. **Visual layout** contains a 330px schematic canvas with four edge targets and nested blocks for the existing body.
-- When present, the managed panel appears at its saved edge. It has a **Panel** grip, scrolling draggable cards, and **Drop to append**.
+- When present, the managed panel appears at its saved edge. It has a **Panel** grip, scrolling draggable cards, and **Drop to append**. Each card has **Earlier** and **Later** buttons.
 - **Place selected mod** buttons and a separate remove target follow the preview. The selected mod's title, existing integrations, JSON props editor, and action buttons are below them.
 - Shipped layouts show a clone-name field and **Clone current layout**. Editing and drag initiation are disabled there.
 - The live panel retains its 36px header with scrolling tabs, **Manage**, and **Hide**. Its initial extent is 380px; the owned model accepts 240–900px. The frame's divider supports native resizing.
@@ -20,7 +20,8 @@ A native graphical editor for one managed Herdr mod panel. Drag installed mods i
 - Selecting a mod restores its props draft or saved props. Use a Map so names such as `constructor` are safe. Refresh discards drafts.
 - Pressing a grip starts a pending gesture. A distance of at least 5 logical pixels activates it. Store source kind and mod name, not a list index.
 - Edge targets accept a mod or the entire panel. A new mod uses its current draft and creates one stable slot. An existing managed mod keeps saved props. Moving to an edge positions the entire panel, not an independent second panel.
-- Card targets insert a mod before the target name. The append target moves it to the end. Saved active child and props remain unchanged.
+- Card targets insert a mod before the target name. The append target moves it to the end. Saved props, saved and live active tabs, and panel visibility remain unchanged.
+- Each card's native **Earlier** and **Later** buttons move it one step. Use `tab_stop` and `accessibility_label` for keyboard access and native accessibility. Boundary moves and blocked edits are disabled. Do not require mouse selection first.
 - The remove target accepts only a managed mod. Removing the final slot unwraps the body and restores current root settings.
 - A valid drop saves immediately. Clear the gesture before asynchronous work. No click-only save or automatic retry occurs.
 - Cancel on root release outside a target, pointer exit, outside press, Escape, a new background press, refresh, layout change, and close. Focus the root's handle only when a grip is pressed, not on render.
@@ -62,7 +63,7 @@ Public transforms:
 - Keep strict reserved-ID and owned-structure validation. Allow only the documented frame orientations and child orders. Never remove foreign children to repair an unexpected structure.
 - Use window-relative pointer positions for the movement threshold. Do not use the absent pressed-button state or assume native drag payload support.
 - Give edge targets nonzero hit areas. Stretch preview rows and their children across the available height. Mark the hovered target and show an insertion border above a destination card.
-- Create input states and focus handles in init and release them on close. Each callback and async task must use its own `cx`.
+- Create input states and custom focus handles in init and release them on close. Native reorder buttons retain their own focus by stable IDs. Each callback and async task must use its own `cx`.
 - Keep runtime code independent of Node.js. Vitest, Biome, and TypeScript are development tools only.
 - Hiding a view or removing a placement does not prove that external programs stopped.
 
@@ -70,8 +71,9 @@ Public transforms:
 
 - Tests pass for discovery, props, missing reinstalls, immutable transforms, all edge transitions, root restoration, tab reordering, reserved collisions, and stale writes.
 - Gesture tests verify thresholds, rendered handler wiring, feedback, cancellation, read-only states, missing mods, layout switches, and duplicate releases.
+- Reorder tests verify keyboard button labels, tab stops, boundary moves, guarded saves, and no live select or show commands for an existing card.
 - Native fixtures pass for all four panel edges, active edge/reorder/remove targets, and the existing recovery states.
 - Type and repository checks pass.
 - Inspect the actual graphical dialog with `herdr-app shot`; check stretching, scrolling, and readable targets without editing the live layout.
 
-Physical pointer acceptance remains a profile-owner check in a disposable personal layout. Verify edge drops, tab reordering, removal, Escape, and pointer-exit cancellation. Automated handlers and one-frame native checks do not prove physical pointer dispatch. Do not automate the user's display.
+Physical pointer acceptance remains a profile-owner check in a disposable personal layout. Verify edge drops, tab reordering, removal, Escape, pointer-exit cancellation, Tab navigation, Enter and Space activation, and screen-reader labels. Automated handlers and one-frame native checks do not prove physical pointer dispatch. Do not automate the user's display.

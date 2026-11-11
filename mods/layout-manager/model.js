@@ -252,6 +252,7 @@ export function dockPosition(root) {
   return root.type === "row" ? (first ? "left" : "right") : first ? "top" : "bottom"
 }
 
+/** Return a validated copy with the complete dock at the requested window edge. */
 export function moveDock(root, position) {
   if (!["left", "right", "top", "bottom"].includes(position)) {
     throw new Error("Dock position must be left, right, top or bottom.")
@@ -265,6 +266,7 @@ export function moveDock(root, position) {
   return result
 }
 
+/** Insert a managed slot before another name, or append it; preserve props and active. */
 export function reorderPanel(root, name, before = null) {
   checkName(name)
   if (before !== null) checkName(before)

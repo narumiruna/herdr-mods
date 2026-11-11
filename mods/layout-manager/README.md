@@ -8,6 +8,7 @@ Arrange installed Herdr mods with a graphical layout preview. Drag mods into a m
 - Drag a mod's **⠿** grip to **Left**, **Right**, **Top**, or **Bottom** in the preview.
 - Drag the **Panel** grip to another edge to move the entire managed panel.
 - Drag a managed card onto another card to insert it before that card. **Drop to append** moves it to the end.
+- Use each card's **Earlier** and **Later** buttons to change tab order with the keyboard.
 - Drop a managed card on the remove area to remove its placement, not its files.
 - Edit JSON props, show a hidden panel, or open a mod as an overlay.
 - Keep missing mods' references and props for a same-name reinstall.
@@ -49,7 +50,9 @@ From the repository root, `npm start --workspace herdr-layout-manager` runs the 
 5. Drag card grips inside the preview to change tab order.
    - Release on another card to insert before it.
    - Release on **Drop to append** to move to the end.
-   - Reordering keeps saved props and the stack's saved active child.
+   - Reordering keeps saved props, the saved and live active tab, and panel visibility.
+   - Press Tab to reach a card's **Earlier** or **Later** button. Press Enter or Space to move that card.
+   - Boundary moves and editing in blocked states are disabled. A card does not need mouse selection first.
 6. Drop a managed card on the remove area, or select **Remove from panel**.
    - Removing the last slot restores the original layout body as root.
    - Missing mods can be moved, reordered, and removed without valid props drafts.
@@ -116,6 +119,6 @@ git diff --check
 
 Native checks generate the ignored `gpui-kit.d.ts`; run them before type checks. Fixtures cover populated, managed at all four edges, active drag targets, missing, shipped, loading, empty, error, large-list, dock, and dock-recovery states. Fixture checks use an isolated app home and never mutate the live layout. Unit tests exercise gesture handlers, threshold movement, target feedback, cancellation, props handling, stale saves, and layout switches.
 
-The graphical dialog was opened and inspected with `herdr-app shot` on Herdr 0.1.15 without a layout-file edit. Native render checks do not prove physical pointer dispatch. The profile owner must still verify dragging, Escape, leaving the dialog, tab ordering, and dock placement in a disposable personal layout. No pointer automation is used on the user's display.
+The graphical dialog was opened and inspected with `herdr-app shot` on Herdr 0.1.15 without a layout-file edit. Native render checks do not prove physical pointer dispatch. The profile owner must still verify dragging, Escape, leaving the dialog, tab ordering, keyboard button activation, screen-reader labels, and dock placement in a disposable personal layout. No pointer automation is used on the user's display.
 
 No GitHub publication or packaged preview image is included.

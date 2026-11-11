@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const ui = vi.hoisted(() => {
   const nodes = new Map()
   const element = () => {
-    const node = { handlers: {}, items: [] }
+    const node = { handlers: {}, items: [], props: {} }
     const proxy = new Proxy(node, {
       get(target, key) {
         if (key in target) return target[key]
@@ -15,7 +15,7 @@ const ui = vi.hoisted(() => {
           else if (key.startsWith("on_")) {
             const button = typeof args[0] === "string" ? `-${args[0]}` : ""
             node.handlers[`${key}${button}`] = args.at(-1)
-          }
+          } else node.props[key] = args[0]
           return proxy
         }
       },
@@ -68,6 +68,7 @@ import { addPanel, dockPosition, findNode, managedSlots, STACK_ID } from "./mode
 
 const tree = { id: "original", type: "block", content: { tab: "active" } }
 
+/** Queue async view tasks and record notifications without a native window. */
 function context() {
   const tasks = []
   const asyncContexts = []
@@ -87,6 +88,7 @@ function context() {
   }
 }
 
+/** Load one installed mod and a personal layout through guarded in-memory file I/O. */
 async function ready(name = "example", initial = tree) {
   let current = "personal"
   const files = new Map([
@@ -354,6 +356,48 @@ describe("graphical layout gestures", () => {
     expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["example", "missing"])
   })
 
+  it.each(["first", null])(
+    "keeps the live active tab when moving an inactive tab before %s",
+    async (before) => {
+      const initial = addPanel(addPanel(addPanel(tree, { name: "first" }), { name: "example" }), {
+        name: "active",
+      })
+      findNode(initial, "layout-manager-dock").hidden = true
+      const { view, cx } = await ready("example", initial)
+      begin(view, cx)
+      drop(view, cx, tab(before))
+      await cx.flush()
+      view.render(cx)
+      expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(
+        before === null ? ["first", "active", "example"] : ["example", "first", "active"],
+      )
+      expect(findNode(view.snapshot.tree, STACK_ID).active).toBe("layout-manager-mod-active")
+      expect(findNode(view.snapshot.tree, "layout-manager-dock").hidden).toBe(true)
+      expect(view.reveal).toBeFalsy()
+      expect(run).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["new edge", "new tab", "existing edge"])(
+    "still reveals a %s placement",
+    async (placement) => {
+      const initial =
+        placement === "existing edge"
+          ? addPanel(addPanel(tree, { name: "example" }), { name: "first" })
+          : addPanel(tree, { name: "first" })
+      const { view, cx } = await ready("example", initial)
+      begin(view, cx)
+      drop(view, cx, placement === "new tab" ? tab("first") : edge("left"))
+      await cx.flush()
+      view.render(cx)
+      expect(run).toHaveBeenCalledWith("layout.select", {
+        stack: STACK_ID,
+        child: "layout-manager-mod-example",
+      })
+      expect(run).toHaveBeenCalledWith("layout.show", { id: "layout-manager-dock" })
+    },
+  )
+
   it("inserts a new mod before a managed card and saves only once", async () => {
     const { view, cx, io } = await ready("example", addPanel(tree, { name: "missing" }))
     begin(view, cx)
@@ -522,5 +566,102 @@ describe("graphical layout gestures", () => {
     expect(io.writeText).not.toHaveBeenCalled()
     expect(view.error).toContain("current layout changed")
     expect(view.drag).toBeNull()
+  })
+})
+
+describe("keyboard tab order controls", () => {
+  it("renders labeled tab stops and moves a card without parsing props or activating it", async () => {
+    const initial = addPanel(
+      addPanel(addPanel(tree, { name: "first" }), { name: "example", title: "Example" }),
+      { name: "last" },
+    )
+    const { view, cx, io } = await ready("example", initial)
+    view.properties.set_value("invalid draft")
+    view.render(cx)
+    for (const direction of ["earlier", "later"]) {
+      const button = ui.nodes.get(`move-tab-example-${direction}`)
+      expect(button.props.accessibility_label).toBe(`Move Example tab ${direction}`)
+      expect(button.props.tab_stop).toBe(true)
+      expect(button.props.disabled).toBe(false)
+    }
+    dispatch("move-tab-example-earlier", "on_click", {}, cx)
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["example", "first", "last"])
+    view.render(cx)
+    expect(run).not.toHaveBeenCalled()
+    dispatch("move-tab-example-later", "on_click", {}, cx)
+    await cx.flush()
+    view.render(cx)
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["first", "example", "last"])
+    expect(findNode(view.snapshot.tree, STACK_ID).active).toBe("layout-manager-mod-last")
+    expect(run).not.toHaveBeenCalled()
+    expect(io.writeText).toHaveBeenCalledTimes(2)
+  })
+
+  it("moves an unavailable card without requiring mouse selection", async () => {
+    const initial = addPanel(addPanel(tree, { name: "example" }), {
+      name: "missing",
+      props: { keep: true },
+    })
+    const { view, cx } = await ready("example", initial)
+    expect(view.selected).toBe("example")
+    view.render(cx)
+    dispatch("move-tab-missing-earlier", "on_click", {}, cx)
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["missing", "example"])
+    expect(view.snapshot.slots[0].props).toEqual({ keep: true })
+    expect(view.selected).toBe("example")
+  })
+
+  it.each([
+    ["example", "earlier"],
+    ["missing", "later"],
+  ])("disables the %s %s boundary move", async (name, direction) => {
+    const { view, cx, io } = await ready(
+      "example",
+      addPanel(addPanel(tree, { name: "example" }), { name: "missing" }),
+    )
+    view.render(cx)
+    const button = ui.nodes.get(`move-tab-${name}-${direction}`)
+    expect(button.props.disabled).toBe(true)
+    expect(button.props.tab_stop).toBe(false)
+    dispatch(`move-tab-${name}-${direction}`, "on_click", {}, cx)
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it.each(["shipped", "loading", "busy", "needsRefresh", "closed"])(
+    "blocks tab moves while %s",
+    async (state) => {
+      const { view, cx, io } = await ready(
+        "example",
+        addPanel(addPanel(tree, { name: "example" }), { name: "missing" }),
+      )
+      if (state === "shipped") view.snapshot.shipped = true
+      else view[state] = true
+      view.render(cx)
+      const button = ui.nodes.get("move-tab-example-later")
+      expect(button.props.disabled).toBe(true)
+      expect(button.props.tab_stop).toBe(false)
+      dispatch("move-tab-example-later", "on_click", {}, cx)
+      await cx.flush()
+      expect(io.writeText).not.toHaveBeenCalled()
+    },
+  )
+
+  it("rejects stale keyboard saves and blocks a second attempt", async () => {
+    const { view, cx, io, files } = await ready(
+      "example",
+      addPanel(addPanel(tree, { name: "example" }), { name: "missing" }),
+    )
+    view.render(cx)
+    files.set("/fixture/layouts/personal.json", "changed elsewhere")
+    dispatch("move-tab-example-later", "on_click", {}, cx)
+    await cx.flush()
+    expect(view.needsRefresh).toBe(true)
+    expect(view.error).toContain("Refresh")
+    dispatch("move-tab-example-later", "on_click", {}, cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledOnce()
   })
 })
