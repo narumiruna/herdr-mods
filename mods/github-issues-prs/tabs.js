@@ -15,7 +15,13 @@ function find(node, id) {
 export class TabBar {
   constructor() {
     this.pressed = null
-    this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}")
+    this.panels = {}
+    try {
+      const panels = JSON.parse(localStorage.getItem("panels") ?? "{}")
+      if (panels && typeof panels === "object" && !Array.isArray(panels)) this.panels = panels
+    } catch {
+      // Ignore invalid saved preferences so the tab bar can still start.
+    }
   }
 
   // The side panel is remembered per space: switching shows that space's choice

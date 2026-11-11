@@ -515,6 +515,26 @@ describe("one-mod entry point", () => {
 })
 
 describe("workspace tab bar", () => {
+  for (const saved of ["{", "null", "[]", '"github"', "1", "true"]) {
+    test(`recovers from invalid saved panels: ${saved}`, async () => {
+      const storage = new Map([["panels", saved]])
+      const { panel, cx } = await tabBarView({ storage })
+      expect(uiElements.has("tab-scroll")).toBe(true)
+      expect(commands).toEqual([])
+      expect(panel.tabBar.panels).toEqual({ "space-one": null })
+      rightPanel().hidden = false
+      rightPanel().children[0].active = "github"
+      panel.render(cx)
+      expect(JSON.parse(storage.get("panels"))).toEqual({ "space-one": "github" })
+    })
+  }
+  test("restores a valid saved panel preference", async () => {
+    await tabBarView({ storage: new Map([["panels", '{"space-one":"github"}']]) })
+    expect(commands).toEqual([
+      { name: "layout.select", args: { stack: "panel-body", child: "github" } },
+      { name: "layout.show", args: { id: "panel" } },
+    ])
+  })
   test("shows GitHub beside Files and Changes", async () => {
     await tabBarView()
     for (const id of ["panel-files", "panel-changes", "panel-github"])
