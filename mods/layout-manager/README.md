@@ -1,25 +1,23 @@
 # Layout Manager
 
-Arrange installed Herdr mods with a graphical layout preview. Drag mods into a managed panel, move the panel to any window edge, and change its tab order without editing layout JSON.
+Move existing blocks and containers in a personal Herdr layout without editing JSON. Place a node beside any ordinary node, not only at a window edge. The installed-mod inventory adds new views; it does not move an existing instance by mod name.
 
 ## Features
 
-- Search installed mods by title or folder name, including development links.
-- Drag a mod's **⠿** grip to **Left**, **Right**, **Top**, or **Bottom** in the preview.
-- Drag the **Panel** grip to another edge to move the entire managed panel.
-- Drag a managed card onto another card to insert it before that card. **Drop to append** moves it to the end.
-- Use each card's **Earlier** and **Later** buttons to change tab order with the keyboard.
-- Drop a managed card on the remove area to remove its placement, not its files.
-- Edit JSON props, show a hidden panel, or open a mod as an overlay.
-- Keep missing mods' references and props for a same-name reinstall.
-- Keep existing integrations unchanged. A tab bar, footer, or pane header remains independent.
-- Refuse edits to shipped layouts. **Clone current layout** creates a personal copy.
+- Move an existing block or a complete container subtree by node ID.
+- Choose **Left**, **Right**, **Top**, or **Bottom** of a specific destination.
+- Use the scrollable canvas or outline. Deep, small, hidden, and inactive stack children remain reachable; there is no depth cutoff.
+- Use native source, destination, and placement buttons with the keyboard.
+- Add another view of an installed mod with explicit JSON props.
+- Keep unavailable mods' saved nodes and props; moving a saved node does not need its mod to be installed.
+- Keep the legacy managed panel, tab ordering, props, overlay, show, and hide controls.
+- Clone shipped layouts before editing. Save only to the captured personal layout with an expected-content check.
 
-The manager owns one panel with tabs. Moving a mod to another edge moves that whole panel, including its other tabs. The preview is schematic; it does not move arbitrary existing blocks or resize them. This mod does not change keys, install mods, or monitor a package manager. New installations appear when the dialog opens or you select **Refresh**.
+The preview is schematic. It does not reproduce live dimensions or embed terminals. Pane headers, stack headers, floating content, props, and terminal split layouts move with their owning structural node; they are not independent targets. This mod does not install mods, edit keys, create tab groups, resize nodes, or delete ordinary nodes.
 
 ## Install and open
 
-Herdr loads the source directly. No build output, Node.js packages, or Python runtime is needed by this mod.
+Herdr loads the source directly. Runtime Node.js packages and Python are not required.
 
 The profile owner must fully stop Herdr before creating a development link:
 
@@ -27,83 +25,95 @@ The profile owner must fully stop Herdr before creating a development link:
 ln -s ~/src/herdr-mods/mods/layout-manager ~/.config/herdr-app/mods/layout-manager
 ```
 
-The destination must not exist. Do not use a force option to replace another installation. Use the app home's actual path if it differs from `~/.config/herdr-app`. Reopen Herdr, then run:
+The destination must not exist. Do not force replacement of another installation. Use the actual app-home path if it differs. Reopen Herdr, then run:
 
 ```sh
 herdr-app do mod.open --name layout-manager
 ```
 
-From the repository root, `npm start --workspace herdr-layout-manager` runs the same command. It does not create a link. No layout or shortcut is installed automatically.
+`npm start --workspace herdr-layout-manager` runs the same command from the repository root. It does not create a link or install a layout or shortcut.
 
-## Use
+## Move an existing node
 
-1. Open Layout Manager and check **Layout** in the header.
-   - Clone a shipped layout before editing it.
-2. Find a mod in the left list. Select it to edit **Props** if needed.
-3. Press its **⠿** grip and drag to an edge of **Visual layout**. Release on the target to save.
+1. Open Layout Manager and check **Layout** in the header. Clone a shipped layout before editing.
+2. In **Layout tree**, press the existing node's **⠿** grip and drag to a side target on the destination node.
+   - Canvas targets and outline targets identify the same destination by node ID.
+   - A container grip moves its complete subtree. It does not create another mod view.
+   - The root/original body is a destination only, not a movable source.
+3. Check the highlighted target and the **Drop … of …** label. Release to save.
+   - The source cannot target itself or its own descendants.
    - A click or movement below 5 logical pixels does not save.
-   - A new placement uses that mod's props draft, or `{}` by default.
-   - An existing integration is not replaced. This action adds another view.
-   - An existing managed mod keeps its saved props and stable slot. Use **Save panel props** to change its props.
-   - The **Place selected mod** buttons provide the same placement action without dragging.
-4. Drag the **Panel** grip to another edge to move all managed tabs together.
-5. Drag card grips inside the preview to change tab order.
-   - Release on another card to insert before it.
-   - Release on **Drop to append** to move to the end.
-   - Reordering keeps saved props, the saved and live active tab, and panel visibility.
-   - Press Tab to reach a card's **Earlier** or **Later** button. Press Enter or Space to move that card.
-   - Boundary moves and editing in blocked states are disabled. A card does not need mouse selection first.
-6. Drop a managed card on the remove area, or select **Remove from panel**.
-   - Removing the last slot restores the original layout body as root.
-   - Missing mods can be moved, reordered, and removed without valid props drafts.
-   - Mod files and other placements stay unchanged.
-7. Use the live dock's tabs to switch views.
-   - **Hide** hides the dock.
-   - **Manage** opens or closes Layout Manager.
-   - **Show panel** selects a saved slot and shows the dock without a file edit.
+   - An already-adjacent same-axis placement is a no-op and does not write.
 
-A valid drop saves immediately. Release outside a target to cancel. **Escape**, moving the pointer outside the dialog, an outside press, Refresh, and closing the dialog also cancel a gesture. Dragging uses the mouse within this dialog, not operating-system drag-and-drop. Refresh discards unsaved props drafts.
+For keyboard placement:
 
-**Add to panel** adds to the current panel edge, or to the right if no managed panel exists. **Open overlay** uses the current props draft without saving a placement. It honors the mod's supported overlay kind, width, and height. It does not enable persistent windows or inherit a manifest's window key.
+1. Use Tab and Enter or Space to select the source's ID button in the outline.
+2. Activate **Target** on the destination row.
+3. Check the **Source** and **Destination** IDs, then activate a placement-side button below the canvas.
 
-For example, `{"footer": true}` selects the footer view of Mod Manager. Layout Manager cannot determine whether that view is useful as a full-height panel. It does not infer a compact mode or replace the existing footer.
+**Cancel** or **Escape** clears the ordinary source. Escape, pointer exit, an outside press, release outside a target, a new background press, Refresh, layout changes, and close cancel a pointer gesture. Keyboard selection does not itself write. Refresh discards unsaved props drafts and clears selections that no longer exist; switching layouts clears pending placement.
 
-## Layout ownership and access
+## Add a new mod view
 
-The mod reads `mods/*/mod.json`, checks entry-point existence, reads `installed.json`, and reads the current layout. Discovery does not import or execute a listed mod.
+Search the inventory by title or folder name. Select a mod and edit **Props** if needed. Drag its inventory grip beside a destination node, or activate **Add new view**, choose **Target**, then activate a placement side.
 
-Valid drops, **Place selected mod**, **Add to panel**, **Save panel props**, and **Remove from panel** write a layout file:
+- **Add new view** always creates a new ordinary block with a collision-free ID, even if that mod already appears elsewhere.
+- The new block uses that mod's props draft, or `{}` by default. Invalid props and unavailable mods cannot be added.
+- Moving an existing node keeps its saved props and does not parse an unrelated draft.
+- Adding an ordinary view does not create or move the legacy managed dock.
+- To move one of several existing instances of the same mod, select its node ID in the canvas or outline instead of dragging from inventory.
 
-- The target is the captured personal file `layouts/<name>.json`.
-- The current layout name and shipped-layout index are checked before each write.
-- `writeTextFile` atomically refuses a write when the file no longer matches the loaded snapshot.
-- A failed or stale write blocks further saves until Refresh. A gesture is not retried.
-- Missing or invalid shipped-layout metadata blocks editing.
-- Existing node IDs, props, and layout fields remain in the original body. Root look and window fields move to the outer frame.
-- The reserved `layout-manager-*` structure must remain intact. Unexpected edits are rejected instead of removing foreign nodes.
-- Existing right-dock files work without migration. Other edges use the same frame, dock, header, stack, and slot IDs.
-- The mod never edits `layouts/.state/`, mod code, credentials, or keys.
+**Open overlay** uses the current props draft without saving a placement. It honors the manifest's supported overlay kind and dimensions, but does not inherit persistent-window keys. For example, `{"footer": true}` selects Mod Manager's footer view; this editor does not infer a special mode from the target's shape.
 
-Layout Manager itself makes no network requests and runs no external programs. Opening or placing another mod executes that mod with its own access. Removing a placement does not guarantee that programs started by the mod stop.
+## Tree and sizing rules
+
+- If the destination's parent already has the required row/column axis, insert next to the destination. Otherwise, create a split container around the destination and source.
+- Same-axis insertion keeps each node's `size`, `min`, and `max`. A cross-axis source move keeps those values without conversion; a fixed pixel width can become a fixed pixel height.
+- A new wrapper receives the destination's parent-facing `size`, `min`, and `max`; those fields are removed from the inner destination to avoid applying the same constraint twice.
+- Styling, visibility, and internal divider settings stay on their original nodes. `resizable` controls that row/column's own dividers, not its parent's allocation; it is not transferred to the wrapper.
+- Existing IDs and opaque content are kept. Generated IDs use `view-<mod>` or `split`, with numeric suffixes to avoid collisions. No new ordinary node uses the reserved managed-panel namespace.
+- Authored containers are not removed or collapsed after a move. An emptied row, column, or stack remains present. An emptied stack loses `active`; an affected explicit active child selects the first remaining child or the replacement wrapper. An unaffected or absent `active` stays unchanged.
+- Wrapping an unframed root keeps its original ID inside the new root and promotes the shared root look/window fields. In a legacy frame, a wrapper replaces only the original-body child; the reserved frame stays the document root.
+
+These rules have model-test coverage. Host acceptance of empty containers, native sizing geometry, and live session behavior remain unverified; see **Unverified acceptance and owner handoff**.
+
+## Legacy managed panel
+
+**Managed panel (legacy)** is separate from ordinary-node placement:
+
+- Its edge controls and managed-tab grip add or move tabs in one shared dock. Changing an edge moves the entire dock.
+- Drag cards to insert before another tab; **Drop to append** moves a card to the end. **Earlier** and **Later** provide the keyboard path.
+- Reordering keeps saved props, saved/live active tab, and dock visibility. Missing managed mods can move or be removed without parsing a props draft.
+- **Add to managed panel** and **Save managed panel props** use the selected mod's props draft.
+- The remove target and **Remove from panel** remove only managed slots, not mod files. Removing the final slot restores the current, possibly edited ordinary body as root.
+- Live dock tabs, **Manage**, **Hide**, and **Show panel** retain their behavior.
+
+There is no automatic migration or extraction of managed slots into ordinary nodes. Reserved frame/dock/header/stack/slot IDs must remain intact; ordinary transforms cannot move them.
+
+## Saves, access, and recovery
+
+The manager reads manifests, checks entry points, reads `installed.json`, and reads the current layout. Discovery does not execute listed mods. New installations appear on open or Refresh.
+
+Each changed placement writes only `layouts/<captured-name>.json`:
+
+- Check the captured path, current layout name, and shipped-layout index before saving. Missing or invalid metadata blocks edits.
+- Use `writeTextFile(path, next, expected)` so an external file change atomically rejects the write.
+- Invalid actions, canceled gestures, duplicate releases, and no-ops do not write. A failed/stale save blocks further saves until Refresh; it is not retried or merged.
+- Do not edit `layouts/.state/`, mod code, keys, or credentials. The manager makes no network requests and starts no external programs. Opening or placing another mod executes that mod with its own access.
+
+A missing ordinary mod remains in the outline with its saved content. Missing managed mods also appear as **Unavailable** in inventory. Reinstalling the same folder name reuses saved references; development-link changes can require a full app restart.
+
+Inspect an unexpected owned-structure error instead of deleting foreign nodes to satisfy reserved IDs. Refresh after a stale write; it discards props drafts. There is no undo or backup store. For owner testing, keep the original JSON and use a disposable personal clone. Reverting code does not undo layout-file changes. If recovery is needed, use Herdr's `ctrl-alt-shift-escape` escape hatch, then restore only the disposable layout while Herdr is stopped. Hiding/removing a view does not prove that programs started by that mod stopped.
 
 ```mermaid
 flowchart LR
-  A[Installed mod manifests] --> B[Graphical Layout Manager]
-  C[Personal layout snapshot] --> B
-  B -->|Valid drop or explicit button action| D[Expected-content save]
-  D --> E[Personal layout file]
-  E --> F[Herdr live reload]
+  A[Source node ID or explicit new view] --> C[Shared placement validation]
+  B[Destination node ID and side] --> C
+  C --> D[Immutable tree transform]
+  D --> E[Expected-content save]
+  E --> F[Personal layout file]
+  F --> G[Herdr live reload]
 ```
-
-## Missing mods and recovery
-
-A missing mod's saved reference is not deleted. The manager lists it as **Unavailable**, with its saved props. Herdr controls the missing view and can retain an older runtime copy. Reinstall the same folder name, then refresh the manager. External development-link changes can require a full app restart.
-
-A different installation name is a different mod. Add the new name and remove the old managed slot explicitly.
-
-For an unexpected owned-structure error, inspect the personal layout before making changes. Do not delete unrelated blocks to satisfy a reserved ID. A stale-write error means the file must be loaded again; the manager does not merge competing edits. **Refresh** discards unsaved props drafts.
-
-Herdr's `ctrl-alt-shift-escape` escape hatch remains available. It returns to the default layout and sets the selected layout and keys aside. Layout Manager does not implement a separate backup, migration, or undo store.
 
 ## Development checks
 
@@ -114,11 +124,25 @@ npm test --workspace herdr-layout-manager
 npm run check:mod --workspace herdr-layout-manager
 npm run check:types --workspace herdr-layout-manager
 npm run check
+npm test
 git diff --check
 ```
 
-Native checks generate the ignored `gpui-kit.d.ts`; run them before type checks. Fixtures cover populated, managed at all four edges, active drag targets, missing, shipped, loading, empty, error, large-list, dock, and dock-recovery states. Fixture checks use an isolated app home and never mutate the live layout. Unit tests exercise gesture handlers, threshold movement, target feedback, cancellation, props handling, stale saves, and layout switches.
+Native checks generate ignored SDK declarations; run them before type checks. Both the base check and fixture checks use temporary `HERDR_APP_HOME` directories. They do not modify the live profile. Fixtures cover ordinary source/destination states, deep/small/hidden nodes, inactive stack children, four-side drops, root wrapping, empty containers, keyboard placement, new views, legacy coexistence, and existing recovery states.
 
-The graphical dialog was opened and inspected with `herdr-app shot` on Herdr 0.1.15 without a layout-file edit. Native render checks do not prove physical pointer dispatch. The profile owner must still verify dragging, Escape, leaving the dialog, tab ordering, keyboard button activation, screen-reader labels, and dock placement in a disposable personal layout. No pointer automation is used on the user's display.
+`herdr-app check` on Herdr 0.1.15 checks eager module and element descriptions. It does not parse the supplied layout tree, perform layout/paint, or dispatch physical events. A queued `openOverlay({layout})` even accepts an invalid node type in this checker; that is not parser acceptance evidence. Do not call these checks native rendering or visual verification.
 
-No GitHub publication or packaged preview image is included.
+## Unverified acceptance and owner handoff
+
+The owner approved implementation and PR delivery using documented contracts plus model/handler tests and isolated eager native checks. **The new editor has not been visually or physically verified.**
+
+The profile owner must load the updated mod with explicit approval and use a disposable personal clone to verify:
+
+- Actual host parsing of transformed layouts, including empty containers and root wrapping.
+- Same-/cross-axis sizing, constraint transfer, and unchanged internal divider behavior.
+- Dragging existing blocks and containers to internal targets, target priority/highlighting, scrolling, and access to deep, small, hidden, and inactive nodes.
+- Escape, outside release, pointer exit, refresh/layout changes, and close cancellation.
+- Tab/Enter/Space placement, focus visibility, accessibility labels, and screen-reader output.
+- Legacy dock operations, live reload without duplicate views, and terminal/session continuity.
+
+Model/handler tests and eager checks do not establish these results. Do not describe the editor as interaction-verified or publish it before owner acceptance is recorded. Do not automate the user's display or change the live development link/layout as part of repository checks. No package publication or preview image is included.

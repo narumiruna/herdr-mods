@@ -1,12 +1,21 @@
 import { access, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { addPanel, removePanel } from "./model.js"
 import { discoverMods, includeMissing, overlaySpec, readSnapshot, saveSnapshot } from "./runtime.js"
+import { placeNode } from "./tree.js"
 
 const temporary = []
 const baseTree = { id: "original", type: "block", content: { tab: "active" } }
+const ordinaryTree = {
+  id: "body",
+  type: "row",
+  children: [
+    { id: "source", type: "block", content: { mod: "example", props: { keep: true } } },
+    { id: "target", type: "block", content: { tab: "active" } },
+  ],
+}
 
 async function fixture(index = {}) {
   const directory = await mkdtemp(join(tmpdir(), "layout-manager-test-"))
@@ -107,6 +116,79 @@ describe("discovery", () => {
 })
 
 describe("layout writes", () => {
+  it.each([
+    ["the original tree", (tree) => tree],
+    ["a JSON clone", (tree) => JSON.parse(JSON.stringify(tree))],
+    [
+      "an unchanged ordinary placement",
+      (tree) => placeNode(tree, { kind: "node", id: "source" }, "target", "left"),
+    ],
+  ])("never writes for %s and preserves the original raw formatting", async (_name, transform) => {
+    const { home, io } = await fixture()
+    const raw = `  ${JSON.stringify(ordinaryTree)}  \n\n`
+    await writeFile(join(home, "layouts", "personal.json"), raw)
+    const snapshot = await readSnapshot(io, "personal")
+    const write = vi.spyOn(io, "writeText")
+    expect(await saveSnapshot(io, snapshot, transform)).toBe(snapshot)
+    expect(write).not.toHaveBeenCalled()
+    expect(snapshot.raw).toBe(raw)
+    expect(await io.readText(snapshot.path)).toBe(raw)
+  })
+
+  it("saves an ordinary move to the captured file exactly once with expected content", async () => {
+    const { home, io } = await fixture()
+    await writeFile(join(home, "layouts", "personal.json"), JSON.stringify(ordinaryTree))
+    await writeFile(join(home, "layouts", "other.json"), "do not touch")
+    const snapshot = await readSnapshot(io, "personal")
+    const write = vi.spyOn(io, "writeText")
+    const next = await saveSnapshot(io, snapshot, (tree) =>
+      placeNode(tree, { kind: "node", id: "source" }, "target", "right"),
+    )
+    expect(write).toHaveBeenCalledExactlyOnceWith(snapshot.path, next.raw, snapshot.raw)
+    expect(next.tree.children.map((node) => node.id)).toEqual(["target", "source"])
+    expect(snapshot.tree).toEqual(ordinaryTree)
+    expect(next.raw).toBe(`${JSON.stringify(next.tree, null, 2)}\n`)
+    expect(await io.readText(snapshot.path)).toBe(next.raw)
+    expect(await io.readText(join(home, "layouts", "other.json"))).toBe("do not touch")
+  })
+
+  it("rejects a stale ordinary move without overwriting external data", async () => {
+    const { home, io } = await fixture()
+    await writeFile(join(home, "layouts", "personal.json"), JSON.stringify(ordinaryTree))
+    const snapshot = await readSnapshot(io, "personal")
+    const external = `${snapshot.raw}\n`
+    await writeFile(snapshot.path, external)
+    const write = vi.spyOn(io, "writeText")
+    await expect(
+      saveSnapshot(io, snapshot, (tree) =>
+        placeNode(tree, { kind: "node", id: "source" }, "target", "right"),
+      ),
+    ).rejects.toThrow("Stale snapshot")
+    expect(write).toHaveBeenCalledOnce()
+    expect(write.mock.calls[0][0]).toBe(snapshot.path)
+    expect(write.mock.calls[0][2]).toBe(snapshot.raw)
+    expect(await io.readText(snapshot.path)).toBe(external)
+  })
+
+  it.each([
+    ["source", "source", "left"],
+    ["body", "target", "right"],
+    ["missing", "target", "bottom"],
+    ["source", "missing", "top"],
+    ["source", "target", "invalid"],
+  ])("never writes an invalid ordinary move: %s to %s %s", async (id, target, side) => {
+    const { home, io } = await fixture()
+    await writeFile(join(home, "layouts", "personal.json"), JSON.stringify(ordinaryTree))
+    const snapshot = await readSnapshot(io, "personal")
+    const write = vi.spyOn(io, "writeText")
+    await expect(
+      saveSnapshot(io, snapshot, (tree) => placeNode(tree, { kind: "node", id }, target, side)),
+    ).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(snapshot.tree).toEqual(ordinaryTree)
+    expect(await io.readText(snapshot.path)).toBe(snapshot.raw)
+  })
+
   it("edits only the captured personal file and removes the final managed panel", async () => {
     const { home, io } = await fixture({ "layout:main": {} })
     await writeFile(join(home, "layouts", "main.json"), "do not touch")
@@ -123,8 +205,24 @@ describe("layout writes", () => {
   it("rejects shipped layouts even when a stale snapshot said personal", async () => {
     const { home, io } = await fixture()
     const snapshot = await readSnapshot(io, "personal")
+    const write = vi.spyOn(io, "writeText")
+    const transform = vi.fn((tree) => tree)
     await writeFile(join(home, "installed.json"), JSON.stringify({ "layout:personal": {} }))
-    await expect(saveSnapshot(io, snapshot, (tree) => tree)).rejects.toThrow("read-only")
+    await expect(saveSnapshot(io, snapshot, transform)).rejects.toThrow("read-only")
+    expect(transform).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(await io.readText(snapshot.path)).toBe(snapshot.raw)
+  })
+
+  it("rejects a shipped snapshot even for a no-op after its index entry is removed", async () => {
+    const { home, io } = await fixture({ "layout:personal": {} })
+    const snapshot = await readSnapshot(io, "personal")
+    await writeFile(join(home, "installed.json"), "{}")
+    const write = vi.spyOn(io, "writeText")
+    const transform = vi.fn((tree) => JSON.parse(JSON.stringify(tree)))
+    await expect(saveSnapshot(io, snapshot, transform)).rejects.toThrow("read-only")
+    expect(transform).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
     expect(await io.readText(snapshot.path)).toBe(snapshot.raw)
   })
 
@@ -142,10 +240,12 @@ describe("layout writes", () => {
   it("rejects layout switches, tampered paths, unsafe names, and invalid transforms", async () => {
     const { io } = await fixture()
     const snapshot = await readSnapshot(io, "personal")
+    const write = vi.spyOn(io, "writeText")
+    const transform = vi.fn((tree) => tree)
     io.currentName = () => "different"
-    await expect(saveSnapshot(io, snapshot, (tree) => tree)).rejects.toThrow(
-      "current layout changed",
-    )
+    await expect(saveSnapshot(io, snapshot, transform)).rejects.toThrow("current layout changed")
+    expect(transform).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
     io.currentName = () => "personal"
     await expect(saveSnapshot(io, { ...snapshot, path: "/other" }, (tree) => tree)).rejects.toThrow(
       "target changed",
