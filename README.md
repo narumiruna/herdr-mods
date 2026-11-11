@@ -28,7 +28,7 @@ git diff --check
 
 `check:mod` runs native checks and generates the ignored Herdr SDK declarations inside each mod. Run it before `check:types` or `ci`. Hosted Linux CI runs formatting and fixture tests without the local SDK.
 
-Root `check` checks the whole repository. Root `test`, `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
+Root `check` checks the whole repository. Root `test` runs the isolated link-script tests, then the workspace tests. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
 
 ```sh
 npm test --workspace herdr-mod-manager
@@ -39,16 +39,23 @@ Shared hooks, Changesets, and release commands run from the root.
 
 ## Link local mods
 
-Stop Herdr before you change links. Run these scripts to link or unlink this checkout's mods in `~/.config/herdr-app/mods/`:
+Stop Herdr before you change links. To link this checkout's mods in `~/.config/herdr-app/mods/`, run:
 
 ```sh
 ./scripts/link-mods.sh
+```
+
+To remove these links later, stop Herdr and run:
+
+```sh
 ./scripts/unlink-mods.sh
 ```
 
 The link script scans `mods/*/` on each run and uses absolute source paths. Run it again after you add a mod. It skips correct links and reports conflicts without overwriting them. A conflict sets exit code 1; other mods are still processed.
 
-The unlink script removes only same-name links that point to this checkout's mod paths, including broken links. It keeps source files, real directories, and links to other locations. Both scripts can run from any working directory and can be run more than once. Reopen Herdr after you change links.
+The unlink script removes only same-name links that point to this checkout's mod paths, including broken links. Both scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real directories, and links to other locations. Both scripts can run from any working directory and can be run more than once. Reopen Herdr after you change links.
+
+Run `npm run test:scripts` to test both scripts with a temporary checkout and `HOME`. These tests do not change your Herdr profile.
 
 ## Open Mod Manager
 
