@@ -10,5 +10,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["main.js", "model.js", "runtime.js", "gpui-kit.d.ts"]
+  "include": ["main.js", "model.js", "tree.js", "runtime.js", "gpui-kit.d.ts"]
 }

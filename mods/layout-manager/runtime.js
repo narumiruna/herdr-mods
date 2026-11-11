@@ -115,11 +115,12 @@ export async function saveSnapshot(io, snapshot, transform) {
   }
   const tree = transform(snapshot.tree)
   validateLayout(tree)
-  managedSlots(tree)
+  const slots = managedSlots(tree)
+  if (JSON.stringify(tree) === JSON.stringify(snapshot.tree)) return snapshot
   const raw = `${JSON.stringify(tree, null, 2)}\n`
   // The host atomically rejects a write if the file changed after discovery.
   await io.writeText(path, raw, snapshot.raw)
-  return { ...snapshot, raw, tree, slots: managedSlots(tree) }
+  return { ...snapshot, raw, tree, slots }
 }
 
 export function overlaySpec(mod, props) {

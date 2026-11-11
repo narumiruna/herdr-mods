@@ -18,7 +18,6 @@ import {
   addPanel,
   DOCK_ID,
   dockPosition,
-  FRAME_ID,
   findNode,
   MOD_NAME,
   managedSlots,
@@ -31,6 +30,16 @@ import {
   validName,
 } from "./model.js"
 import { discoverMods, includeMissing, overlaySpec, readSnapshot, saveSnapshot } from "./runtime.js"
+import { ordinaryNodes, placementError, placeNode } from "./tree.js"
+
+const SIDES = ["left", "right", "top", "bottom"]
+const sideTitle = (side) => side[0].toUpperCase() + side.slice(1)
+const nodeTitle = (node) =>
+  typeof node.content?.mod === "string"
+    ? node.content.mod
+    : node.content?.tab
+      ? "Workspace"
+      : node.type
 
 const stop = (_event, cx) => cx.stop_propagation()
 const message = (error) => String(error?.message ?? error)
@@ -72,8 +81,12 @@ export default class LayoutManager extends View {
     this.limit = 100
     this.drafts = new Map()
     this.needsRefresh = false
+    /** @type {{kind: string, name?: string, id?: string, origin: {x: number, y: number}, active: boolean} | null} */
     this.drag = null
     this.dropTarget = null
+    this.dropPlacement = null
+    this.nodeSource = null
+    this.nodeTarget = null
     this.focus = cx.focus_handle()
     this.search = InputState.new({ placeholder: "Search installed mods…" })
     this.search.on("change", (_event, cx) => {
@@ -89,6 +102,9 @@ export default class LayoutManager extends View {
   close() {
     this.drag = null
     this.dropTarget = null
+    this.dropPlacement = null
+    this.nodeSource = null
+    this.nodeTarget = null
     this.closed = true
     this.search?.release()
     this.properties?.release()
@@ -100,6 +116,11 @@ export default class LayoutManager extends View {
     if (this.busy) return
     this.cancelDrag(cx)
     const name = this.io.currentName()
+    if (name !== this.loadedName) {
+      this.nodeSource = null
+      this.nodeTarget = null
+      this.reveal = null
+    }
     const request = ++this.request
     this.loadedName = name
     this.loading = true
@@ -130,6 +151,7 @@ export default class LayoutManager extends View {
         ? this.selected
         : this.mods[0]?.name
       this.selectMod(selected, cx, true)
+      this.reconcileNodes()
       this.cloneName.set_value(validName(name) ? `${name}-personal` : "my-layout")
       cx.notify()
     })
@@ -162,6 +184,9 @@ export default class LayoutManager extends View {
       .text_size(12)
       .cursor_pointer()
       .disabled(disabled)
+      .tab_stop(!disabled)
+      .accessibility_label(text)
+      .focus((style) => style.border_color(t.accent))
       .when(disabled, (element) => element.opacity(0.45))
       .hover((style) => style.opacity(0.85))
       .on_mouse_down("left", (event, cx) => {
@@ -227,7 +252,12 @@ export default class LayoutManager extends View {
           this.mods.filter((item) => !item.missing),
           next,
         )
-        this.notice = notice
+        this.notice = next === snapshot ? "No layout change." : notice
+        this.reconcileNodes()
+        if (this.io.currentName() !== next.name) {
+          this.nodeSource = null
+          this.nodeTarget = null
+        }
         if (!this.mods.some((mod) => mod.name === this.selected)) {
           this.selected = null
           this.properties.set_value("{}")
@@ -248,16 +278,108 @@ export default class LayoutManager extends View {
     })
   }
 
+  reconcileNodes() {
+    const entries = this.snapshot ? ordinaryNodes(this.snapshot.tree) : []
+    if (
+      this.nodeSource?.kind === "node" &&
+      !entries.some(({ node, parent }) => parent && node.id === this.nodeSource.id)
+    )
+      this.nodeSource = null
+    if (
+      this.nodeSource?.kind === "new" &&
+      !this.mods.some((mod) => mod.name === this.nodeSource.name && mod.available)
+    )
+      this.nodeSource = null
+    if (!entries.some(({ node }) => node.id === this.nodeTarget))
+      this.nodeTarget = entries[0]?.node.id ?? null
+  }
+
+  selectNodeSource(id, cx) {
+    if (!this.canEdit()) return
+    if (!ordinaryNodes(this.snapshot.tree).some(({ node, parent }) => parent && node.id === id))
+      return
+    this.cancelDrag(cx)
+    this.nodeSource = { kind: "node", id }
+    this.error = ""
+    cx.notify()
+  }
+
+  selectNodeTarget(id, cx) {
+    if (!this.canEdit()) return
+    if (!ordinaryNodes(this.snapshot.tree).some(({ node }) => node.id === id)) return
+    this.cancelDrag(cx)
+    this.nodeTarget = id
+    cx.notify()
+  }
+
+  selectNewView(name, cx) {
+    if (!this.canEdit() || !this.mods.some((mod) => mod.name === name && mod.available)) return
+    this.cancelDrag(cx)
+    this.selectMod(name, cx)
+    this.nodeSource = { kind: "new", name }
+    this.error = ""
+    cx.notify()
+  }
+
+  ordinarySource(source) {
+    if (!source) throw new Error("Select an existing source or Add new view first.")
+    if (source.kind !== "new") return { kind: source.kind, id: source.id }
+    if (!this.mods.some((mod) => mod.name === source.name && mod.available))
+      throw new Error("This mod is not available. Move its saved node from the outline instead.")
+    const draft =
+      source.name === this.selected
+        ? this.properties.value()
+        : (this.drafts.get(source.name) ?? "{}")
+    return { kind: "new", name: source.name, props: parseProps(draft) }
+  }
+
+  ordinaryError(source, id, side) {
+    if (!this.snapshot) return "Refresh the layout first."
+    try {
+      return placementError(this.snapshot.tree, this.ordinarySource(source), id, side)
+    } catch (error) {
+      return message(error)
+    }
+  }
+
+  placeOrdinary(cx, source, id, side) {
+    if (!this.canEdit()) return
+    const error = this.ordinaryError(source, id, side)
+    if (error) {
+      this.error = error
+      cx.notify()
+      return
+    }
+    const prepared = this.ordinarySource(source)
+    const text = prepared.kind === "node" ? prepared.id : `new view of ${prepared.name}`
+    this.saveChange(
+      cx,
+      (tree) => placeNode(tree, prepared, id, side),
+      `Placed ${text} ${side} of ${id}.`,
+    )
+  }
+
   cancelDrag(cx) {
-    if (!this.drag && !this.dropTarget) return
+    if (!this.drag && !this.dropTarget && !this.dropPlacement) return
     this.drag = null
     this.dropTarget = null
+    this.dropPlacement = null
     cx.notify()
   }
 
   startDrag(kind, name, event, cx) {
     if (!this.canEdit()) return
+    if (!["node", "new", "mod", "dock"].includes(kind)) return
     if (kind === "dock" && !this.snapshot.slots.length) return
+    if (kind === "node") {
+      if (!ordinaryNodes(this.snapshot.tree).some(({ node, parent }) => parent && node.id === name))
+        return
+      this.selectNodeSource(name, cx)
+    }
+    if (kind === "new") {
+      if (!this.mods.some((mod) => mod.name === name && mod.available)) return
+      this.selectNewView(name, cx)
+    }
     if (kind === "mod") {
       const mod = this.mods.find((item) => item.name === name)
       if (!mod || (!mod.available && !this.snapshot.slots.some((slot) => slot.name === name)))
@@ -266,8 +388,14 @@ export default class LayoutManager extends View {
     }
     cx.stop_propagation()
     this.focus.focus()
-    this.drag = { kind, name, origin: event.position, active: false }
+    this.drag = {
+      kind,
+      ...(kind === "node" ? { id: name } : { name }),
+      origin: event.position,
+      active: false,
+    }
     this.dropTarget = null
+    this.dropPlacement = null
     cx.notify()
   }
 
@@ -282,6 +410,8 @@ export default class LayoutManager extends View {
 
   acceptsDrop(target) {
     if (!this.canEdit() || !this.drag) return false
+    if (this.drag.kind === "node" || this.drag.kind === "new")
+      return target.kind === "node" && !this.ordinaryError(this.drag, target.id, target.position)
     if (target.kind === "edge") return true
     if (this.drag.kind !== "mod") return false
     return (
@@ -292,9 +422,22 @@ export default class LayoutManager extends View {
 
   hoverDrop(target, event, cx) {
     this.updateDrag(event, cx)
-    if (!this.drag?.active || !this.acceptsDrop(target)) return
+    // A child target, including an invalid one, must not fall through to an ancestor.
+    if (target.kind === "node" && this.drag) cx.stop_propagation()
+    if (!this.drag?.active || !this.acceptsDrop(target)) {
+      if (this.dropTarget || this.dropPlacement) {
+        this.dropTarget = null
+        this.dropPlacement = null
+        cx.notify()
+      }
+      return
+    }
     if (this.dropTarget !== target.key) {
       this.dropTarget = target.key
+      if (target.kind === "node") {
+        this.nodeTarget = target.id
+        this.dropPlacement = { id: target.id, side: target.position }
+      }
       cx.notify()
     }
   }
@@ -307,7 +450,9 @@ export default class LayoutManager extends View {
     cx.stop_propagation()
     this.cancelDrag(cx)
     if (!accepted) return
-    if (drag.kind === "dock") {
+    if (target.kind === "node") {
+      this.placeOrdinary(cx, drag, target.id, target.position)
+    } else if (drag.kind === "dock") {
       this.saveChange(
         cx,
         (tree) => moveDock(tree, target.position),
@@ -375,9 +520,8 @@ export default class LayoutManager extends View {
     )
   }
 
-  dropZone(element, target) {
+  dropZone(element, target, enabled = this.acceptsDrop(target)) {
     const t = colors()
-    const enabled = this.acceptsDrop(target)
     return element
       .when(enabled && this.drag?.active, (item) => item.border_color(t.accent))
       .when(this.dropTarget === target.key, (item) =>
@@ -388,6 +532,7 @@ export default class LayoutManager extends View {
       .on_hover((hovered, cx) => {
         if (!hovered && this.dropTarget === target.key) {
           this.dropTarget = null
+          this.dropPlacement = null
           cx.notify()
         }
       })
@@ -480,11 +625,17 @@ export default class LayoutManager extends View {
       )
   }
 
-  dragHandle(id, kind, name, text) {
+  dragHandle(id, kind, name, text, movable = false) {
     const t = colors()
     const managed = this.snapshot?.slots.some((slot) => slot.name === name)
     const available = this.mods.some((mod) => mod.name === name && mod.available)
-    const enabled = this.canEdit() && (kind === "dock" || managed || available)
+    const enabled =
+      this.canEdit() &&
+      (kind === "node"
+        ? movable
+        : kind === "new"
+          ? available
+          : kind === "dock" || managed || available)
     return div()
       .id(id)
       .flex_none()
@@ -495,45 +646,328 @@ export default class LayoutManager extends View {
       .text_color(enabled ? t.muted : t.dim)
       .child(text)
       .when(enabled, (element) => element.cursor_grab().hover((style) => style.bg(t.hover)))
-      .tooltip(enabled ? "Drag to move" : "Layout editing is unavailable")
+      .tooltip(
+        enabled
+          ? kind === "new"
+            ? "Add new view: drag beside a layout node"
+            : "Drag to move this instance"
+          : "Layout editing is unavailable for this source",
+      )
       .on_mouse_down("left", (event, cx) => this.startDrag(kind, name, event, cx))
   }
 
-  previewNode(node, depth = 0) {
+  previewSize(node, sizes) {
+    if (sizes.has(node.id)) return sizes.get(node.id)
+    const children = (node.children ?? []).map((child) => this.previewSize(child, sizes))
+    const horizontal = node.type === "row"
+    const size = !children.length
+      ? { width: 220, height: 88 }
+      : {
+          width: Math.max(
+            220,
+            12 +
+              (horizontal
+                ? children.reduce((sum, child) => sum + child.width + 6, -6)
+                : Math.max(...children.map((child) => child.width))),
+          ),
+          height:
+            68 +
+            (horizontal
+              ? Math.max(...children.map((child) => child.height))
+              : children.reduce((sum, child) => sum + child.height + 6, -6)),
+        }
+    sizes.set(node.id, size)
+    return size
+  }
+
+  nodeSideTarget(node, side, outline = false) {
+    const t = colors()
+    const key = `${outline ? "outline-node" : "node"}-${JSON.stringify([node.id, side])}`
+    return this.dropZone(
+      div()
+        .id(`${outline ? "outline-" : ""}drop-node-${node.id}-${side}`)
+        .h(24)
+        .flex_1()
+        .min_w(0)
+        .rounded(4)
+        .border_1()
+        .border_color(t.border)
+        .bg(t.chrome)
+        .text_size(10)
+        .text_color(t.muted)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(sideTitle(side))
+        .tooltip(`Drop ${side} of ${node.id}`),
+      { kind: "node", id: node.id, position: side, key },
+      Boolean(this.renderTargets?.get(node.id)),
+    )
+  }
+
+  previewNode(node, depth = 0, sizes = new Map()) {
     const t = colors()
     const children = node.children ?? []
-    const container = node.type === "row" ? h_flex() : v_flex()
-    const content = node.content
-    const text = content?.mod
-      ? content.mod
-      : content?.tab
-        ? "Workspace"
-        : content?.terminal
-          ? `Terminal ${content.terminal}`
-          : content?.agent
-            ? "Agent"
-            : node.id
-    return container
-      .id(`preview-${node.id}`)
-      .flex_1()
-      .min_w(0)
-      .min_h(0)
+    const size = this.previewSize(node, sizes)
+    const source = this.nodeSource?.kind === "node" && this.nodeSource.id === node.id
+    return v_flex()
+      .id(`preview-node-${node.id}`)
+      .w(size.width)
+      .h(size.height)
+      .flex_none()
       .p(6)
       .gap(4)
-      .items_stretch()
       .rounded(5)
       .border_1()
-      .border_color(t.border)
-      .bg(depth % 2 ? t.canvas : t.surface)
-      .when(node.hidden, (element) => element.opacity(0.45))
-      .when(children.length === 0 || depth >= 4, (element) =>
-        element
+      .border_color(this.nodeTarget === node.id ? t.accent : t.border)
+      .bg(source ? t.selected : depth % 2 ? t.canvas : t.surface)
+      .child(
+        h_flex()
+          .h(24)
+          .flex_none()
+          .min_w(0)
+          .gap(3)
           .items_center()
-          .justify_center()
-          .child(label(text, 10, t.muted).truncate().tooltip(node.id)),
+          .child(this.dragHandle(`drag-node-${node.id}`, "node", node.id, "⠿", depth > 0))
+          .child(
+            this.button(
+              `canvas-source-${node.id}`,
+              node.id,
+              (cx) => this.selectNodeSource(node.id, cx),
+              { disabled: !this.canEdit() || depth === 0 },
+            )
+              .h(24)
+              .px(4)
+              .flex_1()
+              .min_w(0)
+              .truncate()
+              .tooltip(`${node.id} · ${nodeTitle(node)}${node.hidden ? " · hidden" : ""}`)
+              .accessibility_label(`Select source ${node.id}`),
+          )
+          .child(
+            this.button(
+              `canvas-target-${node.id}`,
+              "Target",
+              (cx) => this.selectNodeTarget(node.id, cx),
+              {
+                disabled: !this.canEdit(),
+              },
+            )
+              .h(24)
+              .px(5)
+              .accessibility_label(`Select destination ${node.id}`),
+          ),
       )
-      .when(children.length > 0 && depth < 4, (element) =>
-        element.children(children.map((child) => this.previewNode(child, depth + 1))),
+      .child(
+        h_flex()
+          .gap(3)
+          .children(SIDES.map((side) => this.nodeSideTarget(node, side))),
+      )
+      .when(!children.length, (element) =>
+        element.child(label(`${nodeTitle(node)}${node.hidden ? " · hidden" : ""}`, 10, t.muted)),
+      )
+      .when(children.length > 0, (element) =>
+        element.child(
+          (node.type === "row" ? h_flex() : v_flex())
+            .flex_none()
+            .gap(6)
+            .children(children.map((child) => this.previewNode(child, depth + 1, sizes))),
+        ),
+      )
+  }
+
+  nodeOutline(entries) {
+    const t = colors()
+    return v_flex()
+      .id("layout-manager-outline")
+      .w(240)
+      .flex_none()
+      .min_h(0)
+      .gap(5)
+      .p(6)
+      .rounded(6)
+      .border_1()
+      .border_color(t.border)
+      .overflow_y_scrollbar()
+      .child(label("Layout outline", 12).font_medium())
+      .children(
+        entries.map(({ node, parent, depth }) =>
+          v_flex()
+            .id(`outline-node-${node.id}`)
+            .flex_none()
+            .gap(3)
+            .pl(Math.min(depth, 8) * 8)
+            .child(
+              h_flex()
+                .gap(3)
+                .min_w(0)
+                .child(
+                  this.button(
+                    `source-node-${node.id}`,
+                    `${node.id}${node.hidden ? " · hidden" : ""}`,
+                    (cx) => this.selectNodeSource(node.id, cx),
+                    { disabled: !this.canEdit() || !parent },
+                  )
+                    .h(26)
+                    .px(5)
+                    .flex_1()
+                    .min_w(0)
+                    .truncate()
+                    .bg(
+                      this.nodeSource?.kind === "node" && this.nodeSource.id === node.id
+                        ? t.selected
+                        : t.surface,
+                    )
+                    .tooltip(`${node.id} · ${nodeTitle(node)} · depth ${depth}`)
+                    .accessibility_label(`Select source ${node.id}`),
+                )
+                .child(
+                  this.button(
+                    `target-node-${node.id}`,
+                    "Target",
+                    (cx) => this.selectNodeTarget(node.id, cx),
+                    {
+                      disabled: !this.canEdit(),
+                    },
+                  )
+                    .h(26)
+                    .px(5)
+                    .border_color(this.nodeTarget === node.id ? t.accent : t.border)
+                    .accessibility_label(`Select destination ${node.id}`),
+                ),
+            )
+            .child(
+              h_flex()
+                .gap(2)
+                .children(SIDES.map((side) => this.nodeSideTarget(node, side, true))),
+            ),
+        ),
+      )
+  }
+
+  treeEditor() {
+    const t = colors()
+    const entries = ordinaryNodes(this.snapshot.tree)
+    // Reuse structural eligibility across four sides and both views during this render only.
+    // Mouse handlers and the saved transform still validate against the current snapshot.
+    let dragged = null
+    if (this.canEdit() && (this.drag?.kind === "node" || this.drag?.kind === "new")) {
+      try {
+        dragged = this.ordinarySource(this.drag)
+      } catch {
+        // Invalid new-view drafts have no eligible targets.
+      }
+    }
+    this.renderTargets = new Map(
+      entries.map(({ node }) => [
+        node.id,
+        dragged && !placementError(this.snapshot.tree, dragged, node.id, "left"),
+      ]),
+    )
+    const source = this.nodeSource
+    const text =
+      source?.kind === "node" ? source.id : source ? `Add new view · ${source.name}` : "none"
+    const problem = this.ordinaryError(source, this.nodeTarget, "left")
+    return v_flex()
+      .flex_none()
+      .gap(8)
+      .child(label("Layout tree", 15).font_semibold())
+      .child(
+        label(
+          "Drag an existing node to move it. Inventory grips add a new view. Drop beside any node.",
+          11,
+          t.muted,
+        ),
+      )
+      .child(
+        h_flex()
+          .h(330)
+          .flex_none()
+          .min_w(0)
+          .gap(8)
+          .items_stretch()
+          .child(
+            div()
+              .id("layout-manager-canvas")
+              .flex_1()
+              .min_w(0)
+              .min_h(0)
+              .p(8)
+              .rounded(6)
+              .border_1()
+              .border_color(t.border)
+              .overflow_scrollbar()
+              .child(this.previewNode(entries[0].node)),
+          )
+          .child(this.nodeOutline(entries)),
+      )
+      .child(label(`Source: ${text}`, 11).truncate().tooltip(text))
+      .child(
+        label(
+          this.dropPlacement
+            ? `Drop ${this.dropPlacement.side} of ${this.dropPlacement.id}`
+            : `Destination: ${this.nodeTarget ?? "none"}`,
+          11,
+          t.accent,
+        ).truncate(),
+      )
+      .child(
+        h_flex()
+          .gap(6)
+          .flex_wrap()
+          .child(
+            this.button(
+              "choose-new-view",
+              "Add new view",
+              (cx) => this.selectNewView(this.selected, cx),
+              {
+                disabled:
+                  !this.canEdit() ||
+                  !this.mods.some((mod) => mod.name === this.selected && mod.available),
+              },
+            ),
+          )
+          .children(
+            SIDES.map((side) =>
+              this.button(
+                `place-node-${side}`,
+                sideTitle(side),
+                (cx) => this.placeOrdinary(cx, this.nodeSource, this.nodeTarget, side),
+                {
+                  disabled:
+                    !this.canEdit() || Boolean(this.ordinaryError(source, this.nodeTarget, side)),
+                },
+              )
+                .accessibility_label(`Place ${text} ${side} of ${this.nodeTarget ?? "destination"}`)
+                .tooltip(`Save ${side} of ${this.nodeTarget ?? "destination"}`),
+            ),
+          )
+          .child(
+            this.button(
+              "clear-node-source",
+              "Cancel",
+              (cx) => {
+                this.cancelDrag(cx)
+                this.nodeSource = null
+                cx.notify()
+              },
+              { disabled: !source || this.busy },
+            ),
+          ),
+      )
+      .child(
+        label(
+          problem || "Select a source, choose Target in the outline, then choose a side to save.",
+          10,
+          t.muted,
+        ),
+      )
+      .child(
+        label(
+          "Schematic only. Pane headers and terminal splits move with their owning block; they are not separate targets.",
+          10,
+          t.dim,
+        ),
       )
   }
 
@@ -669,68 +1103,44 @@ export default class LayoutManager extends View {
   }
 
   editor() {
-    const t = colors()
     if (!this.snapshot) return div()
-    const tree = this.snapshot.tree
-    const position = dockPosition(tree)
-    const body = tree.id === FRAME_ID ? tree.children.find((node) => node.id !== DOCK_ID) : tree
-    const preview = position === "top" || position === "bottom" ? v_flex() : h_flex()
-    const panel = position ? this.panelPreview(position) : null
+    return v_flex().flex_none().gap(20).child(this.treeEditor()).child(this.legacyEditor())
+  }
+
+  legacyEditor() {
+    const t = colors()
+    const position = dockPosition(this.snapshot.tree)
     return v_flex()
       .flex_none()
       .gap(9)
-      .child(label("Visual layout", 15).font_semibold())
+      .child(label("Managed panel (legacy)", 14).font_semibold())
       .child(
-        label(
-          "Drag a mod to an edge. Drag the panel grip to move it. Drag cards to reorder tabs.",
-          11,
-          t.muted,
-        ),
+        label("These controls move the whole added panel, not ordinary layout nodes.", 11, t.muted),
       )
       .child(
-        v_flex()
-          .id("layout-manager-canvas")
-          .h(330)
-          .flex_none()
-          .p(8)
+        h_flex()
           .gap(6)
-          .rounded(8)
-          .border_1()
-          .border_color(t.border)
-          .bg(t.surface)
-          .child(this.edgeTarget("top"))
-          .child(
-            h_flex()
-              .flex_1()
-              .min_h(0)
-              .gap(6)
-              .items_stretch()
-              .child(this.edgeTarget("left"))
-              .child(
-                preview
-                  .flex_1()
-                  .min_w(0)
-                  .min_h(0)
-                  .gap(6)
-                  .items_stretch()
-                  .when(position === "left" || position === "top", (element) =>
-                    element.child(panel),
-                  )
-                  .child(this.previewNode(body))
-                  .when(position === "right" || position === "bottom", (element) =>
-                    element.child(panel),
-                  ),
-              )
-              .child(this.edgeTarget("right")),
-          )
-          .child(this.edgeTarget("bottom")),
+          .children(SIDES.map((side) => this.edgeTarget(side).w(70).h(28))),
+      )
+      .when(Boolean(position), (element) =>
+        element.child(this.panelPreview(position).w_full().h(140)),
+      )
+      .when(Boolean(this.selected), (element) =>
+        element.child(
+          this.dragHandle(
+            `drag-mod-${this.selected}`,
+            "mod",
+            this.selected,
+            "⠿ Add or move a managed tab",
+          ),
+        ),
       )
       .child(
         h_flex()
           .gap(8)
           .flex_wrap()
           .items_center()
-          .child(label("Place selected mod:", 11, t.muted))
+          .child(label("Managed panel edge:", 11, t.muted))
           .children(
             ["left", "right", "top", "bottom"].map((edge) =>
               this.button(
@@ -768,7 +1178,7 @@ export default class LayoutManager extends View {
       )
       .child(
         label(
-          "Schematic preview. Existing layout blocks and special integrations are not moved.",
+          "Managed slots stay in this panel. Use the layout tree above to move existing ordinary nodes.",
           10,
           t.dim,
         ),
@@ -799,6 +1209,7 @@ export default class LayoutManager extends View {
           .border_color(t.input),
       )
       .child(label(`${mods.length} installed or saved mods`, 10, t.dim))
+      .child(label("Inventory grips: Add new view", 10, t.muted))
       .child(
         v_flex()
           .id("layout-manager-mod-list")
@@ -821,7 +1232,7 @@ export default class LayoutManager extends View {
                 .hover((style) => style.bg(t.hover))
                 .on_click((_event, cx) => this.selectMod(mod.name, cx))
                 .when(
-                  this.drag?.kind === "mod" && this.drag.name === mod.name && this.drag.active,
+                  this.drag?.kind === "new" && this.drag.name === mod.name && this.drag.active,
                   (element) => element.opacity(0.5),
                 )
                 .child(
@@ -829,7 +1240,7 @@ export default class LayoutManager extends View {
                     .min_w(0)
                     .gap(5)
                     .items_center()
-                    .child(this.dragHandle(`drag-mod-${mod.name}`, "mod", mod.name, "⠿"))
+                    .child(this.dragHandle(`drag-new-mod-${mod.name}`, "new", mod.name, "⠿"))
                     .child(label(mod.title, 12).truncate()),
                 )
                 .child(
@@ -885,7 +1296,7 @@ export default class LayoutManager extends View {
         label(
           slot
             ? `This mod has a managed ${dockPosition(this.snapshot.tree)}-panel slot.`
-            : "Drag this mod to a preview edge, add it to the panel, or open it as an overlay.",
+            : "Drag the inventory grip beside a layout node to add a new view, or open an overlay.",
           12,
           t.muted,
         ),
@@ -897,7 +1308,7 @@ export default class LayoutManager extends View {
             .p(12)
             .rounded(6)
             .bg(t.surface)
-            .child(label("Existing integrations are kept unchanged", 12).font_medium())
+            .child(label("Existing instances and integrations", 12).font_medium())
             .children(
               existing.map((item, index) =>
                 label(`${item.id || `placement-${index + 1}`} · ${item.role}`, 11, t.muted),
@@ -905,7 +1316,7 @@ export default class LayoutManager extends View {
             )
             .child(
               label(
-                "Adding a panel creates another view. It does not replace a tab bar, footer, or pane header.",
+                "Move an existing instance by node ID in the layout tree. Add new view creates another instance; embedded headers are not separate targets.",
                 11,
                 t.dim,
               ),
@@ -937,7 +1348,7 @@ export default class LayoutManager extends View {
           .child(
             this.button(
               "save-panel",
-              slot ? "Save panel props" : "Add to panel",
+              slot ? "Save managed panel props" : "Add to managed panel",
               (cx) => this.apply(cx),
               { primary: true, disabled: blocked || !mod.available },
             ),
@@ -1019,8 +1430,10 @@ export default class LayoutManager extends View {
         if (!hovered) this.cancelDrag(cx)
       })
       .on_key_down((event, cx) => {
-        if (event.key === "escape" && this.drag) {
+        if (event.key === "escape" && (this.drag || this.nodeSource)) {
           this.cancelDrag(cx)
+          this.nodeSource = null
+          cx.notify()
           cx.stop_propagation()
         }
       })
@@ -1090,7 +1503,7 @@ export default class LayoutManager extends View {
                     .child(label("Herdr's layouts are read-only", 14).font_medium())
                     .child(
                       label(
-                        "Create a personal clone before changing panel placement or props.",
+                        "Create a personal clone before changing layout structure, panel placement, or props.",
                         12,
                         t.muted,
                       ),
@@ -1142,7 +1555,7 @@ export default class LayoutManager extends View {
                 ? this.drag.active
                   ? "Release on a highlighted target to save. Escape or leaving the dialog cancels."
                   : "Move the pointer to drag. A click does not change the layout."
-                : "Drops save immediately. Mod files, keys, credentials, and existing integrations are not changed.",
+                : "Drops save immediately to the personal layout. Mod files, keys, and credentials are not changed.",
               10,
               t.dim,
             ),

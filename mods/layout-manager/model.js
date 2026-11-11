@@ -7,7 +7,7 @@ export const STACK_ID = "layout-manager-stack"
 const SLOT_PREFIX = "layout-manager-mod-"
 const RESERVED_IDS = new Set([FRAME_ID, DOCK_ID, HEADER_ID, STACK_ID])
 const NODE_TYPES = new Set(["block", "row", "column", "stack"])
-const ROOT_FIELDS = [
+export const ROOT_FIELDS = [
   "titlebar",
   "traffic_lights",
   "terminal_menu",
@@ -32,7 +32,7 @@ function isObject(value) {
 }
 
 // Copy JSON-shaped data without discarding unknown fields or special property names.
-function copy(value) {
+export function copy(value) {
   if (Array.isArray(value)) return value.map(copy)
   if (isObject(value)) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, copy(item)]))
@@ -52,7 +52,7 @@ function checkName(name) {
   }
 }
 
-function checkProps(props) {
+export function checkProps(props) {
   if (!isObject(props))
     throw new Error("Props must be a JSON object, not null, an array or a scalar.")
   const ancestors = new Set()
