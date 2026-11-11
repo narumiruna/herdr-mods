@@ -56,6 +56,11 @@ export function renderSidebarFooter() {
     .when(collapsed, (el) => el.px(0).items_center())
     .child(row("mods", "layers", "Mods", false, () => run("mod.open", { name: "mod-manager" })))
     .child(
+      row("layout-manager", "panel-right", "Layout Manager", false, () =>
+        run("mod.open", { name: "layout-manager" }),
+      ),
+    )
+    .child(
       row("settings", "settings", "Settings", false, () => run("app.settings")).when(
         Boolean(updates().app.ready),
         (el) => el.child(collapsed ? ready.absolute().top(5).right(6) : ready),
