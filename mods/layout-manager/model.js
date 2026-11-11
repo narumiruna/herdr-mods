@@ -170,16 +170,18 @@ function owned(root) {
   }
   if (frame !== root) ownedError(`"${FRAME_ID}" must be the layout root`)
   checkKeys(frame, ["id", "type", "children", "divider", "background", ...ROOT_FIELDS], "frame")
-  if (frame.type !== "row" || frame.children?.length !== 2) {
-    ownedError("frame must be a row containing the original body and one dock")
+  if (!["row", "column"].includes(frame.type) || frame.children?.length !== 2) {
+    ownedError("frame must be a row or column containing the original body and one dock")
   }
   checkKeys(frame.divider, ["width", "color"], "frame divider")
   if (frame.divider.width !== 1 || frame.divider.color !== "border") {
     ownedError("frame divider must have width 1 and color border")
   }
-  const [body, dock] = frame.children
-  if (dock.id !== DOCK_ID || dock.type !== "column" || dock.children?.length !== 2) {
-    ownedError(`the second frame child must be column "${DOCK_ID}" with a header and stack`)
+  const dockIndex = frame.children.findIndex((child) => child.id === DOCK_ID)
+  const dock = frame.children[dockIndex]
+  const body = frame.children[1 - dockIndex]
+  if (dock?.type !== "column" || dock.children?.length !== 2) {
+    ownedError(`one frame child must be column "${DOCK_ID}" with a header and stack`)
   }
   checkKeys(
     dock,
@@ -240,6 +242,55 @@ function owned(root) {
   const collision = all.find((node) => reserved(node.id) && !allowed.has(node))
   if (collision) ownedError(`reserved id "${collision.id}" is outside its owned position`)
   return { body, dock, header, stack, titles }
+}
+
+/** Infer the dock edge from the frame; do not persist position metadata. */
+export function dockPosition(root) {
+  const structure = owned(root)
+  if (!structure) return null
+  const first = root.children[0] === structure.dock
+  return root.type === "row" ? (first ? "left" : "right") : first ? "top" : "bottom"
+}
+
+/** Return a validated copy with the complete dock at the requested window edge. */
+export function moveDock(root, position) {
+  if (!["left", "right", "top", "bottom"].includes(position)) {
+    throw new Error("Dock position must be left, right, top or bottom.")
+  }
+  if (!owned(root)) throw new Error("Layout has no managed dock. Add a managed panel first.")
+  const result = copy(root)
+  const { body, dock } = owned(result)
+  result.type = position === "left" || position === "right" ? "row" : "column"
+  result.children = position === "left" || position === "top" ? [dock, body] : [body, dock]
+  owned(result)
+  return result
+}
+
+/** Insert a managed slot before another name, or append it; preserve props and active. */
+export function reorderPanel(root, name, before = null) {
+  checkName(name)
+  if (before !== null) checkName(before)
+  const structure = owned(root)
+  for (const target of before === null ? [name] : [name, before]) {
+    if (!structure?.stack.children.some((slot) => slot.content.mod === target)) {
+      throw new Error(
+        `Mod "${target}" is not managed by Layout Manager. Select a panel from the managed dock.`,
+      )
+    }
+  }
+  const result = copy(root)
+  const { stack } = owned(result)
+  if (name !== before) {
+    const index = stack.children.findIndex((slot) => slot.content.mod === name)
+    const [slot] = stack.children.splice(index, 1)
+    const target =
+      before === null
+        ? stack.children.length
+        : stack.children.findIndex((child) => child.content.mod === before)
+    stack.children.splice(target, 0, slot)
+  }
+  owned(result)
+  return result
 }
 
 export function managedSlots(root) {

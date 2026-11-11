@@ -1,63 +1,79 @@
 # Layout Manager
 
-A native dialog for putting installed Herdr mods into a right-side panel. The user selects a mod, sets its JSON props, and adds it without editing a layout file. A small dock header switches between saved views and opens the manager again.
+A native graphical editor for one managed Herdr mod panel. Drag installed mods into the panel, move it to any window edge, and change its tab order. Existing layout integrations stay unchanged.
 
 ## What you see
 
-- A 1000 × 680 dialog with the theme's `canvas` background and 13px base text.
-- A 58px `chrome` header: **Layout Manager** at 17px, the current layout name, **Refresh**, and **Close**.
-- A 240px `chrome` list on the left. A 34px search field, result count, and scrolling mod rows show title and Installed, Herdr, Managed panel, or Unavailable.
-- A scrolling detail area with 22px padding: title, folder, availability message, existing integrations, a 132px JSON textarea, action buttons, and reinstall guidance.
-- Shipped layouts show a clone-name field and **Clone current layout**. File actions are disabled there.
-- The managed dock is 380px wide initially, adjustable between 240 and 900px. Its 36px header contains scrolling mod tabs, **Manage**, and **Hide**. The selected mod fills the remaining height.
-- Colors come from `theme()`. No external assets or preview image are required to run it.
+- A 1000 × 680 dialog with theme colors and 13px base text.
+- A 58px `chrome` header: **Layout Manager**, current layout, **Refresh**, and **Close**.
+- A 240px full-height inventory with a search field and scrolling mod cards. Each card has a **⠿** grip, title, and availability status.
+- A scrolling editor with 22px padding. **Visual layout** contains a 330px schematic canvas with four edge targets and nested blocks for the existing body.
+- When present, the managed panel appears at its saved edge. It has a **Panel** grip, scrolling draggable cards, and **Drop to append**. Each card has **Earlier** and **Later** buttons.
+- **Place selected mod** buttons and a separate remove target follow the preview. The selected mod's title, existing integrations, JSON props editor, and action buttons are below them.
+- Shipped layouts show a clone-name field and **Clone current layout**. Editing and drag initiation are disabled there.
+- The live panel retains its 36px header with scrolling tabs, **Manage**, and **Hide**. Its initial extent is 380px; the owned model accepts 240–900px. The frame's divider supports native resizing.
+- The footer shows drag instructions while a gesture is active. No external assets are required.
 
 ## How it behaves
 
-- Opening or refreshing scans installed folders and development links without executing them. Search matches title and folder. At most 100 rows render initially; **Show more** adds another 100.
-- Selecting a mod restores its props draft, or its saved managed props. Refresh discards drafts.
-- **Add to right panel** adds one managed block per mod name. Repeating it updates that slot rather than creating a duplicate.
-- **Save panel props** saves the selected slot's object and shows the slot.
-- **Show panel** selects a managed slot and shows the dock without writing the layout.
-- **Open overlay** runs the selected mod with the draft props and the supported kind and dimensions in its manifest. It does not keep the window across restarts.
-- **Remove from panel** removes only the managed slot. Removing the final slot restores the original body as root, with the current root look and window fields.
-- Missing mod references stay saved. A same-name reinstall reuses the reference and props.
-- Existing special integrations are listed, not replaced. The manager does not infer footer or tab-bar modes.
-- All agent statuses remain owned by the original layout and its mods. Layout Manager does not display or change working, blocked, done, or idle states.
-- No automatic installation, layout mutation, polling timer, network request, key rebinding, or external program is used.
+- Opening or refreshing scans installed folders and development links without executing them. Search matches title and folder. Render at most 100 inventory cards initially; **Show more** adds 100.
+- Selecting a mod restores its props draft or saved props. Use a Map so names such as `constructor` are safe. Refresh discards drafts.
+- Pressing a grip starts a pending gesture. A distance of at least 5 logical pixels activates it. Store source kind and mod name, not a list index.
+- Edge targets accept a mod or the entire panel. A new mod uses its current draft and creates one stable slot. An existing managed mod keeps saved props. Moving to an edge positions the entire panel, not an independent second panel.
+- Card targets insert a mod before the target name. The append target moves it to the end. Saved props, saved and live active tabs, and panel visibility remain unchanged.
+- Each card's native **Earlier** and **Later** buttons move it one step. Use `tab_stop` and `accessibility_label` for keyboard access and native accessibility. Boundary moves and blocked edits are disabled. Do not require mouse selection first.
+- The remove target accepts only a managed mod. Removing the final slot unwraps the body and restores current root settings.
+- A valid drop saves immediately. Clear the gesture before asynchronous work. No click-only save or automatic retry occurs.
+- Cancel on root release outside a target, pointer exit, outside press, Escape, a new background press, refresh, layout change, and close. Focus the root's handle only when a grip is pressed, not on render.
+- The same placement, props, removal, overlay, and show operations remain available through buttons. **Add to panel** uses the current edge or defaults to right.
+- Missing managed mods can move, reorder, or be removed without parsing a draft. Reinstalling the same folder name reuses saved props.
+- **Open overlay** uses explicit draft props and the manifest's supported kind and dimensions. It does not persist windows.
+- Existing tab bars, footers, pane headers, status displays, and arbitrary body blocks are not moved or replaced. The preview is schematic, not an embedded live terminal or a general layout-tree editor.
+- No polling timer, installation, network request, external program, or key rebinding is added.
 
 ## Built from
 
-All files live directly under `mods/layout-manager/`.
+All files live directly under `mods/layout-manager/`; resolve links and assets from this mod root.
 
-- `main.js`: one View with a dialog mode and a lightweight `{mode:"dock"}` header mode. Header mode creates no inputs, discovery tasks, or timers.
-- `model.js`: immutable tree validation, reference discovery, props parsing, stable slot IDs, root wrapping, and removal.
-- `runtime.js`: manifest discovery, missing-slot display, personal-layout checks, compare-and-swap saves, and overlay specifications. Its I/O is injected for tests.
+- `main.js`: one View with graphical dialog mode and lightweight `{mode:"dock"}` header mode. The header creates no inputs, discovery tasks, focus handles, or timers.
+- `model.js`: immutable tree validation, reference discovery, props parsing, stable slots, wrapping, four-edge placement, reordering, and removal.
+- `runtime.js`: manifest discovery, missing-slot display, personal-layout checks, expected-content saves, and overlay specifications. I/O is injected for tests.
 - `mod.json`: `place:"none"` and a 1000 × 680 dialog.
-- `package.json`, `jsconfig.json`, tests, and native fixture scripts provide repository checks.
+- `package.json`, `jsconfig.json`, tests, and native fixture scripts supply development checks.
 - Herdr APIs: `appHome`, `readTextFile`, `writeTextFile`, `shared("layout")`, `layout`, `theme`, `openOverlay`, `closeOverlay`, `props`, and `run`.
 - Commands: `layout.clone`, `layout.select`, `layout.show`, `layout.hide`, and `mod.open`.
-- `fs/promises` supplies directory listing and existence checks. Read through mod paths instead of filtering only directory entries, so symlinks work.
+- `fs/promises` supplies directory listing and existence checks. Read through paths so development links work.
 
-The original tree becomes the first child of `layout-manager-frame`. The second child is `layout-manager-dock`, with `layout-manager-header` and `layout-manager-stack`. Slot IDs are `layout-manager-mod-<folder>`. The header's props save display titles. Slot content saves the mod name and props.
+Use only supported GPUI mouse handlers: `on_mouse_down`, `on_mouse_move`, `on_mouse_up`, `on_hover`, and `on_mouse_down_out`. Use `cx.focus_handle()`, `track_focus`, and `on_key_down` for Escape. Herdr 0.1.15 has no generic internal `on_drag` API; `on_drop` is for external files. There is no pointer capture or outside-release callback, so leaving the dialog cancels rather than resuming a stale drag.
+
+The outer node is `layout-manager-frame`. It contains exactly the original body and `layout-manager-dock`. A row puts the dock at left or right; a column puts it at top or bottom. Child order determines the edge. Do not add separate position metadata. The dock keeps `layout-manager-header` and `layout-manager-stack`. Slots are `layout-manager-mod-<folder>`. Header props save display titles; slot content saves the mod name and props.
+
+Public transforms:
+
+- `dockPosition(root)`: return the saved edge or `null`.
+- `moveDock(root, position)`: copy the layout and change frame direction and child order.
+- `reorderPanel(root, name, before = null)`: copy the layout and insert before a managed name, or append.
+- Existing `addPanel` and `removePanel` operations retain their stable IDs and ownership checks.
 
 ## Watch out
 
-- Never edit shipped layouts. Read `installed.json` again before a write; missing or invalid metadata must fail closed.
-- Compare the current layout name and loaded file contents before saving. Use the host's atomic expected-content write, not an unconditional file write.
-- Preserve original node IDs. Promote root look, titlebar, traffic-light, preview, menu, toast, and clone fields to the wrapper and restore current values on unwrap.
-- Reject reserved-ID collisions and unexpected edits to owned nodes. Do not delete foreign children.
-- Use a Map for props drafts so valid folder names such as `constructor` do not use object prototype values.
-- Give both dialog columns full height. Give inventory rows fixed flex sizing so the scrolling list does not collapse.
-- Create InputState and TextareaState in init, not render. Release them on close. Each asynchronous task must use its own `cx`.
-- Hidden views and an uninstall do not prove that external programs stopped.
-- Only letter/digit-led names containing letters, digits, dots, underscores, or hyphens are supported. The tree must have unique explicit node IDs.
-- Keep runtime code independent of Node.js. Node, Vitest, Biome, and TypeScript are development tools only.
+- Never edit shipped layouts. Read `installed.json` again before every write; missing or invalid metadata must block editing.
+- Capture the layout and compare its current name and exact contents before saving. Use `writeTextFile(path, next, expected)`; never write unconditionally or merge stale layouts.
+- Preserve original node IDs, body fields, and saved props. Promote root look and window fields to the frame; restore current values when unwrapping at any edge.
+- Keep strict reserved-ID and owned-structure validation. Allow only the documented frame orientations and child orders. Never remove foreign children to repair an unexpected structure.
+- Use window-relative pointer positions for the movement threshold. Do not use the absent pressed-button state or assume native drag payload support.
+- Give edge targets nonzero hit areas. Stretch preview rows and their children across the available height. Mark the hovered target and show an insertion border above a destination card.
+- Create input states and custom focus handles in init and release them on close. Native reorder buttons retain their own focus by stable IDs. Each callback and async task must use its own `cx`.
+- Keep runtime code independent of Node.js. Vitest, Biome, and TypeScript are development tools only.
+- Hiding a view or removing a placement does not prove that external programs stopped.
 
 ## Done when
 
-- Unit and fixture tests pass for normal and linked discovery, missing reinstalls, immutable transforms, props, root fields, collisions, stale files, shipped metadata, layout switches, and view actions.
-- Native checks pass for every documented view state.
-- In a disposable live layout, adding a mod shows its saved props, the dock header renders, and removing the final slot restores the original tree.
-- The dialog's mod list and detail both scroll at their assigned heights.
-- Herdr reports no errors, and the original personal layout file remains unchanged.
+- Tests pass for discovery, props, missing reinstalls, immutable transforms, all edge transitions, root restoration, tab reordering, reserved collisions, and stale writes.
+- Gesture tests verify thresholds, rendered handler wiring, feedback, cancellation, read-only states, missing mods, layout switches, and duplicate releases.
+- Reorder tests verify keyboard button labels, tab stops, boundary moves, guarded saves, and no live select or show commands for an existing card.
+- Native fixtures pass for all four panel edges, active edge/reorder/remove targets, and the existing recovery states.
+- Type and repository checks pass.
+- Inspect the actual graphical dialog with `herdr-app shot`; check stretching, scrolling, and readable targets without editing the live layout.
+
+Physical pointer acceptance remains a profile-owner check in a disposable personal layout. Verify edge drops, tab reordering, removal, Escape, pointer-exit cancellation, Tab navigation, Enter and Space activation, and screen-reader labels. Automated handlers and one-frame native checks do not prove physical pointer dispatch. Do not automate the user's display.

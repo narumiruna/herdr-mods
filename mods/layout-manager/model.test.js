@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest"
 import {
   addPanel,
   DOCK_ID,
+  dockPosition,
   FRAME_ID,
   findNode,
   HEADER_ID,
   MOD_NAME,
   managedSlots,
+  moveDock,
   parseProps,
   references,
   removePanel,
+  reorderPanel,
   STACK_ID,
   validateLayout,
   validName,
@@ -26,6 +29,12 @@ const withoutBackground = (value) => {
 const dock = (root) => findNode(root, DOCK_ID)
 const header = (root) => findNode(root, HEADER_ID)
 const stack = (root) => findNode(root, STACK_ID)
+const edges = [
+  ["left", "row", 0],
+  ["right", "row", 1],
+  ["top", "column", 0],
+  ["bottom", "column", 1],
+]
 
 function freeze(value) {
   if (value && typeof value === "object") {
@@ -147,6 +156,10 @@ describe("public constants and safe names", () => {
     expect(validName(name)).toBe(false)
     expect(() => addPanel(layout(), { name })).toThrow(/name/)
     expect(() => removePanel(layout(), name)).toThrow(/name/)
+    expect(() => reorderPanel(twoPanels(), name)).toThrow(/name/)
+    if (name !== null && name !== undefined) {
+      expect(() => reorderPanel(twoPanels(), "alpha", name)).toThrow(/name/)
+    }
   })
 })
 
@@ -266,6 +279,9 @@ describe("layout validation and lookup", () => {
     expect(() => validateLayout(root)).toThrow(message)
     expect(() => addPanel(root, { name: "alpha" })).toThrow(message)
     expect(() => removePanel(root, "alpha")).toThrow(message)
+    expect(() => dockPosition(root)).toThrow(message)
+    expect(() => moveDock(root, "left")).toThrow(message)
+    expect(() => reorderPanel(root, "alpha")).toThrow(message)
   })
 
   it("requires a stack target to be a direct child, not a descendant", () => {
@@ -485,6 +501,287 @@ describe("adding and listing managed panels", () => {
   })
 })
 
+describe("dock position and immutable movement", () => {
+  it.each(["row", "column", "stack", "block"])(
+    "returns null for an unowned %s without creating a dock",
+    (type) => {
+      const input = type === "block" ? block("root") : layout(type)
+      const before = clone(input)
+      freeze(input)
+      expect(dockPosition(input)).toBeNull()
+      expect(() => moveDock(input, "left")).toThrow(/no managed dock/)
+      expect(input).toEqual(before)
+    },
+  )
+
+  it("keeps the existing right dock as the default", () => {
+    expect(dockPosition(freeze(twoPanels()))).toBe("right")
+  })
+
+  it.each(edges)("recognizes an existing %s dock without metadata", (position, type, index) => {
+    const input = twoPanels()
+    input.type = type
+    if (index === 0) input.children.reverse()
+    const before = clone(input)
+    freeze(input)
+    expect(dockPosition(input)).toBe(position)
+    expect(managedSlots(input).map((slot) => slot.name)).toEqual(["alpha", "beta"])
+    const updated = addPanel(input, { name: "gamma" })
+    expect(dockPosition(updated)).toBe(position)
+    expect(dockPosition(removePanel(input, "alpha"))).toBe(position)
+    expect(input).toEqual(before)
+  })
+
+  it.each(edges)(
+    "moves to %s and changes only frame direction and child order",
+    (position, type, index) => {
+      const input = addPanel(
+        { ...layout("stack"), ...rootSettings() },
+        {
+          name: "alpha",
+          title: "Custom title",
+          props: { nested: [1, { keep: true }], position: "right" },
+        },
+      )
+      dock(input).size.px = 900
+      dock(input).hidden = true
+      input.children[0].custom.after = { keep: ["body"] }
+      input.background = "#222222"
+      delete input.preview
+      const before = clone(input)
+      freeze(input)
+      const result = moveDock(input, position)
+      const expected = clone(before)
+      expected.type = type
+      if (index === 0) expected.children.reverse()
+      expect(result).toEqual(expected)
+      expect(result).not.toBe(input)
+      expect(result.children[index]).not.toBe(dock(input))
+      expect(result.children[1 - index]).not.toBe(input.children[0])
+      expect(dockPosition(result)).toBe(position)
+      expect(input).toEqual(before)
+      // Returned data must not expose frozen input objects.
+      result.children[1 - index].custom.after.keep.push("changed")
+      dock(result).size.px = 240
+      header(result).content.props.titles.alpha = "Changed"
+      stack(result).children[0].content.props.nested[1].keep = false
+      result.colors.accent = "changed"
+      expect(input).toEqual(before)
+    },
+  )
+
+  for (const [from] of edges) {
+    it.each(edges)(
+      `switches from ${from} to %s without changing dock contents`,
+      (to, type, index) => {
+        const input = moveDock(twoPanels(), from)
+        dock(input).hidden = true
+        dock(input).size.px = 520
+        const before = clone(input)
+        freeze(input)
+        const result = moveDock(input, to)
+        const expected = clone(input)
+        const expectedDock = dock(expected)
+        const expectedBody = expected.children.find((child) => child.id !== DOCK_ID)
+        expected.type = type
+        expected.children =
+          index === 0 ? [expectedDock, expectedBody] : [expectedBody, expectedDock]
+        expect(result).toEqual(expected)
+        expect(dockPosition(result)).toBe(to)
+        expect(moveDock(freeze(result), from)).toEqual(input)
+        expect(input).toEqual(before)
+      },
+    )
+  }
+
+  for (const type of ["row", "column", "stack", "block"]) {
+    it.each(edges)(`removes the last panel at %s and restores the original ${type}`, (position) => {
+      const original = freeze({
+        ...(type === "block" ? block("root") : layout(type)),
+        ...rootSettings(),
+      })
+      const added = freeze(addPanel(original, { name: "alpha" }))
+      const moved = freeze(moveDock(added, position))
+      expect(removePanel(moved, "alpha")).toEqual(original)
+      expect(dockPosition(moved)).toBe(position)
+      expect(dockPosition(added)).toBe("right")
+    })
+  }
+
+  it.each(edges)("keeps current root settings when unwrapping a %s dock", (position) => {
+    const original = { ...layout("stack"), ...rootSettings() }
+    const input = addPanel(original, { name: "alpha" })
+    input.theme = "changed"
+    input.font_size = 24
+    input.movable = true
+    delete input.background
+    delete input.preview
+    // Stale body settings must not override the current outer settings.
+    input.children[0].background = "stale"
+    input.children[0].preview = "stale.svg"
+    input.children[0].custom.edited = true
+    const before = clone(input)
+    const moved = moveDock(freeze(input), position)
+    const expected = { ...clone(original), theme: "changed", font_size: 24, movable: true }
+    delete expected.background
+    delete expected.preview
+    expected.custom.edited = true
+    expect(removePanel(freeze(moved), "alpha")).toEqual(expected)
+    expect(input).toEqual(before)
+  })
+
+  it("does not add absent active, hidden or props values", () => {
+    const input = twoPanels()
+    delete stack(input).active
+    delete dock(input).hidden
+    delete findNode(input, slotId("alpha")).content.props
+    findNode(input, slotId("beta")).content.props = null
+    const before = clone(input)
+    expect(moveDock(freeze(input), "right")).toEqual(before)
+    const reordered = reorderPanel(input, "beta", "alpha")
+    expect(Object.hasOwn(stack(reordered), "active")).toBe(false)
+    expect(Object.hasOwn(dock(reordered), "hidden")).toBe(false)
+    expect(findNode(reordered, slotId("alpha")).content).toEqual({ mod: "alpha" })
+    expect(findNode(reordered, slotId("beta")).content.props).toBeNull()
+    expect(input).toEqual(before)
+  })
+
+  it("can move an empty owned dock but cannot reorder a missing slot", () => {
+    const input = twoPanels()
+    delete stack(input).active
+    stack(input).children = []
+    header(input).content.props.titles = {}
+    const before = clone(input)
+    const moved = moveDock(freeze(input), "top")
+    expect(dockPosition(moved)).toBe("top")
+    expect(managedSlots(moved)).toEqual([])
+    expect(() => reorderPanel(moved, "alpha")).toThrow(/not managed/)
+    expect(input).toEqual(before)
+  })
+
+  it.each(["", "LEFT", "Right", "center", "top ", "left\n", null, undefined, 0, {}, [], ["left"]])(
+    "rejects invalid dock position %j without changing the input",
+    (position) => {
+      const input = freeze(twoPanels())
+      const before = clone(input)
+      expect(() => moveDock(input, position)).toThrow(/Dock position/)
+      expect(input).toEqual(before)
+    },
+  )
+})
+
+describe("immutable managed panel reordering", () => {
+  it.each([
+    ["alpha", "gamma", ["beta", "alpha", "gamma", "delta"]],
+    ["alpha", "delta", ["beta", "gamma", "alpha", "delta"]],
+    ["delta", "beta", ["alpha", "delta", "beta", "gamma"]],
+    ["gamma", "alpha", ["gamma", "alpha", "beta", "delta"]],
+    ["beta", null, ["alpha", "gamma", "delta", "beta"]],
+    ["alpha", undefined, ["beta", "gamma", "delta", "alpha"]],
+    ["delta", null, ["alpha", "beta", "gamma", "delta"]],
+    ["alpha", "beta", ["alpha", "beta", "gamma", "delta"]],
+    ["beta", "beta", ["alpha", "beta", "gamma", "delta"]],
+  ])("moves %s before %s without changing any slot or active value", (name, before, order) => {
+    const input = addPanel(addPanel(twoPanels(), { name: "gamma", props: { nested: [1] } }), {
+      name: "delta",
+      props: { restore: { enabled: true } },
+    })
+    stack(input).active = slotId("beta")
+    dock(input).hidden = true
+    dock(input).size.px = 640
+    const snapshot = clone(input)
+    freeze(input)
+    const result = reorderPanel(input, name, before)
+    const expected = clone(input)
+    const expectedStack = stack(expected)
+    const slots = expectedStack.children
+    expectedStack.children = order.map((mod) => slots.find((slot) => slot.content.mod === mod))
+    expect(result).toEqual(expected)
+    expect(result).not.toBe(input)
+    expect(managedSlots(result).map((slot) => slot.name)).toEqual(order)
+    expect(stack(result).active).toBe(slotId("beta"))
+    expect(input).toEqual(snapshot)
+    findNode(result, slotId("delta")).content.props.restore.enabled = false
+    header(result).content.props.titles.alpha = "Changed"
+    result.children[0].custom.keep.push("changed")
+    expect(input).toEqual(snapshot)
+  })
+
+  it.each(edges)(
+    "reorders a %s dock and preserves stable references for a missing mod",
+    (position) => {
+      const input = moveDock(
+        addPanel(twoPanels(), {
+          name: "missing-mod.v2",
+          title: "Missing",
+          props: { restore: ["later"] },
+        }),
+        position,
+      )
+      const before = clone(input)
+      freeze(input)
+      const result = reorderPanel(input, "missing-mod.v2", "alpha")
+      expect(dockPosition(result)).toBe(position)
+      expect(managedSlots(result).map((slot) => slot.name)).toEqual([
+        "missing-mod.v2",
+        "alpha",
+        "beta",
+      ])
+      expect(stack(result).active).toBe(slotId("missing-mod.v2"))
+      expect(findNode(result, slotId("missing-mod.v2"))).toEqual(
+        findNode(input, slotId("missing-mod.v2")),
+      )
+      expect(references(result, "missing-mod.v2")).toEqual(references(input, "missing-mod.v2"))
+      expect(references(result, "alpha")).toEqual(references(input, "alpha"))
+      expect(reorderPanel(freeze(result), "missing-mod.v2")).toEqual(input)
+      expect(input).toEqual(before)
+    },
+  )
+
+  it("accepts prototype property names without looking up inherited properties", () => {
+    const input = freeze(
+      addPanel(addPanel(twoPanels(), { name: "constructor" }), { name: "toString" }),
+    )
+    const result = reorderPanel(input, "toString", "constructor")
+    expect(managedSlots(result).map((slot) => slot.name)).toEqual([
+      "alpha",
+      "beta",
+      "toString",
+      "constructor",
+    ])
+    expect(stack(result).active).toBe(slotId("toString"))
+  })
+
+  it("keeps a single slot unchanged, including self and end moves", () => {
+    const input = freeze(addPanel(layout(), { name: "alpha" }))
+    expect(reorderPanel(input, "alpha", "alpha")).toEqual(input)
+    expect(reorderPanel(input, "alpha")).toEqual(input)
+  })
+
+  it.each([
+    ["missing", null],
+    ["alpha", "missing"],
+    ["missing", "missing"],
+    ["existing-alpha", null],
+    [slotId("alpha"), null],
+    ["alpha", slotId("beta")],
+    ["alpha", "constructor"],
+  ])("rejects missing managed references %s before %s", (name, before) => {
+    const input = freeze(twoPanels())
+    const snapshot = clone(input)
+    expect(() => reorderPanel(input, name, before)).toThrow(/not managed/)
+    expect(input).toEqual(snapshot)
+  })
+
+  it("does not reorder arbitrary body nodes or adopt an unowned same-mod placement", () => {
+    const input = freeze(layout())
+    const before = clone(input)
+    expect(() => reorderPanel(input, "alpha")).toThrow(/not managed/)
+    expect(() => reorderPanel(input, "workspace", "sidebar")).toThrow(/not managed/)
+    expect(input).toEqual(before)
+  })
+})
+
 describe("read-only references", () => {
   it("reports content, pane headers, stack headers and floating mod refs", () => {
     const root = layout("stack")
@@ -634,6 +931,11 @@ describe("namespace collisions and unexpected owned edits fail closed", () => {
         /structure changed|Reserved layout id/,
       )
       expect(() => removePanel(input, "alpha")).toThrow(/structure changed|Reserved layout id/)
+      expect(() => dockPosition(input)).toThrow(/structure changed|Reserved layout id/)
+      expect(() => moveDock(input, "top")).toThrow(/structure changed|Reserved layout id/)
+      expect(() => reorderPanel(input, "alpha", "beta")).toThrow(
+        /structure changed|Reserved layout id/,
+      )
       expect(input).toEqual(before)
     },
   )
@@ -652,7 +954,13 @@ describe("namespace collisions and unexpected owned edits fail closed", () => {
     [
       "frame direction",
       (root) => {
-        root.type = "column"
+        root.type = "block"
+      },
+    ],
+    [
+      "frame stack direction",
+      (root) => {
+        root.type = "stack"
       },
     ],
     [
@@ -662,9 +970,9 @@ describe("namespace collisions and unexpected owned edits fail closed", () => {
       },
     ],
     [
-      "frame child order",
+      "missing direct dock",
       (root) => {
-        root.children.reverse()
+        dock(root).id = "foreign-dock"
       },
     ],
     [
@@ -867,6 +1175,9 @@ describe("namespace collisions and unexpected owned edits fail closed", () => {
     expect(() => managedSlots(input)).toThrow(/structure changed|Props/)
     expect(() => addPanel(input, { name: "alpha" })).toThrow(/structure changed|Props/)
     expect(() => removePanel(input, "alpha")).toThrow(/structure changed|Props/)
+    expect(() => dockPosition(input)).toThrow(/structure changed|Props/)
+    expect(() => moveDock(input, "bottom")).toThrow(/structure changed|Props/)
+    expect(() => reorderPanel(input, "alpha", "beta")).toThrow(/structure changed|Props/)
     expect(input).toEqual(before)
   })
 
@@ -881,6 +1192,9 @@ describe("namespace collisions and unexpected owned edits fail closed", () => {
     stack(input).active = "missing"
     expect(() => addPanel(freeze(input), { name: "alpha" })).toThrow(/active/)
     expect(() => removePanel(input, "beta")).toThrow(/active/)
+    expect(() => dockPosition(input)).toThrow(/active/)
+    expect(() => moveDock(input, "left")).toThrow(/active/)
+    expect(() => reorderPanel(input, "alpha", "alpha")).toThrow(/active/)
   })
 
   it("does not discard an edited frame when removing its final slot", () => {
