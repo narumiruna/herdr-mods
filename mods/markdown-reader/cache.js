@@ -16,6 +16,15 @@ async function safeDirectory(path) {
     throw new Error("Cache directories must not be symbolic links")
 }
 
+async function lstatIfPresent(path) {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error
+    return null
+  }
+}
+
 export class AssetCache {
   constructor(appHome) {
     if (typeof appHome !== "string" || !appHome) throw new Error("An app home is required")
@@ -52,20 +61,20 @@ export class AssetCache {
           if (lease.expires > Date.now() && lease.expires <= Date.now() + 120000) continue
           await rm(path, { force: true })
         } catch (error) {
-          if (error.code !== "ENOENT" && Date.now() - (await lstat(path)).mtimeMs > 120000)
-            await rm(path, { force: true })
+          if (error.code !== "ENOENT") {
+            const info = await lstatIfPresent(path)
+            if (info && Date.now() - info.mtimeMs > 120000) await rm(path, { force: true })
+          }
         }
       }
       const requests = join(this.directory, "requests")
       for (const name of await readdir(requests)) {
         if (!/^[a-z0-9-]{8,100}\.json(?:\.cancel)?$/.test(name)) continue
         const path = join(requests, name)
-        if (Date.now() - (await lstat(path)).mtimeMs <= 120000) continue
+        const info = await lstatIfPresent(path)
+        if (!info || Date.now() - info.mtimeMs <= 120000) continue
         const job = name.replace(/\.json(?:\.cancel)?$/, "")
-        try {
-          await lstat(join(leases, `${job}.json`))
-          continue
-        } catch {}
+        if (await lstatIfPresent(join(leases, `${job}.json`))) continue
         await rm(path, { force: true })
       }
       if ((await readdir(requests)).length > 512 || (await readdir(leases)).length > 512)
@@ -74,7 +83,8 @@ export class AssetCache {
         for (const name of await readdir(directory)) {
           if (/^\.[a-f0-9-]{36}$/.test(name)) {
             const path = join(directory, name)
-            if (Date.now() - (await lstat(path)).mtimeMs > 120000) await rm(path, { force: true })
+            const info = await lstatIfPresent(path)
+            if (info && Date.now() - info.mtimeMs > 120000) await rm(path, { force: true })
           }
         }
       }

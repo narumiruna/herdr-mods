@@ -58,17 +58,17 @@ vi.mock("gpui-base", () => ({
 vi.mock("herdr", () => ({
   appHome: () => "/profile",
   exec: vi.fn(),
-  window: () => ({ platform: "macos" }),
+  window: vi.fn(() => ({ platform: "macos" })),
   props: () => ({}),
   closeOverlay: vi.fn(),
   nextCommand: () => new Promise(() => {}),
   run: vi.fn(),
   settings: () => ({ dark: false }),
   theme: vi.fn(),
-  watchFolder: () => new Promise(() => {}),
+  watchFolder: vi.fn(() => new Promise(() => {})),
 }))
 
-import { closeOverlay, run, theme } from "herdr"
+import { closeOverlay, run, theme, watchFolder, window } from "herdr"
 import Reader from "../main.js"
 
 const asset = `data/markdown-reader/assets/${"a".repeat(64)}.svg`
@@ -131,8 +131,15 @@ function context() {
   }
   return cx
 }
-async function ready(entry = { file: "/workspace/notes.md", root: "/workspace", on: null }) {
+async function ready(
+  entry = { file: "/workspace/notes.md", root: "/workspace", on: null },
+  configure = (_io) => {},
+) {
   const data = manifest()
+  if (entry.file) {
+    data.file = entry.file
+    data.dependencies = [entry.file]
+  }
   const io = {
     request: vi.fn(async () => ({ job: data.job, path: "/request" })),
     render: vi.fn(async () => data),
@@ -141,6 +148,7 @@ async function ready(entry = { file: "/workspace/notes.md", root: "/workspace", 
     renew: vi.fn(async () => {}),
     openExternal: vi.fn(async () => {}),
   }
+  configure(io)
   const view = new Reader()
   view.createIO = () => io
   const cx = context()
@@ -163,6 +171,8 @@ function click(id, cx) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.mockReturnValue({ platform: "macos" })
+  watchFolder.mockReset().mockImplementation(() => new Promise(() => {}))
   ui.nodes.clear()
   ui.states.length = 0
   ui.state.rendering = false
@@ -280,6 +290,170 @@ describe("native reader lifecycle", () => {
     view.link("javascript:alert(1)", cx)
     expect(io.openExternal).not.toHaveBeenCalled()
     expect(view.error).toMatch(/blocked/)
+  })
+  it("uses the entry fragment once and preserves position on later changed refreshes", async () => {
+    const entry = { file: "/workspace/notes.md", root: "/workspace", fragment: "notes" }
+    const { view, cx, io, data } = await ready(entry)
+    const scroll = view.scroll
+    expect(scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(0)
+    scroll.scroll_to_item.mockClear()
+    for (const signature of ["file-edit", "image-edit", "width-change", "reload"]) {
+      io.render.mockResolvedValueOnce({ ...data, signature })
+      view.refresh(cx)
+      await cx.tasks.at(-1)
+      expect(scroll.scroll_to_item).not.toHaveBeenCalled()
+      expect(view.scroll).toBe(scroll)
+    }
+    expect(entry.fragment).toBe("notes")
+    await view.close()
+  })
+  it("keeps the entry fragment after a failed initial load", async () => {
+    const { view, cx } = await ready(
+      { file: "/workspace/notes.md", root: "/workspace", fragment: "notes" },
+      (io) => io.render.mockRejectedValueOnce(new Error("Read failed")),
+    )
+    expect(view.session.manifest).toBeNull()
+    expect(view.initialFragment).toBe("notes")
+    expect(view.scroll.scroll_to_item).not.toHaveBeenCalled()
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    expect(view.initialFragment).toBeNull()
+    expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(0)
+    await view.close()
+  })
+  it.each(["fragment", "local"])(
+    "routes an empty %s fragment to the document start",
+    async (kind) => {
+      const { view, cx, data } = await ready()
+      data.links["https://herdr-markdown.invalid/link/3"] = {
+        kind,
+        file: data.file,
+        root: data.root,
+        fragment: "",
+      }
+      view.reveal("missing")
+      expect(view.error).toBe("Heading not found: missing")
+      view.link("https://herdr-markdown.invalid/link/3", cx)
+      expect(view.error).toBe("")
+      expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(0)
+      await view.close()
+    },
+  )
+  it("retains errors for unknown nonempty headings and clears them after valid navigation", async () => {
+    const { view } = await ready()
+    view.reveal("missing")
+    expect(view.error).toBe("Heading not found: missing")
+    expect(view.scroll.scroll_to_item).not.toHaveBeenCalled()
+    view.reveal("notes")
+    expect(view.error).toBe("")
+    expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(0)
+    await view.close()
+  })
+  it.each([
+    ["/workspace/later/picture.png", true],
+    ["/workspace/later", true],
+    ["/workspace", true],
+    ["/workspace/later-other", false],
+    ["/workspace/unrelated.md", false],
+  ])("checks dependency and parent watch events for %s", async (path, refresh) => {
+    let report
+    watchFolder.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          report = resolve
+        }),
+    )
+    const { view, cx, data } = await ready()
+    data.dependencies.push("/workspace/later/picture.png")
+    report([path])
+    await Promise.resolve()
+    expect(cx.timers.length).toBe(refresh ? 1 : 0)
+    await view.close()
+  })
+  it("polls Linux ignored dependencies even when watchFolder succeeds", async () => {
+    window.mockReturnValue({ platform: "linux" })
+    const { view, cx, data, io } = await ready({
+      file: "/workspace/ignored/notes.md",
+      root: "/workspace",
+      on: null,
+    })
+    const [interval, tick] = cx.timer.every.mock.calls[0]
+    expect(interval).toBe(10000)
+    expect(watchFolder).toHaveBeenCalledWith("/workspace")
+    expect(view.watching).toBe(true)
+    io.render.mockResolvedValueOnce({ ...data, signature: "ignored-edit" })
+    tick(cx)
+    cx.timers.at(-1).fire()
+    await cx.tasks.at(-1)
+    expect(view.session.manifest.signature).toBe("ignored-edit")
+    await view.close()
+  })
+  it("does not cancel active work on a periodic tick or poll after close", async () => {
+    window.mockReturnValue({ platform: "linux" })
+    const { view, cx } = await ready()
+    const tick = cx.timer.every.mock.calls[0][1]
+    view.session.busy = true
+    tick(cx)
+    expect(cx.timers).toHaveLength(0)
+    await view.close()
+    tick(cx)
+    expect(cx.timers).toHaveLength(0)
+  })
+  it.each([
+    ["directory alias", "/workspace/alias/later.png", "/workspace/images/later.png"],
+    ["dangling image alias", "/workspace/alias.png", "/workspace/future/image.png"],
+  ])(
+    "recovers missing images through a %s when canonical watch events do not match",
+    async (_name, alias, target) => {
+      let report
+      watchFolder.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            report = resolve
+          }),
+      )
+      const { view, cx, data, io } = await ready()
+      data.dependencies = [data.file, alias]
+      data.unresolvedImages = true
+      report([target])
+      await Promise.resolve()
+      expect(cx.timers).toHaveLength(0)
+      const tick = cx.timer.every.mock.calls[0][1]
+      view.session.busy = true
+      tick(cx)
+      expect(cx.timers).toHaveLength(0)
+      view.session.busy = false
+      io.render.mockResolvedValueOnce({
+        ...data,
+        dependencies: [...data.dependencies, target],
+        unresolvedImages: false,
+        signature: "image-created",
+      })
+      tick(cx)
+      expect(cx.timers).toHaveLength(1)
+      cx.timers[0].fire()
+      await cx.tasks.at(-1)
+      expect(view.session.manifest.signature).toBe("image-created")
+      expect(view.session.manifest.dependencies).toContain(target)
+      tick(cx)
+      expect(cx.timers).toHaveLength(1)
+      await view.close()
+    },
+  )
+  it("does not poll on macOS while watching succeeds", async () => {
+    const { view, cx } = await ready()
+    cx.timer.every.mock.calls[0][1](cx)
+    expect(cx.timers).toHaveLength(0)
+    await view.close()
+  })
+  it("polls after the watcher rejects on any platform", async () => {
+    watchFolder.mockRejectedValueOnce(new Error("Watch limit exceeded"))
+    const { view, cx } = await ready()
+    await Promise.resolve()
+    expect(view.fallback).toBe(true)
+    cx.timer.every.mock.calls[0][1](cx)
+    expect(cx.timers).toHaveLength(1)
+    await view.close()
   })
   it("opens external links only through the explicit click path", async () => {
     const { view, cx, io } = await ready()

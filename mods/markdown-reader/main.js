@@ -9,7 +9,7 @@ import {
   v_flex,
 } from "gpui-base"
 import { div, image, View } from "gpui-kit"
-import { closeOverlay, nextCommand, props, run, settings, theme, watchFolder } from "herdr"
+import { closeOverlay, nextCommand, props, run, settings, theme, watchFolder, window } from "herdr"
 import { ReaderSession } from "./model.js"
 import { createIO } from "./runtime.js"
 
@@ -23,6 +23,7 @@ export default class MarkdownReader extends View {
 
   init(initialProps, cx) {
     this.entry = initialProps || props() || {}
+    this.initialFragment = typeof this.entry.fragment === "string" ? this.entry.fragment : null
     this.io = this.createIO()
     this.closed = false
     this.width = 800
@@ -34,7 +35,8 @@ export default class MarkdownReader extends View {
     this.raw = false
     this.error = ""
     this.watching = false
-    this.fallback = false
+    // Linux can accept a watch while omitting Git-ignored directories.
+    this.fallback = window()?.platform === "linux"
     this.refreshTask = null
     this.scroll = ScrollHandle.new()
     this.focus = cx.focus_handle()
@@ -49,7 +51,8 @@ export default class MarkdownReader extends View {
       cx.spawn(async () => {
         await this.session.heartbeat()
       })
-      if (this.fallback) this.schedule(cx)
+      if ((this.fallback || this.session.manifest?.unresolvedImages) && !this.session.busy)
+        this.schedule(cx)
     })
     cx.spawn(async (cx) => {
       for (;;) {
@@ -90,7 +93,10 @@ export default class MarkdownReader extends View {
       }
       if (changed) {
         this.watch(cx)
-        if (this.entry.fragment) this.reveal(this.entry.fragment)
+        if (this.initialFragment !== null) {
+          this.reveal(this.initialFragment)
+          this.initialFragment = null
+        }
       }
       cx.notify()
     })
@@ -107,7 +113,16 @@ export default class MarkdownReader extends View {
           const paths = await watchFolder(root)
           if (this.closed) return
           const manifest = this.session.manifest
-          if (paths.includes(root) || paths.some((path) => manifest.dependencies.includes(path)))
+          if (
+            paths.includes(root) ||
+            paths.some((path) =>
+              manifest.dependencies.some((file) => {
+                const changed = path.replace(/\\/g, "/").replace(/\/$/, "")
+                const dependency = file.replace(/\\/g, "/")
+                return dependency === changed || dependency.startsWith(`${changed}/`)
+              }),
+            )
+          )
             this.schedule(cx)
         }
       } catch {
@@ -197,9 +212,11 @@ export default class MarkdownReader extends View {
   }
 
   reveal(fragment) {
-    const index = this.session?.manifest?.anchors[fragment]
-    if (Number.isInteger(index)) this.scroll.scroll_to_item(index)
-    else this.error = `Heading not found: ${fragment}`
+    const index = fragment === "" ? 0 : this.session?.manifest?.anchors[fragment]
+    if (Number.isInteger(index)) {
+      this.error = ""
+      this.scroll.scroll_to_item(index)
+    } else this.error = `Heading not found: ${fragment}`
   }
 
   link(url, cx) {

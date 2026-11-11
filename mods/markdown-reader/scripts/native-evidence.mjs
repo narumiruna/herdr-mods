@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import puppeteer from "puppeteer"
 import { runRequest } from "../helper.mjs"
 import { validateManifest } from "../model.js"
@@ -173,7 +173,8 @@ function processTable() {
     .filter((line) => groups.has(Number(line.trim().split(/\s+/)[2])))
     .join("\n")
 }
-async function command(program, args, env, timeout = 15000) {
+// A successful exit can precede the last pipe data. Only close completes output.
+export async function command(program, args, env, timeout = 15000) {
   const child = spawn(program, args, { env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
   if (child.pid) groups.add(child.pid)
   let stdout = ""
@@ -184,20 +185,93 @@ async function command(program, args, env, timeout = 15000) {
   child.stderr.on("data", (data) => {
     stderr += data
   })
-  const timer = setTimeout(() => {
-    if (child.pid && alive(child.pid)) process.kill(-child.pid, "SIGKILL")
-  }, timeout)
+  let timer
+  let timedOut = false
   try {
-    const code = await new Promise((done, reject) => {
+    const { code, signal } = await new Promise((done, reject) => {
       child.once("error", reject)
-      child.once("exit", done)
+      child.once("close", (code, signal) => done({ code, signal }))
+      timer = setTimeout(() => {
+        timedOut = true
+        try {
+          if (child.pid) process.kill(-child.pid, "SIGKILL")
+        } catch (error) {
+          if (error.code !== "ESRCH") return reject(error)
+        }
+        // Bound pipe waiting too, but let close reap the child before cleanup.
+        child.stdout.destroy()
+        child.stderr.destroy()
+      }, timeout)
     })
+    if (timedOut)
+      throw Object.assign(
+        new Error(`${program} ${args.join(" ")}: timed out after ${timeout} ms`),
+        { code: "ETIMEDOUT", stdout, stderr },
+      )
     if (code !== 0)
-      throw new Error(`${program} ${args.join(" ")}: ${stderr || stdout || `exit ${code}`}`)
+      throw Object.assign(
+        new Error(`${program} ${args.join(" ")}: ${stderr || stdout || `exit ${code}`}`),
+        { exitCode: code, signal, stdout, stderr },
+      )
     return { stdout, stderr }
   } finally {
     clearTimeout(timer)
     if (child.pid) await stopGroup(child.pid)
+  }
+}
+// Verified with Herdr 0.1.15 status against missing and stale macOS sockets.
+// Do not retry permission errors, protocol failures, other sockets, or timeouts.
+function statusConnectionError(error, env) {
+  const prefix = `herdr-app: no Herdr window at ${join(env.HERDR_APP_HOME, "herdr-app.sock")}: `
+  return (
+    error.exitCode === 2 &&
+    error.signal === null &&
+    error.code == null &&
+    error.stdout === "" &&
+    ["No such file or directory (os error 2)", "Connection refused (os error 61)"].some(
+      (reason) => error.stderr?.trimEnd() === prefix + reason,
+    )
+  )
+}
+
+// Bound status commands and retry sleeps by one startup deadline. Check the
+// owned leader too: its group can outlive it if an app child remains running.
+export async function waitForStatus(
+  app,
+  env,
+  child,
+  mode,
+  { timeout = 15000, run = command } = {},
+) {
+  const deadline = Date.now() + timeout
+  const checkApp = () => {
+    if (child.exitCode !== null || child.signalCode !== null || !alive(child.pid))
+      throw new Error(`App exited in mode ${mode}`)
+  }
+  let lastError
+  const expired = () =>
+    new Error(`App status startup deadline exceeded in mode ${mode}`, { cause: lastError })
+  while (true) {
+    checkApp()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw expired()
+    let result
+    try {
+      result = await run(app, ["status"], env, remaining)
+    } catch (error) {
+      checkApp()
+      lastError = error
+      if (Date.now() >= deadline) throw expired()
+      if (!statusConnectionError(error, env)) throw error
+      await sleep(Math.min(100, deadline - Date.now()))
+      continue
+    }
+    checkApp()
+    if (Date.now() >= deadline) throw expired()
+    const status = JSON.parse(result.stdout)
+    if (!Array.isArray(status?.errors) || status.errors.length)
+      throw new Error(`Native runtime errors in ${mode}: ${JSON.stringify(status?.errors)}`)
+    return status
   }
 }
 const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`
@@ -446,9 +520,7 @@ export default class extends Reader {
       console.error(error.message)
     })
     await json(join(root, "owned-app.json"), { pid: activeApp.pid, group: activeApp.pid })
-    await sleep(5000)
-    if (!alive(activeApp.pid)) throw new Error(`App exited in mode ${mode}`)
-    const status = JSON.parse((await command(app, ["status"], env)).stdout)
+    const status = await waitForStatus(app, env, activeApp, mode)
     if (mode === "light")
       summary.sdkHashes = Object.fromEntries(
         await Promise.all(
@@ -459,8 +531,6 @@ export default class extends Reader {
         ),
       )
     await json(join(root, "status.json"), status)
-    if (!Array.isArray(status.errors) || status.errors.length)
-      throw new Error(`Native runtime errors in ${mode}: ${JSON.stringify(status.errors)}`)
     if (status.layout !== layout) throw new Error(`Unexpected layout in ${mode}: ${status.layout}`)
     const processes = processTable()
     await writeFile(join(root, "processes.txt"), `${processes}\n`)
@@ -523,38 +593,40 @@ export default class extends Reader {
 }
 
 let interrupted = false
-for (const signal of ["SIGINT", "SIGTERM"])
-  process.once(signal, () => {
-    interrupted = true
-    for (const group of groups) if (alive(group)) process.kill(-group, "SIGTERM")
-  })
-try {
-  await main()
-  if (interrupted) throw new Error("Evidence run interrupted")
-} catch (error) {
-  console.error(error.stack || error.message)
-  process.exitCode = 1
-  if (output)
-    await json(join(output, "failure.json"), { error: String(error.stack || error), timing })
-} finally {
-  if (activeApp && activeEnv) {
-    await command(
-      "/Applications/Herdr.app/Contents/MacOS/Herdr",
-      ["do", "app.quit"],
-      activeEnv,
-    ).catch(() => {})
-  }
-  const cleanupErrors = []
-  for (const group of groups)
-    await stopGroup(group).catch((error) => cleanupErrors.push(error.message))
-  if (output)
-    await json(join(output, "cleanup.json"), {
-      ownedGroups: [...groups],
-      remaining: [...groups].filter(alive),
-      errors: cleanupErrors,
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  for (const signal of ["SIGINT", "SIGTERM"])
+    process.once(signal, () => {
+      interrupted = true
+      for (const group of groups) if (alive(group)) process.kill(-group, "SIGTERM")
     })
-  if (cleanupErrors.length) {
-    console.error(cleanupErrors.join("\n"))
+  try {
+    await main()
+    if (interrupted) throw new Error("Evidence run interrupted")
+  } catch (error) {
+    console.error(error.stack || error.message)
     process.exitCode = 1
+    if (output)
+      await json(join(output, "failure.json"), { error: String(error.stack || error), timing })
+  } finally {
+    if (activeApp && activeEnv) {
+      await command(
+        "/Applications/Herdr.app/Contents/MacOS/Herdr",
+        ["do", "app.quit"],
+        activeEnv,
+      ).catch(() => {})
+    }
+    const cleanupErrors = []
+    for (const group of groups)
+      await stopGroup(group).catch((error) => cleanupErrors.push(error.message))
+    if (output)
+      await json(join(output, "cleanup.json"), {
+        ownedGroups: [...groups],
+        remaining: [...groups].filter(alive),
+        errors: cleanupErrors,
+      })
+    if (cleanupErrors.length) {
+      console.error(cleanupErrors.join("\n"))
+      process.exitCode = 1
+    }
   }
 }

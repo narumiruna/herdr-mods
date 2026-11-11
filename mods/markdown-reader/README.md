@@ -42,17 +42,17 @@ To open Markdown by clicking Files, use the [offline Files-clone preparation gui
 
 ## Features and limits
 
-| Content            | Behavior                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------ |
-| Markdown/GFM       | Native text, tables, strikethrough, lists, quotes, read-only task markers, and compiled footnote links |
-| Code fences        | Native syntax colors, selection, line numbers, and an explicit Copy source button                      |
-| Display math       | MathJax SVG; TeX mathematics, not full LaTeX documents                                                 |
-| Inline math        | TeX source plus warning; typesetting unavailable                                                       |
-| `mermaid` fences   | Official Mermaid.js 12.3.0 through local headless Chromium                                             |
-| `vega-lite` fences | Static SVG with inline data; no tooltips, parameter bindings, or animation                             |
-| Local images       | PNG, JPEG, GIF, WebP; rendered as separate image blocks, not inline rich-text images                   |
-| Links              | Local Markdown and fragments stay in the reader; HTTP(S)/mail links open only after a click            |
-| Refresh            | Local folder watch, a 250 ms debounce, and a 10-second fallback when watching fails                    |
+| Content            | Behavior                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Markdown/GFM       | Native text, tables, strikethrough, lists, quotes, read-only task markers, and compiled footnote links                    |
+| Code fences        | Native syntax colors, selection, line numbers, and an explicit Copy source button                                         |
+| Display math       | MathJax SVG; TeX mathematics, not full LaTeX documents                                                                    |
+| Inline math        | TeX source plus warning; typesetting unavailable                                                                          |
+| `mermaid` fences   | Official Mermaid.js 12.3.0 through local headless Chromium                                                                |
+| `vega-lite` fences | Static SVG with inline data; no tooltips, parameter bindings, or animation                                                |
+| Local images       | PNG, JPEG, GIF, WebP; rendered as separate image blocks, not inline rich-text images                                      |
+| Links              | Local Markdown and fragments stay in the reader; HTTP(S)/mail links open only after a click                               |
+| Refresh            | Local folder watch, a 250 ms debounce, and a 10-second refresh on Linux, after watch failure, or while images are missing |
 
 Use Source to inspect the full document. Graphic cards have source, copy, fit, and zoom controls. A failed graphic shows its error and source without hiding other blocks. A failed refresh keeps the previous document. The outer scroll handle survives document refreshes; manual interaction checks are listed separately in the verification guide.
 

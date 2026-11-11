@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
-import { classifyURL, MAX_IMAGE_BYTES, workspaceFile, workspaceRead } from "./files.js"
+import { classifyURL, localPath, MAX_IMAGE_BYTES, workspaceFile, workspaceRead } from "./files.js"
 
 const MAX_NODES = 12000
 const MAX_DEPTH = 40
@@ -59,6 +59,7 @@ export async function buildDocument({
   const warnings = new Set()
   const assets = new Set()
   const dependencies = new Set([file])
+  let unresolvedImages = false
   const links = {}
   const tasks = new Map()
   let taskId = 0
@@ -72,7 +73,7 @@ export async function buildDocument({
   walk(tree, () => {
     if (++nodes > MAX_NODES) throw new Error("Markdown exceeds the 12,000-node limit")
   })
-  const slugs = new Map()
+  const slugs = new Set()
   walk(tree, (node) => {
     if (node.type !== "heading") return
     const base =
@@ -81,9 +82,11 @@ export async function buildDocument({
         .replace(/[^\p{L}\p{N}_\s-]/gu, "")
         .trim()
         .replace(/\s+/g, "-") || "section"
-    const count = slugs.get(base) || 0
-    slugs.set(base, count + 1)
-    node.data = { hProperties: { id: count ? `${base}-${count}` : base } }
+    let slug = base
+    let suffix = 0
+    while (slugs.has(slug)) slug = `${base}-${++suffix}`
+    slugs.add(slug)
+    node.data = { hProperties: { id: slug } }
   })
 
   const marker = (kind, value, extra = {}) => {
@@ -161,9 +164,10 @@ export async function buildDocument({
 
   async function image(node) {
     const href = String(node.properties.src || "")
-    const target = classifyURL(href, file)
-    if (target.kind !== "local")
+    const target = localPath(root, file, href)
+    if (!target || target.file.includes("\0"))
       throw new Error("Only local PNG, JPEG, GIF, and WebP images are loaded")
+    dependencies.add(target.file)
     const location = await workspaceFile(root, target.file)
     dependencies.add(location.file)
     const bytes = await workspaceRead(location, MAX_IMAGE_BYTES)
@@ -270,6 +274,8 @@ export async function buildDocument({
       try {
         return { id, ...(await image(node)) }
       } catch (error) {
+        // A missing symlink target can emit watch events under an unknown path.
+        if (error.code === "ENOENT") unresolvedImages = true
         return {
           id,
           type: "error",
@@ -336,5 +342,6 @@ export async function buildDocument({
     warnings: [...warnings],
     assets: [...assets],
     dependencies: [...dependencies],
+    unresolvedImages,
   }
 }

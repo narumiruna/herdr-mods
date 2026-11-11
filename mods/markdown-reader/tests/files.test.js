@@ -99,6 +99,80 @@ describe("local document loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it.each([0, 1, 17])("allocates only the initial file size %i plus one byte", async (size) => {
+    const bytes = Buffer.from("a".repeat(size))
+    const close = vi.fn()
+    vi.mocked(fs.open).mockResolvedValueOnce({
+      stat: async () => ({ isFile: () => true, size, dev: 1, ino: 1, mtimeMs: 1 }),
+      read: async (buffer, offset, length) => ({
+        bytesRead: bytes.copy(buffer, offset, offset, offset + length),
+      }),
+      close,
+    })
+    const alloc = vi.spyOn(Buffer, "alloc")
+    try {
+      expect(await boundedRead(file, MAX_DOCUMENT_BYTES)).toEqual(bytes)
+      expect(alloc).toHaveBeenCalledExactlyOnceWith(size + 1)
+      expect(close).toHaveBeenCalledOnce()
+    } finally {
+      alloc.mockRestore()
+    }
+  })
+
+  it.each([
+    ["grows during reading", 2],
+    ["grows and restores its initial size before revalidation", 1],
+  ])("rejects a file that %s", async (_name, finalSize) => {
+    const initial = { isFile: () => true, size: 1, dev: 1, ino: 1, mtimeMs: 1 }
+    const stat = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValue({ ...initial, size: finalSize })
+    const bytes = Buffer.from("ab")
+    const close = vi.fn()
+    vi.mocked(fs.open).mockResolvedValueOnce({
+      stat,
+      read: async (buffer, offset, length) => ({
+        bytesRead: bytes.copy(buffer, offset, offset, offset + length),
+      }),
+      close,
+    })
+    await expect(boundedRead(file, 100)).rejects.toThrow("File changed while reading")
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("still rejects growth beyond the byte limit", async () => {
+    const bytes = Buffer.from("ab")
+    const close = vi.fn()
+    vi.mocked(fs.open).mockResolvedValueOnce({
+      stat: async () => ({ isFile: () => true, size: 1, dev: 1, ino: 1, mtimeMs: 1 }),
+      read: async (buffer, offset, length) => ({
+        bytesRead: bytes.copy(buffer, offset, offset, offset + length),
+      }),
+      close,
+    })
+    await expect(boundedRead(file, 1)).rejects.toThrow("1 byte limit")
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it.each(["dev", "ino", "size", "mtimeMs"])(
+    "revalidates %s after reading within the initial size",
+    async (field) => {
+      const initial = { isFile: () => true, size: 1, dev: 1, ino: 1, mtimeMs: 1 }
+      const close = vi.fn()
+      vi.mocked(fs.open).mockResolvedValueOnce({
+        stat: vi
+          .fn()
+          .mockResolvedValueOnce(initial)
+          .mockResolvedValue({ ...initial, [field]: 2 }),
+        read: vi.fn().mockResolvedValueOnce({ bytesRead: 1 }).mockResolvedValue({ bytesRead: 0 }),
+        close,
+      })
+      await expect(boundedRead(file, 100)).rejects.toThrow("File changed while reading")
+      expect(close).toHaveBeenCalledOnce()
+    },
+  )
+
   it("opens nonblocking before checking regular-file type and rejects changed identities", async () => {
     const read = vi.fn()
     const close = vi.fn()

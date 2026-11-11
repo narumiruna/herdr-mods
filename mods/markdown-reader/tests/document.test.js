@@ -1,9 +1,14 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { digest } from "../cache.js"
 import { buildDocument } from "../document.js"
+
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original()
+  return { ...actual, open: vi.fn(actual.open) }
+})
 
 let base
 let root
@@ -43,6 +48,7 @@ beforeEach(async () => {
     lease: vi.fn(async () => {}),
   }
   renderers = { render: vi.fn(async () => ({ svg, width: 20, height: 10 })) }
+  vi.mocked(open).mockClear()
 })
 afterEach(async () => {
   await rm(base, { recursive: true, force: true })
@@ -125,6 +131,38 @@ it("indexes duplicate and Unicode heading anchors without removing reference def
   const result = await build("# Hello\n\n# Hello\n\n# 中文\n\n[ref][id]\n\n[id]: #hello-1\n")
   expect(result.anchors).toMatchObject({ hello: 0, "hello-1": 1, 中文: 2 })
   expect(Object.values(result.links)).toContainEqual({ kind: "fragment", fragment: "hello-1" })
+})
+
+it.each([
+  {
+    name: "generated suffixes",
+    headings: ["Hello", "Hello", "Hello-1"],
+    ids: ["hello", "hello-1", "hello-1-1"],
+  },
+  {
+    name: "mixed explicit suffixes and case",
+    headings: ["Hello-1", "Hello", "HELLO", "hello-2", "Hello", "Hello-1"],
+    ids: ["hello-1", "hello", "hello-2", "hello-2-1", "hello-3", "hello-1-1"],
+  },
+  {
+    name: "repeated headings",
+    headings: ["Hello", "Hello", "Hello", "Hello"],
+    ids: ["hello", "hello-1", "hello-2", "hello-3"],
+  },
+  {
+    name: "CJK headings and suffixes",
+    headings: ["中文", "中文", "中文-1", "中文", "中文-1"],
+    ids: ["中文", "中文-1", "中文-1-1", "中文-2", "中文-1-2"],
+  },
+  {
+    name: "empty heading slugs",
+    headings: ["!!!", "???", "section-1", "!!!"],
+    ids: ["section", "section-1", "section-1-1", "section-2"],
+  },
+])("reserves every generated heading ID for $name", async ({ headings, ids }) => {
+  const result = await build(headings.map((heading) => `# ${heading}`).join("\n\n"))
+  expect(flatten(result.blocks).flatMap((block) => block.anchors || [])).toEqual(ids)
+  expect(result.anchors).toEqual(Object.fromEntries(ids.map((id, index) => [id, index])))
 })
 
 it("shows inline math as literal TeX with an explicit limitation warning, not a typeset graphic", async () => {
@@ -246,6 +284,100 @@ describe("local raster images", () => {
     expect(renderers.render).not.toHaveBeenCalled()
   })
 
+  it.each(["missing.png", "missing/parent/image.png"])(
+    "tracks %s before creation and loads it after creation",
+    async (href) => {
+      const image = join(root, href)
+      const source = `![later](${href})`
+      const missing = await build(source)
+      expect(flatten(missing.blocks).find((block) => block.kind === "image")).toMatchObject({
+        type: "error",
+      })
+      expect(missing.dependencies).toEqual([file, image])
+      expect(missing.unresolvedImages).toBe(true)
+      expect(open).not.toHaveBeenCalled()
+      expect(cache.put).not.toHaveBeenCalled()
+
+      await mkdir(dirname(image), { recursive: true })
+      await writeFile(image, png)
+      const created = await build(source)
+      expect(flatten(created.blocks).find((block) => block.kind === "image")).toMatchObject({
+        type: "graphic",
+      })
+      expect(created.dependencies).toEqual([file, image])
+      expect(created.unresolvedImages).toBe(false)
+    },
+  )
+
+  it("marks missing images behind directory symlinks for periodic recovery", async () => {
+    const images = join(root, "images")
+    const alias = join(root, "alias")
+    await mkdir(images)
+    await symlink(images, alias)
+    const source = "![later](alias/later.png)"
+    const missing = await build(source)
+    expect(missing.dependencies).toEqual([file, join(alias, "later.png")])
+    expect(missing.unresolvedImages).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+    await writeFile(join(images, "later.png"), png)
+    const created = await build(source)
+    expect(created.dependencies).toEqual([
+      file,
+      join(alias, "later.png"),
+      join(images, "later.png"),
+    ])
+    expect(created.unresolvedImages).toBe(false)
+    expect(flatten(created.blocks).find((block) => block.kind === "image").type).toBe("graphic")
+  })
+
+  it("tracks lexical and canonical paths for an internal image symlink and its replacement", async () => {
+    const alias = join(root, "alias.png")
+    const first = join(root, "first.png")
+    const next = join(root, "next.png")
+    await writeFile(first, png)
+    await writeFile(next, png)
+    await symlink(first, alias)
+    const source = "![alias](alias.png)"
+    const initial = await build(source)
+    expect(flatten(initial.blocks).find((block) => block.kind === "image")).toMatchObject({
+      type: "graphic",
+    })
+    expect(initial.dependencies).toEqual([file, alias, first])
+    expect(open).toHaveBeenCalledWith(first, expect.any(Number))
+
+    await rm(alias)
+    await symlink(next, alias)
+    const replaced = await build(source)
+    expect(flatten(replaced.blocks).find((block) => block.kind === "image")).toMatchObject({
+      type: "graphic",
+    })
+    expect(replaced.dependencies).toEqual([file, alias, next])
+    expect(open).toHaveBeenLastCalledWith(next, expect.any(Number))
+  })
+
+  it("retains a dangling symlink dependency until its missing target parent is created", async () => {
+    const alias = join(root, "alias.png")
+    const image = join(root, "future/image.png")
+    await symlink(image, alias)
+    const source = "![alias](alias.png)"
+    const missing = await build(source)
+    expect(flatten(missing.blocks).find((block) => block.kind === "image")).toMatchObject({
+      type: "error",
+    })
+    expect(missing.dependencies).toEqual([file, alias])
+    expect(missing.unresolvedImages).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+
+    await mkdir(dirname(image))
+    await writeFile(image, png)
+    const created = await build(source)
+    expect(flatten(created.blocks).find((block) => block.kind === "image")).toMatchObject({
+      type: "graphic",
+    })
+    expect(created.dependencies).toEqual([file, alias, image])
+    expect(created.unresolvedImages).toBe(false)
+  })
+
   it.each([
     ["SVG", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')],
     ["spoofed extension", Buffer.from("not an image")],
@@ -286,24 +418,40 @@ describe("local raster images", () => {
     expect(cache.put).not.toHaveBeenCalled()
   })
 
-  it("denies remote, data, file, traversal and escaping symlink resources", async () => {
-    await writeFile(join(base, "outside.png"), png)
-    await symlink(join(base, "outside.png"), join(root, "escape.png"))
-    for (const href of [
-      "https://host/tracking.png",
-      "//host/tracking.png",
-      "data:image/png;base64,AA",
-      "file:///etc/passwd",
-      "../outside.png",
-      "escape.png",
-      "missing.png",
+  it("denies unsafe image paths before reading and retains only safe lexical dependencies", async () => {
+    const outside = join(base, "outside.png")
+    const sibling = `${root}-other`
+    await writeFile(outside, png)
+    await mkdir(sibling)
+    await writeFile(join(sibling, "outside.png"), png)
+    await symlink(outside, join(root, "escape.png"))
+    await symlink(base, join(root, "escape-dir"))
+    for (const [href, dependency] of [
+      ["https://host/tracking.png", null],
+      ["//host/tracking.png", null],
+      ["data:image/png;base64,AA", null],
+      ["file:///etc/passwd", null],
+      ["../outside.png", null],
+      ["%2e%2e/outside.png", null],
+      ["../workspace-other/outside.png", null],
+      [outside, null],
+      ["bad%zz.png", null],
+      ["bad%00.png", null],
+      ["bad%2f.png", null],
+      ["picture.png?query=1", null],
+      ["#bad%zz", null],
+      ["escape.png", join(root, "escape.png")],
+      ["escape-dir/outside.png", join(root, "escape-dir/outside.png")],
     ]) {
       const result = await build(`![bad](${href})`)
       expect(
         flatten(result.blocks).find((block) => block.kind === "image"),
         href,
       ).toMatchObject({ type: "error" })
+      expect(result.dependencies, href).toEqual(dependency ? [file, dependency] : [file])
+      expect(result.unresolvedImages, href).toBe(false)
     }
+    expect(open).not.toHaveBeenCalled()
     expect(cache.put).not.toHaveBeenCalled()
     expect(renderers.render).not.toHaveBeenCalled()
   })

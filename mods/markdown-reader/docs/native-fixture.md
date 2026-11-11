@@ -43,7 +43,9 @@ Each app loads a fixture subclass of the repository's `main.js`, copied as `view
 | `footnotes`     | Actual HTML blocks with generated footnote markers or definitions               |
 | `graphics-dark` | Actual graphic blocks from the dark manifest, with unchanged reader cards       |
 
-A new app starts with a custom static layout for each mode. Filtered captures have an explicit filtered-mode label. The script does not use background `layout.switch`: the feasibility spike found that `shot` could return a stale frame after that command.
+A new app starts with a custom static layout for each mode. Startup status has a 15-second deadline. Only missing/refused connections to that app's owned socket are retried, at intervals of at most 100 ms. App exit, invalid status, runtime errors, and other command failures stop the run. CLI output is read through stream closure before JSON parsing.
+
+Filtered captures have an explicit filtered-mode label. The script does not use background `layout.switch`: the feasibility spike found that `shot` could return a stale frame after that command.
 
 ## Isolation and cleanup
 

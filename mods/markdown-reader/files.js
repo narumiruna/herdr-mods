@@ -31,7 +31,7 @@ export async function boundedRead(file, limit, expected) {
     )
       throw new Error("File changed before reading")
     if (stat.size > limit) throw new Error(`File exceeds the ${limit} byte limit`)
-    const buffer = Buffer.alloc(limit + 1)
+    const buffer = Buffer.alloc(stat.size + 1)
     let size = 0
     while (size < buffer.length) {
       const next = await handle.read(buffer, size, buffer.length - size, null)
@@ -39,6 +39,7 @@ export async function boundedRead(file, limit, expected) {
       size += next.bytesRead
     }
     if (size > limit) throw new Error(`File exceeds the ${limit} byte limit`)
+    if (size > stat.size) throw new Error("File changed while reading")
     const after = await handle.stat()
     if (
       stat.dev !== after.dev ||

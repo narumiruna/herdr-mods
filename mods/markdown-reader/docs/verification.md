@@ -57,6 +57,12 @@ The implementation review corrected these defects and added regression coverage:
 - SVG dimensions also need an area bound before native rasterization. Each graphic now has a 16 million-pixel limit and each document a 64 million-pixel budget.
 - Existing cache assets could be corrupt or symbolic links. Reuse now verifies file type, size, and digest; active leases protect both new assets and cache hits under the cache lock.
 
+## PR #24 review fixes
+
+The [review ledger](review-feedback.md) records every feedback item and its scope decision. The fixes cover one-time entry fragments, empty self-links, unique heading IDs, missing-image recovery, Linux watch gaps, cache removal races, small read buffers, and native evidence startup/output handling.
+
+After these changes, all 369 reader tests and all 7 real Chromium tests passed. Repository native mod/view checks and type checks passed. The revised evidence script completed all 10 isolated modes on Herdr 0.1.15/macOS. Both status samples per mode had no runtime errors. All captures were inspected. Final cleanup reported no owned processes. These captures still do not test live watch events or pointer/keyboard interaction.
+
 ## Inline mathematics: unavailable
 
 The native feasibility fixture tested:

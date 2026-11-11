@@ -13,8 +13,13 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ASSET_LIMIT, AssetCache, CACHE_LIMIT, digest } from "../cache.js"
+
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original()
+  return { ...actual, lstat: vi.fn(actual.lstat) }
+})
 
 let base
 let cache
@@ -25,6 +30,7 @@ beforeEach(async () => {
   cache = await new AssetCache(join(base, "profile")).init()
 })
 afterEach(async () => {
+  vi.mocked(lstat).mockReset()
   await rm(base, { recursive: true, force: true })
 })
 
@@ -63,6 +69,57 @@ it("collects expired job files and abandoned temporary assets but preserves acti
   await cache.collect()
   expect(await readdir(join(cache.directory, "requests"))).toEqual(["active-job-1234.json"])
   expect(await readdir(cache.assets)).not.toContain(".aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+})
+
+describe("collection races", () => {
+  const entries = [
+    ["leases", "reader-job-1234.json"],
+    ["requests", "reader-job-1234.json"],
+    ["requests", "reader-job-1234.json.cancel"],
+    ["assets", ".aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+    ["renders", ".aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+  ]
+
+  it.each(entries)("skips %s/%s removed between readdir and lstat", async (directory, name) => {
+    const path = join(cache.directory, directory, name)
+    await writeFile(path, "{")
+    await utimes(path, new Date(1000), new Date(1000))
+    const actual = await vi.importActual("node:fs/promises")
+    vi.mocked(lstat).mockImplementationOnce(async (target) => {
+      expect(target).toBe(path)
+      await rm(path)
+      return actual.lstat(target)
+    })
+    await expect(cache.collect()).resolves.toBeUndefined()
+    await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(join(cache.directory, ".lock"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(entries)("propagates other lstat errors for %s/%s", async (directory, name) => {
+    const path = join(cache.directory, directory, name)
+    await writeFile(path, "{")
+    await utimes(path, new Date(1000), new Date(1000))
+    const error = Object.assign(new Error("lstat denied"), { code: "EACCES" })
+    vi.mocked(lstat).mockRejectedValueOnce(error)
+    await expect(cache.collect()).rejects.toBe(error)
+    expect(await readFile(path, "utf8")).toBe("{")
+    await expect(lstat(join(cache.directory, ".lock"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each([".json", ".json.cancel"])(
+    "propagates non-ENOENT errors when checking the lease for a stale request%s",
+    async (suffix) => {
+      const path = join(cache.directory, "requests", `reader-job-1234${suffix}`)
+      await writeFile(path, "{}")
+      await utimes(path, new Date(1000), new Date(1000))
+      const actual = await vi.importActual("node:fs/promises")
+      const error = Object.assign(new Error("lease lstat denied"), { code: "EACCES" })
+      vi.mocked(lstat).mockImplementationOnce(actual.lstat).mockRejectedValueOnce(error)
+      await expect(cache.collect()).rejects.toBe(error)
+      expect(await readFile(path, "utf8")).toBe("{}")
+      await expect(lstat(join(cache.directory, ".lock"))).rejects.toMatchObject({ code: "ENOENT" })
+    },
+  )
 })
 
 it("fails closed if a host lease renewal is temporarily incomplete", async () => {
