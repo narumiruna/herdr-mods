@@ -1,6 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("gpui-kit", () => ({ View: class {}, div: vi.fn() }))
+const ui = vi.hoisted(() => {
+  const nodes = new Map()
+  const element = () => {
+    const node = { handlers: {}, items: [] }
+    const proxy = new Proxy(node, {
+      get(target, key) {
+        if (key in target) return target[key]
+        return (...args) => {
+          if (key === "id") nodes.set(args[0], proxy)
+          else if (key === "child") node.items.push(args[0])
+          else if (key === "children") node.items.push(...args[0])
+          else if (key === "when" && args[0]) args[1](proxy)
+          else if (key.startsWith("on_")) {
+            const button = typeof args[0] === "string" ? `-${args[0]}` : ""
+            node.handlers[`${key}${button}`] = args.at(-1)
+          }
+          return proxy
+        }
+      },
+    })
+    return proxy
+  }
+  return { nodes, element }
+})
+
+vi.mock("gpui-kit", () => ({ View: class {}, div: ui.element }))
 vi.mock("fs/promises", () => ({ readdir: vi.fn(), exists: vi.fn() }))
 vi.mock("gpui-base", () => {
   function input(options = {}) {
@@ -15,11 +40,11 @@ vi.mock("gpui-base", () => {
     }
   }
   return {
-    Button: {},
-    Input: {},
-    Textarea: {},
-    h_flex: vi.fn(),
-    v_flex: vi.fn(),
+    Button: { new: (id) => ui.element().id(id) },
+    Input: { new: ui.element },
+    Textarea: { new: ui.element },
+    h_flex: ui.element,
+    v_flex: ui.element,
     InputState: { new: input },
     TextareaState: { new: input },
   }
@@ -37,9 +62,9 @@ vi.mock("herdr", () => ({
   writeTextFile: vi.fn(),
 }))
 
-import { openOverlay, run } from "herdr"
+import { openOverlay, run, theme } from "herdr"
 import LayoutManager from "./main.js"
-import { addPanel, managedSlots } from "./model.js"
+import { addPanel, dockPosition, findNode, managedSlots, STACK_ID } from "./model.js"
 
 const tree = { id: "original", type: "block", content: { tab: "active" } }
 
@@ -48,6 +73,8 @@ function context() {
   const asyncContexts = []
   return {
     notify: vi.fn(),
+    stop_propagation: vi.fn(),
+    focus_handle: () => ({ focus: vi.fn(), release: vi.fn() }),
     asyncContexts,
     spawn(body) {
       const cx = { notify: vi.fn() }
@@ -83,6 +110,7 @@ async function ready(name = "example", initial = tree) {
   const cx = context()
   view.init({}, cx)
   await cx.flush()
+  view.currentTree = () => view.snapshot?.tree ?? initial
   return {
     view,
     cx,
@@ -94,7 +122,11 @@ async function ready(name = "example", initial = tree) {
   }
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  ui.nodes.clear()
+  vi.mocked(theme).mockReturnValue({})
+})
 
 describe("view actions", () => {
   it("does not create inputs, discovery, or tasks for a dock header", () => {
@@ -222,5 +254,273 @@ describe("view actions", () => {
     expect(view.search.release).toHaveBeenCalledOnce()
     expect(view.properties.release).toHaveBeenCalledOnce()
     expect(view.cloneName.release).toHaveBeenCalledOnce()
+    expect(view.focus.release).toHaveBeenCalledOnce()
+  })
+})
+
+const pointer = (x = 0, y = 0) => ({ position: { x, y } })
+const edge = (position) => ({ kind: "edge", position, key: `edge-${position}` })
+const tab = (before = null) => ({
+  kind: "tab",
+  before,
+  key: before === null ? "append" : `tab-${before}`,
+})
+const removeTarget = { kind: "remove", key: "remove" }
+
+function begin(view, cx, kind = "mod", name = "example") {
+  view.startDrag(kind, name, pointer(), cx)
+}
+
+function drop(view, cx, target) {
+  view.hoverDrop(target, pointer(20, 10), cx)
+  view.finishDrop(target, pointer(20, 10), cx)
+}
+
+function dispatch(id, handler, event, cx) {
+  const node = ui.nodes.get(id)
+  expect(node, `Missing UI element ${id}`).toBeDefined()
+  expect(node.handlers[handler], `Missing handler ${id}.${handler}`).toBeTypeOf("function")
+  node.handlers[handler](event, cx)
+}
+
+describe("graphical layout gestures", () => {
+  it.each(["left", "right", "top", "bottom"])(
+    "drops a new mod at the %s edge with its draft",
+    async (position) => {
+      const { view, cx, io } = await ready()
+      view.properties.set_value('{"mode":"compact"}')
+      begin(view, cx)
+      expect(view.focus.focus).toHaveBeenCalledOnce()
+      drop(view, cx, edge(position))
+      expect(view.drag).toBeNull()
+      await cx.flush()
+      expect(dockPosition(view.snapshot.tree)).toBe(position)
+      expect(view.snapshot.slots[0].props).toEqual({ mode: "compact" })
+      expect(io.writeText).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("does not write for a click or movement below the drag threshold", async () => {
+    const { view, cx, io } = await ready()
+    begin(view, cx)
+    view.hoverDrop(edge("left"), pointer(2, 2), cx)
+    view.finishDrop(edge("left"), pointer(2, 2), cx)
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+    expect(view.drag).toBeNull()
+    expect(view.dropTarget).toBeNull()
+  })
+
+  it("updates drag feedback only when its state changes", async () => {
+    const { view, cx } = await ready()
+    begin(view, cx)
+    view.hoverDrop(edge("top"), pointer(10, 10), cx)
+    expect(view.dropTarget).toBe("edge-top")
+    cx.notify.mockClear()
+    view.hoverDrop(edge("top"), pointer(20, 20), cx)
+    expect(cx.notify).not.toHaveBeenCalled()
+  })
+
+  it("moves the complete dock without parsing props or changing its tabs", async () => {
+    const initial = addPanel(addPanel(tree, { name: "example", props: { keep: true } }), {
+      name: "missing",
+    })
+    const { view, cx } = await ready("example", initial)
+    view.properties.set_value("invalid props")
+    begin(view, cx, "dock", null)
+    drop(view, cx, edge("bottom"))
+    await cx.flush()
+    expect(dockPosition(view.snapshot.tree)).toBe("bottom")
+    expect(view.snapshot.slots).toEqual(managedSlots(initial))
+    expect(findNode(view.snapshot.tree, STACK_ID).active).toBe(findNode(initial, STACK_ID).active)
+  })
+
+  it("reorders missing managed cards by name without changing props", async () => {
+    const initial = addPanel(addPanel(tree, { name: "example" }), {
+      name: "missing",
+      props: { keep: true },
+    })
+    const { view, cx } = await ready("example", initial)
+    view.selectMod("missing", cx)
+    view.properties.set_value("invalid draft")
+    begin(view, cx, "mod", "missing")
+    drop(view, cx, tab("example"))
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["missing", "example"])
+    expect(view.snapshot.slots[0].props).toEqual({ keep: true })
+    begin(view, cx, "mod", "missing")
+    drop(view, cx, tab())
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["example", "missing"])
+  })
+
+  it("inserts a new mod before a managed card and saves only once", async () => {
+    const { view, cx, io } = await ready("example", addPanel(tree, { name: "missing" }))
+    begin(view, cx)
+    drop(view, cx, tab("missing"))
+    view.finishDrop(tab("missing"), pointer(20, 10), cx)
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["example", "missing"])
+    expect(io.writeText).toHaveBeenCalledOnce()
+  })
+
+  it("restores the original layout when its final missing card is dropped on remove", async () => {
+    const { view, cx } = await ready("example", addPanel(tree, { name: "missing" }))
+    begin(view, cx, "mod", "missing")
+    drop(view, cx, removeTarget)
+    await cx.flush()
+    expect(view.snapshot.tree).toEqual(tree)
+    expect(view.selected).toBeNull()
+    expect(view.mods.some((mod) => mod.name === "missing")).toBe(false)
+  })
+
+  it("rejects new cards on remove and dock grips on tab targets", async () => {
+    const { view, cx, io } = await ready()
+    begin(view, cx)
+    drop(view, cx, removeTarget)
+    view.apply(cx)
+    await cx.flush()
+    io.writeText.mockClear()
+    begin(view, cx, "dock", null)
+    drop(view, cx, tab("example"))
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it("reports an invalid new-mod draft without writing", async () => {
+    const { view, cx, io } = await ready()
+    view.properties.set_value("[]")
+    begin(view, cx)
+    drop(view, cx, edge("top"))
+    await cx.flush()
+    expect(view.error).toContain("JSON object")
+    expect(view.drag).toBeNull()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it.each(["shipped", "loading", "busy", "needsRefresh", "closed"])(
+    "does not begin a gesture while %s",
+    async (state) => {
+      const { view, cx, io } = await ready()
+      if (state === "shipped") view.snapshot.shipped = true
+      else view[state] = true
+      begin(view, cx)
+      drop(view, cx, edge("left"))
+      await cx.flush()
+      expect(view.drag).toBeNull()
+      expect(io.writeText).not.toHaveBeenCalled()
+    },
+  )
+
+  it("does not begin dragging an unavailable mod without a saved placement", async () => {
+    const { view, cx, io } = await ready()
+    view.mods[0].available = false
+    begin(view, cx)
+    expect(view.drag).toBeNull()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it("cancels on refresh and close without saving", async () => {
+    const { view, cx, io } = await ready()
+    begin(view, cx)
+    view.refresh(cx)
+    expect(view.drag).toBeNull()
+    await cx.flush()
+    begin(view, cx)
+    view.close()
+    expect(view.drag).toBeNull()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["on_mouse_up-left", pointer()],
+    ["on_mouse_down-left", pointer()],
+    ["on_mouse_down_out", pointer()],
+    ["on_hover", false],
+    ["on_key_down", { key: "escape" }],
+  ])("wires root %s to cancel without saving", async (handler, event) => {
+    const { view, cx, io } = await ready()
+    view.render(cx)
+    dispatch("drag-mod-example", "on_mouse_down-left", pointer(), cx)
+    dispatch("layout-manager", "on_mouse_move", pointer(20, 10), cx)
+    expect(view.drag.active).toBe(true)
+    dispatch("layout-manager", handler, event, cx)
+    expect(view.drag).toBeNull()
+    expect(view.dropTarget).toBeNull()
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
+
+  it("wires rendered edge and reorder targets to their saved operations", async () => {
+    const { view, cx } = await ready("example", addPanel(tree, { name: "missing" }))
+    view.render(cx)
+    dispatch("drag-mod-example", "on_mouse_down-left", pointer(), cx)
+    dispatch("drop-left", "on_mouse_move", pointer(20, 10), cx)
+    expect(view.dropTarget).toBe("edge-left")
+    dispatch("drop-left", "on_mouse_up-left", pointer(20, 10), cx)
+    await cx.flush()
+    expect(dockPosition(view.snapshot.tree)).toBe("left")
+    view.render(cx)
+    dispatch("drag-tab-example", "on_mouse_down-left", pointer(), cx)
+    dispatch("preview-tab-missing", "on_mouse_move", pointer(20, 10), cx)
+    dispatch("preview-tab-missing", "on_mouse_up-left", pointer(20, 10), cx)
+    await cx.flush()
+    expect(view.snapshot.slots.map((slot) => slot.name)).toEqual(["example", "missing"])
+  })
+
+  it("keeps the append target distinct from a valid mod named end", async () => {
+    const initial = addPanel(addPanel(tree, { name: "example" }), { name: "end" })
+    const { view, cx } = await ready("example", initial)
+    const targets = []
+    const decorate = view.dropZone.bind(view)
+    vi.spyOn(view, "dropZone").mockImplementation((element, target) => {
+      targets.push(target)
+      return decorate(element, target)
+    })
+    view.editor()
+    expect(new Set(targets.map((target) => target.key)).size).toBe(targets.length)
+    const beforeEnd = targets.find((target) => target.before === "end")
+    const append = targets.find((target) => target.kind === "tab" && target.before === null)
+    begin(view, cx)
+    view.hoverDrop(beforeEnd, pointer(20, 10), cx)
+    expect(view.dropTarget).toBe(beforeEnd.key)
+    expect(view.dropTarget).not.toBe(append.key)
+  })
+
+  it("clears the highlight when a drop target is left", async () => {
+    const { view, cx } = await ready()
+    view.render(cx)
+    begin(view, cx)
+    dispatch("drop-right", "on_mouse_move", pointer(20, 10), cx)
+    expect(view.dropTarget).toBe("edge-right")
+    dispatch("drop-right", "on_hover", false, cx)
+    expect(view.dropTarget).toBeNull()
+    expect(view.drag.active).toBe(true)
+  })
+
+  it("blocks stale drops until refresh and never retries a gesture", async () => {
+    const { view, cx, io, files } = await ready()
+    begin(view, cx)
+    files.set("/fixture/layouts/personal.json", `${JSON.stringify(tree)}\n`)
+    drop(view, cx, edge("left"))
+    await cx.flush()
+    expect(view.needsRefresh).toBe(true)
+    expect(view.drag).toBeNull()
+    begin(view, cx)
+    drop(view, cx, edge("right"))
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledOnce()
+    expect(view.error).toContain("Refresh")
+  })
+
+  it("rejects a layout switch between press and release", async () => {
+    const { view, cx, io, changeLayout } = await ready()
+    begin(view, cx)
+    changeLayout("different")
+    drop(view, cx, edge("top"))
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+    expect(view.error).toContain("current layout changed")
+    expect(view.drag).toBeNull()
   })
 })

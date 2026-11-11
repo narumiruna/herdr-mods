@@ -9,7 +9,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 ## Repository structure
 
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
-- [`mods/layout-manager/`](mods/layout-manager/): explicit mod placement in personal layouts, with a managed right panel and overlay controls.
+- [`mods/layout-manager/`](mods/layout-manager/): graphical mod placement in personal layouts, with a draggable four-edge panel, tab ordering, and overlay controls.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
@@ -73,7 +73,7 @@ See the [Mod Manager guide](mods/mod-manager/README.md) for installation, runtim
 
 ## Layout Manager
 
-[Layout Manager](mods/layout-manager/README.md) lists installed mods, including development links. It can add a mod to a managed right panel, save its JSON props, open an overlay, and remove its own placements. Same-name reinstalls keep their saved slots. Shipped layouts must be cloned before editing.
+[Layout Manager](mods/layout-manager/README.md) lists installed mods, including development links. Drag a mod into its graphical preview, move the managed panel to any window edge, reorder its tabs, or remove a placement. Buttons remain available for placement, JSON props, and overlays. Same-name reinstalls keep their saved slots. Existing integrations stay unchanged, and shipped layouts must be cloned before editing.
 
 The [recipe](mods/layout-manager/RECIPE.md) describes both dialog and dock-header modes. Stop Herdr before creating its development link, then reopen the app. No layout or keybinding is installed automatically.
 

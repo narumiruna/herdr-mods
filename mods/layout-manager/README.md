@@ -1,18 +1,20 @@
 # Layout Manager
 
-Manage mod placement in the current Herdr layout without editing JSON by hand.
+Arrange installed Herdr mods with a graphical layout preview. Drag mods into a managed panel, move the panel to any window edge, and change its tab order without editing layout JSON.
 
-## First version
+## Features
 
-- List installed mods, including development links. Search by title or folder name.
-- Add a mod to a managed right panel. Tabs in the panel header switch between mods.
-- Edit a panel's JSON props, show a hidden panel, or remove a managed placement.
-- Open an available mod as an overlay, using its manifest's kind and dimensions.
-- Keep panel references and props when a mod is absent. A same-name reinstall uses the same slot.
-- Show existing integrations without changing them. A tab bar, footer, or pane header remains independent.
-- Refuse edits to shipped layouts. Use **Clone current layout** to create a personal copy.
+- Search installed mods by title or folder name, including development links.
+- Drag a mod's **⠿** grip to **Left**, **Right**, **Top**, or **Bottom** in the preview.
+- Drag the **Panel** grip to another edge to move the entire managed panel.
+- Drag a managed card onto another card to insert it before that card. **Drop to append** moves it to the end.
+- Drop a managed card on the remove area to remove its placement, not its files.
+- Edit JSON props, show a hidden panel, or open a mod as an overlay.
+- Keep missing mods' references and props for a same-name reinstall.
+- Keep existing integrations unchanged. A tab bar, footer, or pane header remains independent.
+- Refuse edits to shipped layouts. **Clone current layout** creates a personal copy.
 
-This version manages one right-side dock. It does not move arbitrary existing blocks, replace special integrations, change keys, install mods, or monitor a package manager. New installations appear when the dialog opens or you select **Refresh**. Refresh discards unsaved props drafts.
+The manager owns one panel with tabs. Moving a mod to another edge moves that whole panel, including its other tabs. The preview is schematic; it does not move arbitrary existing blocks or resize them. This mod does not change keys, install mods, or monitor a package manager. New installations appear when the dialog opens or you select **Refresh**.
 
 ## Install and open
 
@@ -35,20 +37,31 @@ From the repository root, `npm start --workspace herdr-layout-manager` runs the 
 ## Use
 
 1. Open Layout Manager and check **Layout** in the header.
-2. Select a mod.
-3. Enter a JSON object in **Props**, if the mod requires one.
-4. Select **Add to right panel**.
+   - Clone a shipped layout before editing it.
+2. Find a mod in the left list. Select it to edit **Props** if needed.
+3. Press its **⠿** grip and drag to an edge of **Visual layout**. Release on the target to save.
+   - A click or movement below 5 logical pixels does not save.
+   - A new placement uses that mod's props draft, or `{}` by default.
    - An existing integration is not replaced. This action adds another view.
-   - Adding the same managed mod updates its props and selects its existing slot.
-5. Use the dock tabs to switch views.
+   - An existing managed mod keeps its saved props and stable slot. Use **Save panel props** to change its props.
+   - The **Place selected mod** buttons provide the same placement action without dragging.
+4. Drag the **Panel** grip to another edge to move all managed tabs together.
+5. Drag card grips inside the preview to change tab order.
+   - Release on another card to insert before it.
+   - Release on **Drop to append** to move to the end.
+   - Reordering keeps saved props and the stack's saved active child.
+6. Drop a managed card on the remove area, or select **Remove from panel**.
+   - Removing the last slot restores the original layout body as root.
+   - Missing mods can be moved, reordered, and removed without valid props drafts.
+   - Mod files and other placements stay unchanged.
+7. Use the live dock's tabs to switch views.
    - **Hide** hides the dock.
    - **Manage** opens or closes Layout Manager.
    - **Show panel** selects a saved slot and shows the dock without a file edit.
-6. Select **Remove from panel** to remove only this manager's placement.
-   - Removing the last slot unwraps the original layout tree.
-   - Mod files and other placements stay unchanged.
 
-**Open overlay** uses the current props draft without saving a placement. It honors the mod's supported overlay kind, width, and height. It does not enable persistent windows or inherit a manifest's window key.
+A valid drop saves immediately. Release outside a target to cancel. **Escape**, moving the pointer outside the dialog, an outside press, Refresh, and closing the dialog also cancel a gesture. Dragging uses the mouse within this dialog, not operating-system drag-and-drop. Refresh discards unsaved props drafts.
+
+**Add to panel** adds to the current panel edge, or to the right if no managed panel exists. **Open overlay** uses the current props draft without saving a placement. It honors the mod's supported overlay kind, width, and height. It does not enable persistent windows or inherit a manifest's window key.
 
 For example, `{"footer": true}` selects the footer view of Mod Manager. Layout Manager cannot determine whether that view is useful as a full-height panel. It does not infer a compact mode or replace the existing footer.
 
@@ -56,25 +69,27 @@ For example, `{"footer": true}` selects the footer view of Mod Manager. Layout M
 
 The mod reads `mods/*/mod.json`, checks entry-point existence, reads `installed.json`, and reads the current layout. Discovery does not import or execute a listed mod.
 
-Only **Add to right panel**, **Save panel props**, and **Remove from panel** write a layout file:
+Valid drops, **Place selected mod**, **Add to panel**, **Save panel props**, and **Remove from panel** write a layout file:
 
 - The target is the captured personal file `layouts/<name>.json`.
 - The current layout name and shipped-layout index are checked before each write.
 - `writeTextFile` atomically refuses a write when the file no longer matches the loaded snapshot.
-- A failed or stale write blocks further saves until Refresh.
+- A failed or stale write blocks further saves until Refresh. A gesture is not retried.
 - Missing or invalid shipped-layout metadata blocks editing.
-- Existing node IDs, props, and layout fields remain in the original body. Root look and window fields move to the new outer frame.
+- Existing node IDs, props, and layout fields remain in the original body. Root look and window fields move to the outer frame.
 - The reserved `layout-manager-*` structure must remain intact. Unexpected edits are rejected instead of removing foreign nodes.
+- Existing right-dock files work without migration. Other edges use the same frame, dock, header, stack, and slot IDs.
 - The mod never edits `layouts/.state/`, mod code, credentials, or keys.
 
 Layout Manager itself makes no network requests and runs no external programs. Opening or placing another mod executes that mod with its own access. Removing a placement does not guarantee that programs started by the mod stop.
 
 ```mermaid
 flowchart LR
-  A[Installed mod manifests] --> B[Layout Manager]
+  A[Installed mod manifests] --> B[Graphical Layout Manager]
   C[Personal layout snapshot] --> B
-  B -->|Explicit save with expected contents| D[Personal layout file]
-  D --> E[Herdr live reload]
+  B -->|Valid drop or explicit button action| D[Expected-content save]
+  D --> E[Personal layout file]
+  E --> F[Herdr live reload]
 ```
 
 ## Missing mods and recovery
@@ -99,8 +114,8 @@ npm run check
 git diff --check
 ```
 
-Native checks generate the ignored `gpui-kit.d.ts`; run them before type checks. The view fixtures cover populated, managed, missing, shipped, loading, empty, error, large-list, dock, and dock-recovery states. Fixture checks use an isolated app home and never mutate the live layout.
+Native checks generate the ignored `gpui-kit.d.ts`; run them before type checks. Fixtures cover populated, managed at all four edges, active drag targets, missing, shipped, loading, empty, error, large-list, dock, and dock-recovery states. Fixture checks use an isolated app home and never mutate the live layout. Unit tests exercise gesture handlers, threshold movement, target feedback, cancellation, props handling, stale saves, and layout switches.
 
-A live smoke check on Herdr 0.1.15 used temporary copied mods and a disposable personal layout. It verified discovery, two-panel addition with props, the dock header, selection, hide/show, and final-slot removal. Screenshot inspection found and corrected an inventory sizing defect. The original personal layout file was not changed by this smoke check.
+The graphical dialog was opened and inspected with `herdr-app shot` on Herdr 0.1.15 without a layout-file edit. Native render checks do not prove physical pointer dispatch. The profile owner must still verify dragging, Escape, leaving the dialog, tab ordering, and dock placement in a disposable personal layout. No pointer automation is used on the user's display.
 
-The profile owner must still create the development link with Herdr stopped, reopen the app, and verify that installation. No GitHub publication or packaged preview image is included.
+No GitHub publication or packaged preview image is included.

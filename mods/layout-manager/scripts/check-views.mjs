@@ -10,6 +10,13 @@ mkdirSync(profile)
 const cases = [
   "personal",
   "managed",
+  "managed-left",
+  "managed-top",
+  "managed-bottom",
+  "drag-mod",
+  "drag-dock",
+  "drag-reorder",
+  "drag-remove",
   "missing",
   "shipped",
   "loading",
@@ -33,20 +40,21 @@ try {
     writeFileSync(
       join(directory, "main.js"),
       `import LayoutManager from "./view.js"
-import { addPanel, managedSlots } from "./model.js"
+import { addPanel, managedSlots, moveDock } from "./model.js"
 const state = ${JSON.stringify(state)}
 const original = {id: "original", type: "row", titlebar: "none", traffic_lights: [12,16], children: [
   {id:"terminal",type:"block",content:{tab:"active",pane:{header:{content:{mod:"example"}}}}},
   {id:"existing",type:"block",content:{mod:"example",props:{footer:true}}}
 ]}
-const managed = addPanel(original, {name:"example",title:"Example Mod",props:{mode:"list"}})
+const managed = addPanel(addPanel(original, {name:"example",title:"Example Mod",props:{mode:"list"}}), {name:"saved",title:"Saved Mod",props:{keep:true}})
 const example = {name:"example",title:"Example Mod",available:true,manifest:{},shipped:false,error:""}
 export default class extends LayoutManager {
   createIO() { return {currentName: () => state === "shipped" ? "main" : "fixture"} }
   currentTree() { return state === "dock-recovery" ? null : managed }
   refresh(cx) {
     this.loadedName = this.io.currentName()
-    const tree = ["managed","missing"].includes(state) ? managed : original
+    let tree = state.startsWith("managed") || state.startsWith("drag") || state === "missing" ? managed : original
+    if (state.startsWith("managed-")) tree = moveDock(tree,state.slice("managed-".length))
     this.snapshot = {name:this.loadedName,path:"/fixture/layouts/fixture.json",tree,raw:JSON.stringify(tree),slots:managedSlots(tree),shipped:state === "shipped"}
     this.mods = state === "missing" ? [{...example,available:false,missing:true,error:"Not installed. Reinstall the same folder name to reuse this panel and its props."}] : [example]
     if (state === "many-mods") this.mods = Array.from({length:140},(_,i)=>({...example,name:"example-"+i,title:"Example Mod "+i}))
@@ -54,6 +62,10 @@ export default class extends LayoutManager {
     if (state === "empty") this.mods = []
     if (state === "error") { this.error = "installed.json is invalid. Layout editing is blocked."; this.snapshot = null }
     this.selectMod(this.mods[0]?.name,cx,true)
+    if (state.startsWith("drag")) {
+      this.drag = {kind:state === "drag-dock" ? "dock" : "mod",name:"example",origin:{x:0,y:0},active:true}
+      this.dropTarget = state === "drag-reorder" ? "tab-saved" : state === "drag-remove" ? "remove" : "edge-left"
+    }
     this.cloneName.set_value("fixture-personal")
   }
   init(_props,cx) {

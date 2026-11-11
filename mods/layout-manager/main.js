@@ -17,12 +17,16 @@ import {
 import {
   addPanel,
   DOCK_ID,
+  dockPosition,
+  FRAME_ID,
   findNode,
   MOD_NAME,
   managedSlots,
+  moveDock,
   parseProps,
   references,
   removePanel,
+  reorderPanel,
   STACK_ID,
   validName,
 } from "./model.js"
@@ -68,6 +72,9 @@ export default class LayoutManager extends View {
     this.limit = 100
     this.drafts = new Map()
     this.needsRefresh = false
+    this.drag = null
+    this.dropTarget = null
+    this.focus = cx.focus_handle()
     this.search = InputState.new({ placeholder: "Search installed mods…" })
     this.search.on("change", (_event, cx) => {
       this.query = this.search.value()
@@ -80,14 +87,18 @@ export default class LayoutManager extends View {
   }
 
   close() {
+    this.drag = null
+    this.dropTarget = null
     this.closed = true
     this.search?.release()
     this.properties?.release()
     this.cloneName?.release()
+    this.focus?.release()
   }
 
   refresh(cx) {
     if (this.busy) return
+    this.cancelDrag(cx)
     const name = this.io.currentName()
     const request = ++this.request
     this.loadedName = name
@@ -153,7 +164,10 @@ export default class LayoutManager extends View {
       .disabled(disabled)
       .when(disabled, (element) => element.opacity(0.45))
       .hover((style) => style.opacity(0.85))
-      .on_mouse_down("left", stop)
+      .on_mouse_down("left", (event, cx) => {
+        this.cancelDrag(cx)
+        stop(event, cx)
+      })
       .on_click((_event, cx) => action(cx))
       .child(text)
   }
@@ -170,31 +184,57 @@ export default class LayoutManager extends View {
       cx.notify()
       return
     }
+    this.drafts.set(mod.name, JSON.stringify(properties, null, 2))
+    this.saveChange(
+      cx,
+      (tree) =>
+        remove
+          ? removePanel(tree, mod.name)
+          : addPanel(tree, { name: mod.name, title: mod.title, props: properties }),
+      remove
+        ? `Removed ${mod.title} from ${snapshot.name}. Mod files were not changed.`
+        : `Saved ${mod.title} in ${snapshot.name}.`,
+      remove ? null : mod.name,
+    )
+  }
+
+  canEdit() {
+    return Boolean(
+      this.snapshot &&
+        !this.snapshot.shipped &&
+        !this.loading &&
+        !this.busy &&
+        !this.closed &&
+        !this.needsRefresh,
+    )
+  }
+
+  saveChange(cx, transform, notice, reveal = null) {
+    if (!this.canEdit()) return
+    const snapshot = this.snapshot
+    this.cancelDrag(cx)
     this.busy = true
     this.error = ""
     this.notice = ""
     cx.notify()
     cx.spawn(async (cx) => {
       try {
-        const next = await saveSnapshot(this.io, snapshot, (tree) =>
-          remove
-            ? removePanel(tree, mod.name)
-            : addPanel(tree, { name: mod.name, title: mod.title, props: properties }),
-        )
+        const next = await saveSnapshot(this.io, snapshot, transform)
         if (this.closed) return
         this.snapshot = next
         this.mods = includeMissing(
           this.mods.filter((item) => !item.missing),
           next,
         )
-        this.notice = remove
-          ? `Removed ${mod.title} from ${snapshot.name}. Mod files were not changed.`
-          : `Saved ${mod.title} in ${snapshot.name}.`
-        this.drafts.set(mod.name, JSON.stringify(properties, null, 2))
-        if (!remove)
+        this.notice = notice
+        if (!this.mods.some((mod) => mod.name === this.selected)) {
+          this.selected = null
+          this.properties.set_value("{}")
+        }
+        if (reveal)
           this.reveal = {
             name: snapshot.name,
-            id: next.slots.find((slot) => slot.name === mod.name).id,
+            id: next.slots.find((slot) => slot.name === reveal).id,
           }
       } catch (error) {
         if (this.closed) return
@@ -205,6 +245,135 @@ export default class LayoutManager extends View {
         if (!this.closed) cx.notify()
       }
     })
+  }
+
+  cancelDrag(cx) {
+    if (!this.drag && !this.dropTarget) return
+    this.drag = null
+    this.dropTarget = null
+    cx.notify()
+  }
+
+  startDrag(kind, name, event, cx) {
+    if (!this.canEdit()) return
+    if (kind === "dock" && !this.snapshot.slots.length) return
+    if (kind === "mod") {
+      const mod = this.mods.find((item) => item.name === name)
+      if (!mod || (!mod.available && !this.snapshot.slots.some((slot) => slot.name === name)))
+        return
+      this.selectMod(name, cx)
+    }
+    cx.stop_propagation()
+    this.focus.focus()
+    this.drag = { kind, name, origin: event.position, active: false }
+    this.dropTarget = null
+    cx.notify()
+  }
+
+  updateDrag(event, cx) {
+    if (!this.drag || this.drag.active) return
+    const dx = event.position.x - this.drag.origin.x
+    const dy = event.position.y - this.drag.origin.y
+    if (dx * dx + dy * dy < 25) return
+    this.drag.active = true
+    cx.notify()
+  }
+
+  acceptsDrop(target) {
+    if (!this.canEdit() || !this.drag) return false
+    if (target.kind === "edge") return true
+    if (this.drag.kind !== "mod") return false
+    return (
+      target.kind === "tab" ||
+      (target.kind === "remove" && this.snapshot.slots.some((slot) => slot.name === this.drag.name))
+    )
+  }
+
+  hoverDrop(target, event, cx) {
+    this.updateDrag(event, cx)
+    if (!this.drag?.active || !this.acceptsDrop(target)) return
+    if (this.dropTarget !== target.key) {
+      this.dropTarget = target.key
+      cx.notify()
+    }
+  }
+
+  finishDrop(target, event, cx) {
+    if (!this.drag) return
+    this.updateDrag(event, cx)
+    const drag = this.drag
+    const accepted = drag.active && this.acceptsDrop(target)
+    cx.stop_propagation()
+    this.cancelDrag(cx)
+    if (!accepted) return
+    if (drag.kind === "dock") {
+      this.saveChange(
+        cx,
+        (tree) => moveDock(tree, target.position),
+        `Moved the managed panel to ${target.position}.`,
+      )
+    } else if (target.kind === "remove") {
+      this.saveChange(
+        cx,
+        (tree) => removePanel(tree, drag.name),
+        `Removed ${drag.name} from the panel. Mod files were not changed.`,
+      )
+    } else {
+      this.placeMod(
+        cx,
+        drag.name,
+        target.position,
+        target.kind === "tab" ? target.before : undefined,
+      )
+    }
+  }
+
+  placeMod(cx, name, position, before = undefined) {
+    if (!this.canEdit()) return
+    const mod = this.mods.find((item) => item.name === name)
+    const slot = this.snapshot.slots.find((item) => item.name === name)
+    if (!mod || (!slot && !mod.available)) return
+    let properties
+    try {
+      if (!slot) {
+        properties = parseProps(
+          name === this.selected ? this.properties.value() : (this.drafts.get(name) ?? "{}"),
+        )
+      }
+    } catch (error) {
+      this.error = message(error)
+      cx.notify()
+      return
+    }
+    this.saveChange(
+      cx,
+      (tree) => {
+        let next = slot ? tree : addPanel(tree, { name, title: mod.title, props: properties })
+        if (position) next = moveDock(next, position)
+        if (before !== undefined) next = reorderPanel(next, name, before)
+        return next
+      },
+      `Saved ${mod.title}${position ? ` in the ${position} panel` : " in the panel"}.`,
+      name,
+    )
+  }
+
+  dropZone(element, target) {
+    const t = colors()
+    const enabled = this.acceptsDrop(target)
+    return element
+      .when(enabled && this.drag?.active, (item) => item.border_color(t.accent))
+      .when(this.dropTarget === target.key, (item) =>
+        item.bg(t.selected).when(target.kind === "tab", (card) => card.border_t_2()),
+      )
+      .on_mouse_move((event, cx) => this.hoverDrop(target, event, cx))
+      .on_mouse_up("left", (event, cx) => this.finishDrop(target, event, cx))
+      .on_hover((hovered, cx) => {
+        if (!hovered && this.dropTarget === target.key) {
+          this.dropTarget = null
+          cx.notify()
+        }
+      })
   }
 
   showSelected(cx) {
@@ -294,6 +463,264 @@ export default class LayoutManager extends View {
       )
   }
 
+  dragHandle(id, kind, name, text) {
+    const t = colors()
+    const managed = this.snapshot?.slots.some((slot) => slot.name === name)
+    const available = this.mods.some((mod) => mod.name === name && mod.available)
+    const enabled = this.canEdit() && (kind === "dock" || managed || available)
+    return div()
+      .id(id)
+      .flex_none()
+      .px(6)
+      .py(4)
+      .rounded(4)
+      .text_size(11)
+      .text_color(enabled ? t.muted : t.dim)
+      .child(text)
+      .when(enabled, (element) => element.cursor_grab().hover((style) => style.bg(t.hover)))
+      .tooltip(enabled ? "Drag to move" : "Layout editing is unavailable")
+      .on_mouse_down("left", (event, cx) => this.startDrag(kind, name, event, cx))
+  }
+
+  previewNode(node, depth = 0) {
+    const t = colors()
+    const children = node.children ?? []
+    const container = node.type === "row" ? h_flex() : v_flex()
+    const content = node.content
+    const text = content?.mod
+      ? content.mod
+      : content?.tab
+        ? "Workspace"
+        : content?.terminal
+          ? `Terminal ${content.terminal}`
+          : content?.agent
+            ? "Agent"
+            : node.id
+    return container
+      .id(`preview-${node.id}`)
+      .flex_1()
+      .min_w(0)
+      .min_h(0)
+      .p(6)
+      .gap(4)
+      .items_stretch()
+      .rounded(5)
+      .border_1()
+      .border_color(t.border)
+      .bg(depth % 2 ? t.canvas : t.surface)
+      .when(node.hidden, (element) => element.opacity(0.45))
+      .when(children.length === 0 || depth >= 4, (element) =>
+        element
+          .items_center()
+          .justify_center()
+          .child(label(text, 10, t.muted).truncate().tooltip(node.id)),
+      )
+      .when(children.length > 0 && depth < 4, (element) =>
+        element.children(children.map((child) => this.previewNode(child, depth + 1))),
+      )
+  }
+
+  panelPreview(position) {
+    const t = colors()
+    const slots = this.snapshot.slots
+    const hidden = findNode(this.snapshot.tree, DOCK_ID)?.hidden
+    return v_flex()
+      .id("layout-manager-panel-preview")
+      .flex_none()
+      .min_h(0)
+      .gap(4)
+      .p(6)
+      .rounded(6)
+      .border_1()
+      .border_color(t.accent)
+      .bg(t.chrome)
+      .when(position === "left" || position === "right", (element) => element.w(154))
+      .when(position === "top" || position === "bottom", (element) => element.h(104))
+      .child(
+        this.dragHandle(
+          "drag-dock",
+          "dock",
+          null,
+          `⠿ Panel · ${position}${hidden ? " · hidden" : ""}`,
+        ),
+      )
+      .child(
+        v_flex()
+          .id("layout-manager-preview-tabs")
+          .flex_1()
+          .min_h(0)
+          .gap(3)
+          .overflow_y_scrollbar()
+          .children(
+            slots.map((slot) =>
+              this.dropZone(
+                h_flex()
+                  .id(`preview-tab-${slot.name}`)
+                  .flex_none()
+                  .min_w(0)
+                  .gap(3)
+                  .items_center()
+                  .rounded(4)
+                  .border_1()
+                  .border_color(t.border)
+                  .bg(this.selected === slot.name ? t.selected : t.surface)
+                  .on_click((_event, cx) => this.selectMod(slot.name, cx))
+                  .child(this.dragHandle(`drag-tab-${slot.name}`, "mod", slot.name, "⠿"))
+                  .child(label(slot.title, 10).truncate().tooltip(`Drop before ${slot.title}`)),
+                { kind: "tab", before: slot.name, key: `tab-${slot.name}` },
+              ),
+            ),
+          )
+          .child(
+            this.dropZone(
+              div()
+                .id("drop-tab-end")
+                .h(26)
+                .flex_none()
+                .px(6)
+                .rounded(4)
+                .border_1()
+                .border_color(t.border)
+                .text_size(10)
+                .text_color(t.muted)
+                .child("Drop to append"),
+              { kind: "tab", before: null, key: "append" },
+            ),
+          ),
+      )
+  }
+
+  edgeTarget(position) {
+    const t = colors()
+    const current = this.snapshot && dockPosition(this.snapshot.tree)
+    const target = { kind: "edge", position, key: `edge-${position}` }
+    return this.dropZone(
+      h_flex()
+        .id(`drop-${position}`)
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(5)
+        .border_1()
+        .border_color(current === position ? t.accent : t.border)
+        .bg(t.chrome)
+        .text_size(10)
+        .text_color(t.muted)
+        .when(position === "top" || position === "bottom", (element) => element.h(28))
+        .when(position === "left" || position === "right", (element) => element.w(48))
+        .child(position[0].toUpperCase() + position.slice(1))
+        .tooltip(`Drop a mod or the panel here · ${position}`),
+      target,
+    )
+  }
+
+  editor() {
+    const t = colors()
+    if (!this.snapshot) return div()
+    const tree = this.snapshot.tree
+    const position = dockPosition(tree)
+    const body = tree.id === FRAME_ID ? tree.children.find((node) => node.id !== DOCK_ID) : tree
+    const preview = position === "top" || position === "bottom" ? v_flex() : h_flex()
+    const panel = position ? this.panelPreview(position) : null
+    return v_flex()
+      .flex_none()
+      .gap(9)
+      .child(label("Visual layout", 15).font_semibold())
+      .child(
+        label(
+          "Drag a mod to an edge. Drag the panel grip to move it. Drag cards to reorder tabs.",
+          11,
+          t.muted,
+        ),
+      )
+      .child(
+        v_flex()
+          .id("layout-manager-canvas")
+          .h(330)
+          .flex_none()
+          .p(8)
+          .gap(6)
+          .rounded(8)
+          .border_1()
+          .border_color(t.border)
+          .bg(t.surface)
+          .child(this.edgeTarget("top"))
+          .child(
+            h_flex()
+              .flex_1()
+              .min_h(0)
+              .gap(6)
+              .items_stretch()
+              .child(this.edgeTarget("left"))
+              .child(
+                preview
+                  .flex_1()
+                  .min_w(0)
+                  .min_h(0)
+                  .gap(6)
+                  .items_stretch()
+                  .when(position === "left" || position === "top", (element) =>
+                    element.child(panel),
+                  )
+                  .child(this.previewNode(body))
+                  .when(position === "right" || position === "bottom", (element) =>
+                    element.child(panel),
+                  ),
+              )
+              .child(this.edgeTarget("right")),
+          )
+          .child(this.edgeTarget("bottom")),
+      )
+      .child(
+        h_flex()
+          .gap(8)
+          .flex_wrap()
+          .items_center()
+          .child(label("Place selected mod:", 11, t.muted))
+          .children(
+            ["left", "right", "top", "bottom"].map((edge) =>
+              this.button(
+                `place-${edge}`,
+                edge[0].toUpperCase() + edge.slice(1),
+                (cx) => this.placeMod(cx, this.selected, edge),
+                {
+                  disabled:
+                    !this.canEdit() ||
+                    !this.mods.some(
+                      (mod) =>
+                        mod.name === this.selected &&
+                        (mod.available ||
+                          this.snapshot.slots.some((slot) => slot.name === mod.name)),
+                    ),
+                },
+              ),
+            ),
+          ),
+      )
+      .child(
+        this.dropZone(
+          h_flex()
+            .id("drop-remove-panel")
+            .h(32)
+            .flex_none()
+            .px(10)
+            .items_center()
+            .rounded(5)
+            .border_1()
+            .border_color(t.border)
+            .child(label("Drop a managed card here to remove its placement", 10, t.muted)),
+          { kind: "remove", key: "remove" },
+        ),
+      )
+      .child(
+        label(
+          "Schematic preview. Existing layout blocks and special integrations are not moved.",
+          10,
+          t.dim,
+        ),
+      )
+  }
+
   inventory() {
     const t = colors()
     const query = this.query.trim().toLowerCase()
@@ -339,7 +766,18 @@ export default class LayoutManager extends View {
                 .cursor_pointer()
                 .hover((style) => style.bg(t.hover))
                 .on_click((_event, cx) => this.selectMod(mod.name, cx))
-                .child(label(mod.title, 12).truncate())
+                .when(
+                  this.drag?.kind === "mod" && this.drag.name === mod.name && this.drag.active,
+                  (element) => element.opacity(0.5),
+                )
+                .child(
+                  h_flex()
+                    .min_w(0)
+                    .gap(5)
+                    .items_center()
+                    .child(this.dragHandle(`drag-mod-${mod.name}`, "mod", mod.name, "⠿"))
+                    .child(label(mod.title, 12).truncate()),
+                )
                 .child(
                   label(
                     !mod.available
@@ -392,8 +830,8 @@ export default class LayoutManager extends View {
       .child(
         label(
           slot
-            ? "This mod has a managed right-panel slot."
-            : "Add a separate copy to the managed right panel, or open it as an overlay.",
+            ? `This mod has a managed ${dockPosition(this.snapshot.tree)}-panel slot.`
+            : "Drag this mod to a preview edge, add it to the panel, or open it as an overlay.",
           12,
           t.muted,
         ),
@@ -445,7 +883,7 @@ export default class LayoutManager extends View {
           .child(
             this.button(
               "save-panel",
-              slot ? "Save panel props" : "Add to right panel",
+              slot ? "Save panel props" : "Add to panel",
               (cx) => this.apply(cx),
               { primary: true, disabled: blocked || !mod.available },
             ),
@@ -518,6 +956,20 @@ export default class LayoutManager extends View {
       .bg(t.canvas)
       .text_color(t.foreground)
       .text_size(13)
+      .track_focus(this.focus)
+      .on_mouse_down("left", (_event, cx) => this.cancelDrag(cx))
+      .on_mouse_move((event, cx) => this.updateDrag(event, cx))
+      .on_mouse_up("left", (_event, cx) => this.cancelDrag(cx))
+      .on_mouse_down_out((_event, cx) => this.cancelDrag(cx))
+      .on_hover((hovered, cx) => {
+        if (!hovered) this.cancelDrag(cx)
+      })
+      .on_key_down((event, cx) => {
+        if (event.key === "escape" && this.drag) {
+          this.cancelDrag(cx)
+          cx.stop_propagation()
+        }
+      })
       .child(
         h_flex()
           .h(58)
@@ -584,7 +1036,7 @@ export default class LayoutManager extends View {
                     .child(label("Herdr's layouts are read-only", 14).font_medium())
                     .child(
                       label(
-                        "Create a personal clone before adding or removing panels.",
+                        "Create a personal clone before changing panel placement or props.",
                         12,
                         t.muted,
                       ),
@@ -617,6 +1069,7 @@ export default class LayoutManager extends View {
                     ),
                 ),
               )
+              .child(this.editor())
               .child(this.detail().flex_none()),
           ),
       )
@@ -631,7 +1084,11 @@ export default class LayoutManager extends View {
           .items_center()
           .child(
             label(
-              "Only explicit actions change layouts. Mod files, keys, and credentials are not changed.",
+              this.drag
+                ? this.drag.active
+                  ? "Release on a highlighted target to save. Escape or leaving the dialog cancels."
+                  : "Move the pointer to drag. A click does not change the layout."
+                : "Drops save immediately. Mod files, keys, credentials, and existing integrations are not changed.",
               10,
               t.dim,
             ),
