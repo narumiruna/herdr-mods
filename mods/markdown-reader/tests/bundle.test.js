@@ -1,0 +1,89 @@
+import { lstat, readFile } from "node:fs/promises"
+import { dirname, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
+import { imageSize } from "image-size"
+import { describe, expect, it } from "vitest"
+
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)))
+const runtime = [
+  "main.js",
+  "model.js",
+  "runtime.js",
+  "helper.mjs",
+  "document.js",
+  "files.js",
+  "cache.js",
+  "renderers/index.js",
+  "renderers/mermaid.js",
+  "renderers/svg.js",
+  "renderers/vega.js",
+  "renderers/worker.js",
+  "renderers/worker-renderer.js",
+]
+const host = new Set(["gpui-kit", "gpui-base", "herdr", "crypto", "fs/promises"])
+
+// Validate the source bundle, not generated SDKs or installed dependencies.
+describe("shareable mod source", () => {
+  it("keeps the recipe, actual PNG preview, manifest, license, and runtime in the mod root", async () => {
+    for (const name of [
+      "RECIPE.md",
+      "preview.png",
+      "mod.json",
+      "package.json",
+      "LICENSE",
+      "DEPENDENCIES.md",
+      ...runtime,
+    ])
+      expect((await lstat(resolve(root, name))).isFile(), name).toBe(true)
+    const preview = await readFile(resolve(root, "preview.png"))
+    expect(preview.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a")
+    expect(imageSize(preview)).toMatchObject({ width: 2200, height: 1606, type: "png" })
+    expect(JSON.parse(await readFile(resolve(root, "mod.json"), "utf8"))).toMatchObject({
+      place: "none",
+      focusable: true,
+    })
+    await expect(lstat(resolve(root, "layouts"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(resolve(root, "keys.json"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+  it("gives a rebuild brief with local links and explicit acceptance limits", async () => {
+    const recipe = await readFile(resolve(root, "RECIPE.md"), "utf8")
+    for (const heading of [
+      "# Markdown Reader",
+      "## What you see",
+      "## How it behaves",
+      "## Built from",
+      "## Watch out",
+      "## Done when",
+    ])
+      expect(recipe).toContain(heading)
+    expect(recipe).toContain("![Markdown Reader preview](preview.png)")
+    expect(recipe).toContain("Inline math is unavailable")
+    expect(recipe).toContain("External acceptance remains open")
+    expect(recipe).not.toMatch(/\/Users\/|narumi\/\.herdr/)
+    for (const match of recipe.matchAll(/\]\(([^)]+)\)/g)) {
+      const path = resolve(root, match[1])
+      expect(path.startsWith(root + sep)).toBe(true)
+      expect((await lstat(path)).isFile()).toBe(true)
+    }
+  })
+  it("resolves relative runtime modules inside the bundle and declares npm dependencies", async () => {
+    const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"))
+    expect(pkg.overrides.katex).toBe("0.19.1")
+    for (const file of runtime) {
+      const source = await readFile(resolve(root, file), "utf8")
+      for (const match of source.matchAll(/(?:from\s*|import\s*\()"([^"\n]+)"/g)) {
+        const name = match[1]
+        if (name.startsWith(".")) {
+          const path = resolve(dirname(resolve(root, file)), name)
+          expect(path.startsWith(root + sep)).toBe(true)
+          expect((await lstat(path)).isFile()).toBe(true)
+        } else if (!name.startsWith("node:") && !host.has(name)) {
+          const dependency = name.startsWith("@")
+            ? name.split("/").slice(0, 2).join("/")
+            : name.split("/")[0]
+          expect(pkg.dependencies[dependency], `${file}: ${name}`).toBeDefined()
+        }
+      }
+    }
+  })
+})

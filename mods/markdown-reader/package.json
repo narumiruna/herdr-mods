@@ -1,0 +1,38 @@
+{
+  "name": "herdr-markdown-reader",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "start": "herdr-app do mod.open --name markdown-reader",
+    "setup:browser": "puppeteer browsers install chrome",
+    "test": "vitest run",
+    "test:browser": "vitest run --config vitest.browser.config.js",
+    "check:mod": "node scripts/check-mod.mjs",
+    "check:views": "node scripts/check-views.mjs",
+    "check:types": "tsc --project jsconfig.json",
+    "evidence:native": "node scripts/native-evidence.mjs"
+  },
+  "overrides": {
+    "katex": "0.19.1"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "hast-util-sanitize": "5.0.2",
+    "hast-util-to-html": "9.0.6",
+    "image-size": "2.1.0",
+    "mathjax-full": "3.2.2",
+    "mdast-util-to-hast": "13.2.1",
+    "mermaid": "12.3.0",
+    "puppeteer": "25.17.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
+    "vega": "6.4.0",
+    "vega-lite": "6.5.0"
+  }
+}

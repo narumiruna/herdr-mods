@@ -10,18 +10,20 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
+- [`mods/markdown-reader/`](mods/markdown-reader/): native local Markdown reading, display math, official Mermaid SVG, static Vega-Lite, and personal Files integration preparation.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
 
-Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly; no build output or npm packages are needed at runtime.
+Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Markdown Reader needs installed Node dependencies and Puppeteer's browser.
 
 ## Development
 
-Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.14. Run these commands from the repository root:
+Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Run these commands from the repository root:
 
 ```sh
 npm ci
+npm run setup:browser --workspace herdr-markdown-reader
 npm run check:mod
 npm run ci
 git diff --check
@@ -82,6 +84,21 @@ npm test --workspace herdr-layout-manager
 npm run check:mod --workspace herdr-layout-manager
 npm start --workspace herdr-layout-manager
 ```
+
+## Markdown Reader
+
+[Markdown Reader](mods/markdown-reader/README.md) opens local Markdown in native panes. It supports native prose/code, MathJax display math, official Mermaid.js diagrams, and static Vega-Lite charts. Inline math remains TeX source on Herdr 0.1.15; it is not complete LaTeX support.
+
+Install dependencies and the pinned browser first. The [Files integration guide](mods/markdown-reader/docs/files-integration.md) prepares personal Files/layout clones outside the active profile. Linking the reader alone does not replace Files clicks. No shipped mod, live layout, or source document is changed automatically.
+
+```sh
+npm test --workspace herdr-markdown-reader
+npm run test:browser --workspace herdr-markdown-reader
+npm run check:mod --workspace herdr-markdown-reader
+npm run evidence:native --workspace herdr-markdown-reader
+```
+
+See [verification and external handoff](mods/markdown-reader/docs/verification.md) for native evidence, platform limits, the inline-asset API requirement, and live-profile checks.
 
 ## Self-update
 
