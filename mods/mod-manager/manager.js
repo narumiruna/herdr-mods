@@ -123,7 +123,11 @@ function folder(value) {
 /** @param {unknown} value */
 function recipePath(value) {
   const path = text(value, 1024)
-  if (path && !path.split("/").every((part) => /^[a-z0-9_][a-z0-9_.-]{0,127}$/i.test(part))) {
+  if (
+    path &&
+    (path.split("/").length > 64 ||
+      !path.split("/").every((part) => /^[a-z0-9_][a-z0-9_.-]{0,127}$/i.test(part)))
+  ) {
     throw new Error("Unsafe relative recipe path.")
   }
   return path
@@ -984,32 +988,46 @@ export class ManagerSession {
     }
   }
 
-  /** @param {string} input */
-  async installRepository(input) {
+  /** @param {string} input @param {string} [directory] */
+  async installRepository(input, directory = "") {
     this._available()
     const repository = normalizeRepository(input)
-    if (this._installed.some((mod) => mod.repository === repository)) {
-      throw new Error("This repository is already installed.")
+    const recipe = recipePath(directory.trim())
+    const modName = recipe ? folder(recipe.split("/").at(-1)) : undefined
+    const alreadyInstalled = () =>
+      this._installed.some((mod) => mod.repository === repository && mod.recipePath === recipe)
+    if (alreadyInstalled()) {
+      throw new Error("This repository mod is already installed.")
     }
-    const id = `github:${repository}`
+    const id = `github:${repository}${recipe ? `/${recipe}` : ""}`
     this.pending = Object.freeze({ id, action: "install" })
     this.lastMessage = ""
     try {
       await this._readDiscovery()
       this._migrationReady()
-      if (this._installed.some((mod) => mod.repository === repository)) {
-        throw new Error("This repository is already installed.")
+      if (alreadyInstalled()) {
+        throw new Error("This repository mod is already installed.")
       }
-      const result = operationResult(await this.io.operate({ action: "install", repository }))
+      const result = operationResult(
+        await this.io.operate({
+          action: "install",
+          repository,
+          ...(recipe ? { recipePath: recipe } : {}),
+        }),
+      )
       await this._readDiscovery()
       if (!result.ids?.length || !result.commit) {
         throw new Error("Repository installation did not return verified IDs and a commit.")
       }
-      for (const modName of result.ids) {
-        const installed = this._installed.find((mod) => mod.modName === modName)
+      if (modName && (result.ids.length !== 1 || result.ids[0] !== modName)) {
+        throw new Error("Repository installation returned an unexpected mod selection.")
+      }
+      for (const installedName of result.ids) {
+        const installed = this._installed.find((mod) => mod.modName === installedName)
         if (
           !verifiedInstalled(installed) ||
           installed.repository !== repository ||
+          installed.recipePath !== recipe ||
           installed.commit !== commit(result.commit)
         ) {
           throw new Error(

@@ -10,6 +10,10 @@ const cases = [
   ["installed", 'this.section = "installed"'],
   ["github", 'this.section = "github"'],
   [
+    "github-subdirectory",
+    'this.section = "github"; this.repository.set_value("https://github.com/example/collection"); this.directory.set_value("mods/focus-mode")',
+  ],
+  [
     "loading",
     'this.session.mods = []; this.session.galleryStatus = "loading"; this.session.discoveryStatus = "loading"',
   ],
@@ -46,7 +50,7 @@ const cases = [
   ...[268, 76].flatMap((width) =>
     [false, true].map((ready) => [
       `footer-${width}-${ready ? "update" : "current"}`,
-      'if (this.session || this.searches || this.repository || this.loadStarted) throw new Error("Footer initialized manager state")',
+      'if (this.session || this.searches || this.repository || this.directory || this.loadStarted) throw new Error("Footer initialized manager state")',
       { width, ready },
     ]),
   ),
