@@ -37,6 +37,19 @@ npm run check:mod --workspace herdr-mod-manager
 
 Shared hooks, Changesets, and release commands run from the root.
 
+## Link local mods
+
+Stop Herdr before you change links. Run these scripts to link or unlink this checkout's mods in `~/.config/herdr-app/mods/`:
+
+```sh
+./scripts/link-mods.sh
+./scripts/unlink-mods.sh
+```
+
+The link script scans `mods/*/` on each run and uses absolute source paths. Run it again after you add a mod. It skips correct links and reports conflicts without overwriting them. A conflict sets exit code 1; other mods are still processed.
+
+The unlink script removes only same-name links that point to this checkout's mod paths, including broken links. It keeps source files, real directories, and links to other locations. Both scripts can run from any working directory and can be run more than once. Reopen Herdr after you change links.
+
 ## Open Mod Manager
 
 Link `<checkout>/mods/mod-manager` to `<app-home>/mods/mod-manager`, not the repository root. Existing development links to the old repository root must be changed by the profile owner with Herdr fully stopped. Reopen Herdr after the link change and verify that the manager loads. Repository checks do not change or verify the live profile link.
