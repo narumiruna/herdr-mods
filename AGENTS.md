@@ -6,3 +6,10 @@
 - Store each mod's recipe at `mods/<name>/RECIPE.md`, beside those runtime entry files.
 - Do not put a mod recipe at the repository root or create a nested `mods/` directory inside the mod root for recipe packaging.
 - Resolve recipe links and preview paths from the mod root, and update references when files move.
+
+## Mod sharing
+
+- For every mod under `mods/*/`, read and follow `.agents/skills/share-herdr-mod/SKILL.md` when adding or updating the mod.
+- Require every mod, including required companion mods, to meet the skill's bundle, recipe, preview, and validation requirements before reporting it as complete or ready to share.
+  - Report missing files, failed checks, and unavailable checks with the action needed to complete them; keep the mod marked incomplete until all required checks pass.
+- Publish to GitHub only with explicit user approval, and meet the skill's publication requirements before reporting the mod as published.
