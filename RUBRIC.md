@@ -4,7 +4,20 @@
 
 Assess whether a Herdr mod gives Herdr App users a reason to install it and keep using it in daily work.
 
-This document defines the main evaluation areas. Specific checks, scores, and weights are not defined yet.
+This document defines five evaluation areas with a total of 100 points. Detailed scoring criteria are not defined yet.
+
+## Score Allocation
+
+| Evaluation Area | Maximum Points |
+| --- | ---: |
+| Practical Value | 30 |
+| Intuitive UI/UX | 25 |
+| Workflow Integration | 20 |
+| Performance and Response Time | 15 |
+| Reliability and Trust | 10 |
+| **Total** | **100** |
+
+Practical value and UI/UX receive 55 points because they are the main reasons to install and keep using a mod.
 
 ## Evaluation Areas
 
@@ -48,5 +61,6 @@ Keep behavior consistent and results predictable. Errors must not disrupt existi
 
 - **Main reasons to use the mod:** practical value and intuitive operation.
 - **Basic requirements:** no unwanted workflow disruption, unjustified delays, or damage to existing work and data.
+- Data loss or serious disruption to normal Herdr use is unacceptable, regardless of the total score.
 - Visual design and feature count cannot make up for a lack of practical value or unwanted disruption to existing work.
 - Judge whether users would install the mod and keep using it, not how many features it provides.
