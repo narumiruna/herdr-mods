@@ -158,13 +158,13 @@ The same `mod-manager` installation provides both the dialog and a sidebar foote
     "mod": "mod-manager",
     "props": { "footer": true }
   },
-  "size": { "px": 97 }
+  "size": { "px": 125 }
 }
 ```
 
 Keep the header on shipped `workspace-chrome`. Without `footer: true`, the mod keeps its existing dialog behavior. The footer does not create a manager session, inputs, or background tasks. Gallery and inventory load only when the dialog opens.
 
-The footer keeps **Mods**, **Settings**, and **Add machine** in that order. Mods toggles the `mod-manager` dialog; the other rows retain their original actions. Below 160 px sidebar width, rows show icons with tooltips. The Settings update indicator follows the app's update-ready state. Icons come from shipped `workspace-chrome`, including when the manager is installed through an external development link.
+The footer shows **Mods**, **Layout Manager**, **Settings**, and **Add machine** in that order. Mods toggles the `mod-manager` dialog. Layout Manager toggles the separately installed `layout-manager` dialog; it does not install that mod or create a panel. The other rows retain their original actions. Below 160 px sidebar width, rows show icons with tooltips. The Settings update indicator follows the app's update-ready state. Icons come from shipped `workspace-chrome`, including when the manager is installed through an external development link.
 
 ### Migrate an existing sidebar layout
 
@@ -173,7 +173,7 @@ This repository no longer distributes the separate `mod-manager-sidebar` clone. 
 The profile owner must perform these steps:
 
 1. Preserve the personal layout and old sidebar installation outside the checkout before updating it. Fully quit Herdr before changing installation files or links.
-2. Keep the manager installation at `<app-home>/mods/mod-manager`. Change the personal footer's mod reference from `mod-manager-sidebar` to `mod-manager`, using the block above. Keep `footer: true`, the 97 px height, and the shipped header.
+2. Keep the manager installation at `<app-home>/mods/mod-manager`. Change the personal footer's mod reference from `mod-manager-sidebar` to `mod-manager`, using the block above. Keep `footer: true`, the 125 px height, and the shipped header.
 3. Remove the old installed sidebar only after confirming that no personal layout or keybinding still references it.
 4. Reopen Herdr. Verify that the footer loads, Mods opens and closes the dialog, and the footer remains usable after closing it. Old runtime copies can require a full app restart.
 
@@ -193,7 +193,7 @@ herdr-app do layout.switch --name main
 ### Sidebar verification handoff
 
 1. **Profile owner — actual layout migration.** After repository gates pass, preserve the layout and old sidebar installation, fully quit Herdr, and apply the migration steps above. Expected result: Mods toggles the dialog while the footer stays usable. Actual-profile loading, old runtime copies, and restart behavior remain unverified by fixtures. Do not claim automatic migration or completed profile migration before this check.
-2. **Platform maintainer — native interaction and visual review.** After native fixtures pass, use a disposable profile with the documented block. Check both themes, expanded/narrow widths, tooltips, icons, the update indicator, all three actions, and repeated open/close cycles. Expected result: the existing footer behavior remains intact and closing the dialog leaves the footer active. Initial-render checks do not prove appearance, native event routing, or footer/dialog coexistence. Do not claim native interaction acceptance on unreviewed platforms. Windows mutation restrictions remain unchanged.
+2. **Platform maintainer — native interaction and visual review.** After native fixtures pass, use a disposable profile with the documented block. Check both themes, expanded/narrow widths, tooltips, icons, the update indicator, all four actions, and repeated open/close cycles. Expected result: the existing footer behavior remains intact and closing the dialog leaves the footer active. Initial-render checks do not prove appearance, native event routing, or footer/dialog coexistence. Do not claim native interaction acceptance on unreviewed platforms. Windows mutation restrictions remain unchanged.
 
 These handoffs do not authorize automated profile edits, app restart, or release.
 
