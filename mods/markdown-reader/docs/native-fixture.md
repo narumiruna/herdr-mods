@@ -73,7 +73,7 @@ No generated image or binary belongs in the repository. Remove only the printed 
 
 ## Observed result and support boundary
 
-The final Herdr 0.1.15 run completed all ten modes in 67.4 seconds. All checks passed, both status samples per mode had `errors: []`, and no recorded owned process group remained.
+The reviewed Herdr 0.1.15 runs completed all ten modes. All checks passed, both status samples per mode had `errors: []`, and no recorded owned process group remained. Each run records its actual elapsed time in `captures.json` and `timing.json`.
 
 Visual inspection established these fixture-specific results:
 
