@@ -9,6 +9,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 ## Repository structure
 
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
+- [`mods/layout-manager/`](mods/layout-manager/): explicit mod placement in personal layouts, with a managed right panel and overlay controls.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
@@ -69,6 +70,18 @@ npm start
 `npm start` opens or closes the installed `mod-manager` dialog; it does not create an installation link. The same mod can provide a sidebar footer with `{ "footer": true }`; no separate sidebar mod is needed. Existing personal layouts that use `mod-manager-sidebar` need an owner-managed change. See the [sidebar launcher guide](mods/mod-manager/README.md#sidebar-launcher) for the 97 px layout block, migration, and recovery. Repository checks do not change the live profile.
 
 See the [Mod Manager guide](mods/mod-manager/README.md) for installation, runtime requirements, file operations, and recovery.
+
+## Layout Manager
+
+[Layout Manager](mods/layout-manager/README.md) lists installed mods, including development links. It can add a mod to a managed right panel, save its JSON props, open an overlay, and remove its own placements. Same-name reinstalls keep their saved slots. Shipped layouts must be cloned before editing.
+
+The [recipe](mods/layout-manager/RECIPE.md) describes both dialog and dock-header modes. Stop Herdr before creating its development link, then reopen the app. No layout or keybinding is installed automatically.
+
+```sh
+npm test --workspace herdr-layout-manager
+npm run check:mod --workspace herdr-layout-manager
+npm start --workspace herdr-layout-manager
+```
 
 ## Self-update
 
