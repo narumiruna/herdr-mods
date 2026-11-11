@@ -100,7 +100,7 @@ function backend({ mods = [], gallery = index(), migration } = {}) {
         return { message: "Migration ownership verified." }
       }
       if (request.action === "install") {
-        const names = request.modNames ?? ["external"]
+        const names = request.modNames ?? [request.recipePath?.split("/").at(-1) || "external"]
         if (names.some((name) => fixture.mods.some((mod) => mod.id === name))) {
           throw new Error("Destination already exists.")
         }
@@ -1010,6 +1010,137 @@ describe("URL installation uses the same actual discovery", () => {
     expect(session.list("installed")).toEqual([])
     expect(() => session.mod(mod.id)).toThrow(/not found/)
   })
+
+  test("installs the exact case-sensitive directory and joins its Gallery identity", async () => {
+    const { fixture, session } = await loaded({
+      gallery: index([listing({ path: "Mods/Focus", modNames: ["Focus"] })]),
+    })
+    const id = session.list("gallery")[0].id
+    const operation = session.installRepository("https://github.com/Example/Focus", " Mods/Focus ")
+    expect(session.pending).toEqual({
+      id: "github:example/focus/Mods/Focus",
+      action: "install",
+    })
+    await operation
+    expect(fixture.io.operate).toHaveBeenCalledWith({
+      action: "install",
+      repository: "example/focus",
+      recipePath: "Mods/Focus",
+    })
+    expect(session.mods).toHaveLength(1)
+    expect(session.mod(id)).toMatchObject({
+      modName: "Focus",
+      recipePath: "Mods/Focus",
+      path: "/fixture/app/mods/Focus",
+      state: "installed",
+    })
+    await expect(
+      session.installRepository("https://github.com/example/focus", "Mods/Focus"),
+    ).rejects.toThrow(/already installed/)
+    expect(fixture.io.operate).toHaveBeenCalledTimes(1)
+  })
+
+  test.each([
+    ["", "mods/alpha", "mods/beta"],
+    ["mods/alpha", "mods/beta", ""],
+  ])("installs independent root and sibling packages in order %j", async (...directories) => {
+    const { fixture, session } = await loaded()
+    for (const directory of directories) {
+      await session.installRepository("https://github.com/other/external", directory)
+    }
+    expect(
+      session
+        .list("installed")
+        .map((mod) => mod.modName)
+        .sort(),
+    ).toEqual(["alpha", "beta", "external"])
+    for (const directory of directories) {
+      await expect(
+        session.installRepository("https://github.com/other/external", directory),
+      ).rejects.toThrow(/already installed/)
+    }
+    expect(fixture.io.operate).toHaveBeenCalledTimes(3)
+  })
+
+  test("rechecks duplicate directory identity after fresh discovery", async () => {
+    const { fixture, session } = await loaded()
+    fixture.mods.push(installed({ recipePath: "mods/focus" }))
+    await expect(
+      session.installRepository("https://github.com/example/focus", "mods/focus"),
+    ).rejects.toThrow(/already installed/)
+    expect(fixture.io.operate).not.toHaveBeenCalled()
+    expect(session.pending).toBeNull()
+  })
+
+  test.each([
+    "../focus",
+    "/mods/focus",
+    "mods/../focus",
+    "mods/./focus",
+    "mods//focus",
+    "mods/focus/",
+    "mods\\focus",
+    "mods/.git",
+    "mods/my mod",
+    "mods/focus\nother",
+    "mods/%66ocus",
+    "mods/_focus",
+    "https://github.com/owner/repo/tree/main/mods/focus",
+    `mods/${"a".repeat(129)}`,
+    `${"parent/".repeat(171)}focus`,
+    `${"a/".repeat(64)}focus`,
+  ])("rejects unsafe or unsupported directories before I/O: %j", async (directory) => {
+    const { fixture, session } = await loaded()
+    fixture.io.discover.mockClear()
+    await expect(
+      session.installRepository("https://github.com/other/external", directory),
+    ).rejects.toThrow(/path|folder|metadata/)
+    expect(fixture.io.discover).not.toHaveBeenCalled()
+    expect(fixture.io.operate).not.toHaveBeenCalled()
+    expect(session.pending).toBeNull()
+  })
+
+  test("a whitespace-only directory keeps repository-root installation", async () => {
+    const { fixture, session } = await loaded()
+    await session.installRepository("https://github.com/other/external", "  ")
+    expect(fixture.io.operate).toHaveBeenCalledWith({
+      action: "install",
+      repository: "other/external",
+    })
+  })
+
+  test.each([
+    { recipePath: "mods/other" },
+    { recipePath: "Mods/focus" },
+    { repository: "other/repo" },
+  ])("rejects directory readback with a different source: %j", async (changes) => {
+    const { fixture, session } = await loaded()
+    const real = fixture.io.operate.getMockImplementation()
+    fixture.io.operate.mockImplementation(async (request) => {
+      const result = await real(request)
+      Object.assign(fixture.mods[0], changes)
+      return result
+    })
+    await expect(
+      session.installRepository("https://github.com/example/focus", "mods/focus"),
+    ).rejects.toThrow(/readback failed/)
+    expect(session.lastMessage).toBe("")
+    expect(session.pending).toBeNull()
+  })
+
+  test.each([["other"], ["focus", "other"]])(
+    "rejects unexpected returned directory selections: %j",
+    async (...ids) => {
+      const { fixture, session } = await loaded()
+      const real = fixture.io.operate.getMockImplementation()
+      fixture.io.operate.mockImplementation(async (request) => ({ ...(await real(request)), ids }))
+      await expect(
+        session.installRepository("https://github.com/example/focus", "mods/focus"),
+      ).rejects.toThrow(/unexpected mod selection/)
+      expect(session.lastMessage).toBe("")
+      expect(session.pending).toBeNull()
+    },
+  )
 
   test("URL install can join an existing Gallery identity without duplicate cards", async () => {
     const { fixture, session } = await loaded({

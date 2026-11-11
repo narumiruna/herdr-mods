@@ -179,6 +179,30 @@ class LifecycleTests(unittest.TestCase):
         self.good(self.run_request("uninstall", **self.confirmation("alpha")))
         self.assertTrue((self.home / "mods/beta/main.js").exists())
 
+    def test_subdirectory_default_names_and_source_identity(self):
+        self.write_mod("Mods/Alpha", id="manifest-alias")
+        self.write_mod("Mods/beta")
+        self.commit()
+        self.bad(self.run_request("install", repository="example/fixture", recipePath="mods/Alpha"), "recipePath")
+        alpha = self.install(recipePath="Mods/Alpha")
+        self.assertEqual(alpha["ids"], ["Alpha"])
+        self.assertEqual(sorted(p.name for p in (self.home / "mods/Alpha").iterdir()), ["main.js", "mod.json"])
+        self.assertEqual(json.loads((self.home / "mods/Alpha/mod.json").read_text())["id"], "manifest-alias")
+        self.install(recipePath="Mods/beta")
+        records = json.loads((self.state / "registry.json").read_text())["mods"]
+        self.assertEqual(records["Alpha"]["recipePath"], "Mods/Alpha")
+        self.assertEqual(records["Alpha"]["modFolder"], "Mods/Alpha")
+        self.assertEqual(records["beta"]["modFolder"], "Mods/beta")
+        self.bad(self.run_request("install", repository="example/fixture", recipePath="Mods/Alpha", modNames=["other"]), "identity")
+        self.good(self.run_request("uninstall", **self.confirmation("Alpha")))
+        self.assertTrue((self.home / "mods/beta/main.js").exists())
+
+    def test_directory_without_root_mod_does_not_guess_a_bundle_selection(self):
+        self.write_mod("Recipe/mods/Recipe")
+        self.commit()
+        self.bad(self.run_request("install", repository="example/fixture", recipePath="Recipe"), "explicit modNames")
+        self.assertEqual(list((self.home / "mods").iterdir()), [])
+
     def test_bundle_root_ambiguity(self):
         self.write_mod("mods/alpha")
         self.commit()

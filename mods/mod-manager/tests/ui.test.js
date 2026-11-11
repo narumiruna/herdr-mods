@@ -216,7 +216,11 @@ function fixture() {
         state.migration = { required: false, blocked: false, token: "", targets: [] }
         return { message: "Migration ownership verified." }
       }
-      const name = request.modNames?.[0] || request.id || request.repository.split("/")[1]
+      const name =
+        request.modNames?.[0] ||
+        request.id ||
+        request.recipePath?.split("/").at(-1) ||
+        request.repository.split("/")[1]
       if (request.action === "check-update") {
         if (state.checkError) throw new Error(state.checkError)
         return { commit: INITIAL, updateCommit: UPDATED }
@@ -226,6 +230,7 @@ function fixture() {
           state.records.push(
             record(name, {
               repository: request.repository,
+              recipePath: request.recipePath ?? "",
               commit: request.expectedCommit || INITIAL,
             }),
           )
@@ -342,6 +347,7 @@ describe("sidebar footer through the manager entry", () => {
     expect(fixture.view.session).toBeUndefined()
     expect(fixture.view.searches).toBeUndefined()
     expect(fixture.view.repository).toBeUndefined()
+    expect(fixture.view.directory).toBeUndefined()
     expect(fixture.view.loadStarted).toBe(false)
     for (const fn of [
       fixture.create,
@@ -380,7 +386,7 @@ describe("sidebar footer through the manager entry", () => {
       expect(fixture.create).toHaveBeenCalledTimes(1)
       expect(fixture.io.fetchGallery).toHaveBeenCalledTimes(1)
       expect(fixture.io.discover).toHaveBeenCalledTimes(1)
-      expect(native.input).toHaveBeenCalledTimes(3)
+      expect(native.input).toHaveBeenCalledTimes(4)
     },
   )
 
@@ -803,6 +809,51 @@ describe("live manager view with fixture I/O", () => {
     expect(view.session.list("installed")).toHaveLength(6)
   })
 
+  test("installs sibling directories through the rendered GitHub form", async () => {
+    const { view, cx, flush, io } = setup()
+    await flush()
+    click(view, "nav-github", cx)
+    expect(contents(view.render())).toContain("Mod directory (optional)")
+    expect(contents(view.render())).toContain("The default branch is used")
+    expect(
+      descendants(view.render()).some((node) => node.attributes.state === view.directory),
+    ).toBe(true)
+    view.repository.set_value("https://github.com/owner/collection")
+    for (const directory of ["Mods/alpha", "Mods/beta"]) {
+      view.directory.set_value(directory)
+      click(view, "install-repository", cx)
+      await flush()
+      expect(view.noticeError).toBe(false)
+      expect(io.operate).toHaveBeenLastCalledWith({
+        action: "install",
+        repository: "owner/collection",
+        recipePath: directory,
+      })
+      click(view, "nav-github", cx)
+    }
+    click(view, "install-repository", cx)
+    await flush()
+    expect(view.notice).toContain("already installed")
+    expect(io.operate).toHaveBeenCalledTimes(2)
+    click(view, "view-installed", cx)
+    expect(contents(view.render())).toContain("Recipe: Mods/alpha · Mod: alpha")
+    expect(contents(view.render())).toContain("Recipe: Mods/beta · Mod: beta")
+  })
+
+  test("shows directory validation errors without starting a file operation", async () => {
+    const { view, cx, flush, io } = setup()
+    await flush()
+    click(view, "nav-github", cx)
+    view.repository.set_value("https://github.com/owner/collection")
+    view.directory.set_value("../outside")
+    click(view, "install-repository", cx)
+    await flush()
+    expect(view.noticeError).toBe(true)
+    expect(view.notice).toMatch(/relative recipe path/)
+    expect(io.operate).not.toHaveBeenCalled()
+    expect(find(view, "install-repository").attributes.disabled).toBe(false)
+  })
+
   test("shows GitHub-only installations in Installed without inventing Gallery listings", async () => {
     const { view, cx, flush } = setup()
     await flush()
@@ -1002,19 +1053,27 @@ describe("live manager view with fixture I/O", () => {
     const { view, cx, asyncCx, flush, io } = setup()
     await flush()
     click(view, "nav-github", cx)
-    view.repository.set_value("https://github.com/example/terminal-tools")
+    view.repository.set_value("https://github.com/example/collection")
+    view.directory.set_value("mods/terminal-tools")
     const value = vi.spyOn(view.repository, "value")
+    const directoryValue = vi.spyOn(view.directory, "value")
     const install = vi.spyOn(view.session, "installRepository")
     click(view, "install-repository", cx)
     expect(value).toHaveBeenCalledTimes(1)
+    expect(directoryValue).toHaveBeenCalledTimes(1)
     expect(install).not.toHaveBeenCalled()
     click(view, "close-manager", cx)
-    value.mockImplementation(() => {
-      throw new Error("Native input used after view close")
-    })
+    for (const input of [value, directoryValue]) {
+      input.mockImplementation(() => {
+        throw new Error("Native input used after view close")
+      })
+    }
     const before = asyncCx.notify.mock.calls.length
     await flush()
-    expect(install).toHaveBeenCalledWith("https://github.com/example/terminal-tools")
+    expect(install).toHaveBeenCalledWith(
+      "https://github.com/example/collection",
+      "mods/terminal-tools",
+    )
     expect(io.operate).toHaveBeenCalledTimes(1)
     expect(asyncCx.notify).toHaveBeenCalledTimes(before)
     expect(view.noticeError).toBe(false)

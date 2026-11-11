@@ -23,9 +23,19 @@ Root `npm start` also toggles the dialog. It does not create or change the insta
 
 - **Gallery** loads the same public mod index as the Gallery website: [`assets.herdr.dev/mods/index.json`](https://assets.herdr.dev/mods/index.json). It supports search, source filters, and batches of 50 cards. Search covers the full list, including folder IDs and cards not yet rendered.
 - **Installed** reads actual local manifests. GitHub, development, local, and shipped sources are distinct. A name alone does not establish source identity or ownership. Gallery and Installed share verified membership.
-- **From GitHub** accepts `https://github.com/owner/repository`, with an optional `.git` suffix, for a repository-root mod. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
+- **From GitHub** accepts a public `https://github.com/owner/repository` URL, with an optional `.git` suffix. Leave **Mod directory** blank for a repository-root mod, or enter the exact case-sensitive relative directory containing `mod.json` and `main.js`, such as `mods/layout-manager`. Installation uses the repository's default branch. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
 - Gallery selections preserve the exact recipe path and mod folder. For a bundle, select the specific mod card. The manager does not apply recipe layouts or keybindings or install companion mods automatically.
 - A Gallery failure is shown as an error, not an empty successful list. A slow Gallery request does not block an otherwise-ready Installed page or its operations.
+
+For example, to install a mod from this repository:
+
+1. Enter `https://github.com/narumiruna/herdr-mods` in **Repository URL**.
+2. Enter `mods/layout-manager` in **Mod directory**.
+3. Select **Install**. The installed folder is `<app-home>/mods/layout-manager`.
+
+The final directory component becomes the installed folder name, even if the manifest has a different `id`. Directory components must contain only ASCII letters, digits, underscores, periods, or hyphens, and must start with a letter, digit, or underscore. The final component must start with a letter or digit. Absolute paths, `.` or `..` components, backslashes, and trailing slashes are not accepted. Leading and trailing whitespace is removed. Each directory component is limited to 128 characters; the complete path is limited to 1024 characters and 64 components.
+
+Install one mod at a time. Different directories from the same repository can be installed together, but existing destination folders are never overwritten. The selected directory must contain the mod files directly; it does not select a recipe bundle or install sibling mods. Use a specific Gallery card for a recipe bundle. Source records retain the exact directory for discovery, updates, and uninstall.
 
 The index has a versioned metadata schema, repository commits, recipe paths, and mod-folder names. It does not certify JavaScript safety, semantic versions, permissions, or host compatibility. Listing and card counts change. The manager does not scrape HTML or invent versions from commits.
 
@@ -217,7 +227,7 @@ Hosted Linux CI runs formatting and fixture tests. Real-SDK type checks and nati
 ## External handoff before release
 
 1. **Profile owner — actual migration.** After disposable migration/recovery checks pass, make and verify a complete profile backup, review the exact migration summary, and stop conflicting writers. Run only the explicitly confirmed migration. Actual-profile migration is not established by fixture tests; unattended migration must remain disabled.
-2. **Platform maintainer — native interaction and runtime behavior.** Use a disposable profile and fixture repository to inspect both themes, native keyboard controls, scrolling/batches, source failures, confirmation/cancel, close-during-operation, and full-restart instructions. Verify runtime copies and dependent programs separately. Native initial-render checks do not prove these paths; retain that release restriction until review.
+2. **Platform maintainer — native interaction and runtime behavior.** Use a disposable profile and fixture repository to inspect both themes, native keyboard controls, scrolling/batches, source failures, confirmation/cancel, close-during-operation, and full-restart instructions. Check typing, focus, scrolling, validation errors, and sibling-mod installation through the new From GitHub Mod directory field within the fixed dialog size. Verify runtime copies and dependent programs separately. Native initial-render checks do not prove these paths; retain that release restriction until review.
 3. **Platform maintainer — unavailable platforms.** Validate native filesystem, migration, and UI behavior before claiming support on a platform not exercised by the agent. Windows mutation remains unsupported, with read-only browsing available. A stale screenshot is not visual acceptance, and successful URL delivery is not proof that a browser displayed the page.
 4. **Profile owner — actual self-update and restart.** After merge and disposable updater tests, verify a complete checkout backup, review the reported path and commits, fully quit all Herdr app instances, and apply from an external terminal without concurrent Git writers. Reopen Herdr only after verified success or maintainer-verified recovery, then verify manager loading and browsing. Disposable Git tests do not establish actual-profile update or restart behavior. Automatic/live self-update remains unsupported.
 

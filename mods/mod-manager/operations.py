@@ -1618,8 +1618,9 @@ class Operations:
                 if "expectedCommit" in request and commit != request["expectedCommit"].lower():
                     fail("Repository HEAD does not match expectedCommit; refresh source metadata")
                 selection = request.get("modNames")
-                if selection is None and "mod.json" in tree and not recipe:
-                    selection = [repository.split("/")[1]]
+                prefix = recipe + "/" if recipe else ""
+                if selection is None and prefix + "mod.json" in tree:
+                    selection = [recipe.split("/")[-1] if recipe else repository.split("/")[1]]
                 packages = self._packages(repo, tree, recipe, selection)
             protected, unknown = self._protection(request)
             if unknown:

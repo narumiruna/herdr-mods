@@ -96,6 +96,8 @@ export default class ModManager extends View {
   searches
   /** @type {import("gpui-base").InputState} */
   repository
+  /** @type {import("gpui-base").InputState} */
+  directory
 
   /** @param {(ms: number) => Promise<void>} wait */
   createSession(wait) {
@@ -122,6 +124,7 @@ export default class ModManager extends View {
         })
       }
       this.repository = InputState.new({ placeholder: "https://github.com/owner/repository" })
+      this.directory = InputState.new({ placeholder: "mods/my-mod" })
     }
     if (!this.loadStarted) {
       this.loadStarted = true
@@ -680,9 +683,28 @@ export default class ModManager extends View {
                     .text_color(t.foreground)
                     .text_size(12),
                 )
+                .child(text("Mod directory (optional)", 11).font_medium())
+                .child(
+                  Input.new(this.directory)
+                    .h(40)
+                    .px(12)
+                    .rounded(7)
+                    .border_1()
+                    .border_color(t.input)
+                    .bg(t.background)
+                    .text_color(t.foreground)
+                    .text_size(12),
+                )
                 .child(
                   text(
-                    "Use https://github.com/owner/repository. Ambiguous bundles are rejected; select a Gallery mod instead.",
+                    "Use the exact case-sensitive directory containing mod.json and main.js. Leave blank for the repository root. The default branch is used.",
+                    11,
+                    t.muted,
+                  ),
+                )
+                .child(
+                  text(
+                    "The last directory name becomes the installed mod folder. Install one mod at a time; use Gallery for recipe bundles.",
                     11,
                     t.muted,
                   ),
@@ -705,8 +727,9 @@ export default class ModManager extends View {
                         (cx) => {
                           // Read the native input while its view is open, not inside the durable task.
                           const input = this.repository.value()
+                          const directory = this.directory.value()
                           this.perform(
-                            () => this.session.installRepository(input),
+                            () => this.session.installRepository(input, directory),
                             cx,
                             false,
                             PROGRESS_LABELS.install,
