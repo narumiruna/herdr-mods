@@ -17,8 +17,8 @@ Run from the `mods/markdown-reader/` directory with Node.js 26 or later:
 
 ```sh
 node scripts/prepare-files.mjs \
-  --profile "/Users/narumi/.config/herdr-app" \
-  --output "/Users/narumi/markdown-reader-prepared"
+  --profile "/absolute/herdr-profile" \
+  --output "/absolute/new-prepared-output"
 ```
 
 The output directory must not exist. Its parent must exist. Both paths must be

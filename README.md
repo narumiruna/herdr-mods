@@ -15,7 +15,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
 
-Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Markdown Reader needs the checkout's installed Node dependencies and Puppeteer's browser.
+Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Markdown Reader needs installed Node dependencies and Puppeteer's browser.
 
 ## Development
 

@@ -23,7 +23,7 @@ Chromium is a separately installed browser with its own third-party notices. Its
 
 Mermaid's dependency tree also includes packages under other licenses, including ELK's EPL-2.0 terms. Consult each installed package's license before distributing dependencies or generated bundles. This table does not replace the complete dependency tree's notices.
 
-The root npm override pins transitive KaTeX to 0.19.1. It avoids the known trust-bypass advisory GHSA-238p-pmpm-9mq7 in the older version selected by the math parser. The native display-math path uses MathJax, not KaTeX's HTML/CSS output. Run `npm audit --omit=dev` after dependency changes.
+The repository root and standalone mod package overrides pin transitive KaTeX to 0.19.1. It avoids the known trust-bypass advisory GHSA-238p-pmpm-9mq7 in the older version selected by the math parser. The native display-math path uses MathJax, not KaTeX's HTML/CSS output. Run `npm audit --omit=dev` after dependency changes.
 
 `mathjax-full` 3.2.2 is deprecated upstream in favor of the version-4 package. This implementation pins the version-3 SVG API and fixed TeX package set; an upgrade needs renderer, sanitization, and native fixture checks.
 

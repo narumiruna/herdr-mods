@@ -4,14 +4,16 @@ Read local Markdown in a native Herdr pane. Prose stays selectable native text. 
 
 **Inline math is not typeset on Herdr 0.1.15.** `$...$` stays visible as TeX source, with a warning. Display math (`$$...$$`) works. Do not describe this version as complete LaTeX support. See [verification and handoff](docs/verification.md).
 
+**Sharing status: incomplete.** The source bundle, recipe, and actual preview are prepared. Owner-operated live acceptance and Community publication have not been completed.
+
 ## Requirements
 
 - Herdr App 0.1.15. Native captures were checked on Apple Silicon macOS. Other native platforms are unverified.
 - Node.js 26 on the app's PATH.
-- This complete repository checkout, its npm dependencies, and Puppeteer's pinned Chromium build.
+- Installed npm dependencies, either from the complete repository checkout or inside the standalone mod folder, and Puppeteer's pinned Chromium build.
 - Installed system fonts for diagram labels. Chinese labels were checked with macOS system fonts.
 
-This is not a standalone gallery bundle. The helper needs dependencies from the repository installation. It does not need a web server, database, or Morsel service.
+The helper needs installed Node dependencies; they are not bundled in Git. A standalone mod folder can install them locally. No web server, database, or Morsel service is needed. The [recipe](RECIPE.md) is the rebuild brief. Community publication and live-profile interaction checks remain incomplete.
 
 From the repository root:
 
@@ -19,6 +21,8 @@ From the repository root:
 npm ci
 npm run setup:browser --workspace herdr-markdown-reader
 ```
+
+For a standalone mod folder, run `npm install --omit=dev` and `npm run setup:browser` from that folder instead. Keep its `package.json` security override and [dependency notices](DEPENDENCIES.md).
 
 Browser setup downloads the build selected by the pinned Puppeteer version. It is an explicit setup step, not a download on document open. The renderer keeps Chromium's sandbox enabled.
 

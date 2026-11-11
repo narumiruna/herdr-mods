@@ -21,6 +21,14 @@ Native evidence was generated and inspected on Apple Silicon macOS with Herdr Ap
 
 Native screenshots are generated artifacts outside Git. The reproducible [native fixture guide](native-fixture.md) describes their locations, mode labels, SDK/source hashes, status output, timings, cleanup record, and host SVG/font warnings. Filtered captures are labeled; they do not claim complete-document scrolling or interaction tests.
 
+## Source bundle
+
+The mod root includes its rebuildable `RECIPE.md`, inspected actual `preview.png`, MIT license, and dependency notices. The PNG is a crop of the native graphic-card capture with the private file-path header removed. It is the only bundled image asset; no layout, keys snippet, generated SDK, dependency directory, or browser binary is distributed.
+
+A standalone copy outside the repository installed its own runtime dependencies with scripts disabled, completed explicit browser setup, rendered all three sample SVG types without errors, passed `herdr-app check`, and reported zero npm audit findings. Its Mermaid dependency resolved inside that copy, not into the source checkout. The package retains the KaTeX override for standalone installs. The optional generated Files clone is not a separately distributed companion bundle.
+
+Live-profile and manual interaction acceptance remain open, so Community sharing/publication readiness is not claimed. No repository topic or visibility was changed.
+
 ## Commands
 
 Run from the repository root with Node.js 26 and installed Herdr:

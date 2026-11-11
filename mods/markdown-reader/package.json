@@ -16,6 +16,9 @@
     "check:types": "tsc --project jsconfig.json",
     "evidence:native": "node scripts/native-evidence.mjs"
   },
+  "overrides": {
+    "katex": "0.19.1"
+  },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",
     "hast-util-sanitize": "5.0.2",
