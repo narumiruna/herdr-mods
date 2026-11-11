@@ -27,5 +27,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: npm run setup:browser --workspace herdr-markdown-reader
+      - run: npm run test:browser --workspace herdr-markdown-reader
       # Herdr generates the SDK locally; type/native checks also run against the installed app.
       - run: git diff --exit-code
