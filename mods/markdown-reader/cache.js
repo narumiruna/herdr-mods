@@ -7,7 +7,7 @@ export const CACHE_LIMIT = 64 * 1024 * 1024
 export const ASSET_LIMIT = 4 * 1024 * 1024
 export const ASSET_NAME = /^[a-f0-9]{64}\.(?:svg|png|jpg|gif|webp)$/
 export const JOB_NAME = /^[a-z0-9-]{8,100}$/
-export const RENDER_VERSION = "1-mermaid12.3-mathjax3.2-vega6.4"
+export const RENDER_VERSION = "2-mermaid12.3-mathjax3.2-vega6.4"
 export const digest = (value) => createHash("sha256").update(value).digest("hex")
 
 async function safeDirectory(path) {

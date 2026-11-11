@@ -240,6 +240,9 @@ describe("SVG data sanitation", () => {
     expect(() =>
       sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg"/>', { width: Infinity, height: 1 }),
     ).toThrow(/dimensions/)
+    expect(() =>
+      sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg"/>', { width: 5000, height: 5000 }),
+    ).toThrow(/dimensions/)
   })
 })
 

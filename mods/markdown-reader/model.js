@@ -66,7 +66,8 @@ export function validateManifest(value) {
         block.width <= 0 ||
         block.height <= 0 ||
         block.width > 16384 ||
-        block.height > 16384
+        block.height > 16384 ||
+        block.width * block.height > 16000000
       )
         throw new Error("Helper returned an invalid graphic")
     } else if (block.type === "container") {

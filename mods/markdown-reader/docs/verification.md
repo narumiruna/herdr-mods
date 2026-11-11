@@ -46,6 +46,7 @@ The implementation review corrected these defects and added regression coverage:
 - Non-regular file opens could block before validation. Opens are now nonblocking, no-follow, and checked with file-handle metadata.
 - Overlapping refreshes could cancel the newly displayed job during old-lease cleanup. Accepted jobs now leave the pending slot before cleanup awaits.
 - Browser close could return before the owned process exit event. Cleanup now awaits exit and uses a bounded owned-process kill fallback.
+- SVG dimensions also need an area bound before native rasterization. Each graphic now has a 16 million-pixel limit and each document a 64 million-pixel budget.
 - Existing cache assets could be corrupt or symbolic links. Reuse now verifies file type, size, and digest; active leases protect both new assets and cache hits under the cache lock.
 
 ## Inline mathematics: unavailable

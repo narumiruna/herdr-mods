@@ -63,6 +63,7 @@ export async function buildDocument({
   const tasks = new Map()
   let taskId = 0
   let graphics = 0
+  let graphicPixels = 0
   let blocks = 0
   let htmlBytes = 0
   let nodes = 0
@@ -120,6 +121,19 @@ export async function buildDocument({
     return asset
   }
 
+  function admitGraphic(result) {
+    const pixels = result.width * result.height
+    if (
+      !Number.isFinite(pixels) ||
+      pixels <= 0 ||
+      pixels > 16000000 ||
+      graphicPixels + pixels > 64000000
+    )
+      throw new Error("Native graphic pixel budget exceeded")
+    graphicPixels += pixels
+    return result
+  }
+
   async function render(task) {
     if (signal?.aborted) throw new Error("Reading cancelled")
     if (++graphics > MAX_GRAPHICS) throw new Error("Document exceeds the 40 graphic block limit")
@@ -134,6 +148,7 @@ export async function buildDocument({
       assets.add(result.asset)
       if (job) await cache.lease(job, [...assets])
     }
+    admitGraphic(result)
     return {
       type: "graphic",
       kind: task.kind,
@@ -165,6 +180,7 @@ export async function buildDocument({
     )
       throw new Error("Image dimensions exceed the supported limit")
     if (++graphics > MAX_GRAPHICS) throw new Error("Document exceeds the 40 graphic block limit")
+    admitGraphic(size)
     return {
       type: "graphic",
       kind: "image",

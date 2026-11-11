@@ -142,7 +142,10 @@ export function checkSource(source) {
 }
 
 export function dimensions(width, height) {
-  if (![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= MAX_DIMENSION)) {
+  if (
+    ![width, height].every((n) => Number.isFinite(n) && n > 0 && n <= MAX_DIMENSION) ||
+    width * height > 16000000
+  ) {
     throw new Error("Invalid or excessive SVG dimensions")
   }
   return { width, height }

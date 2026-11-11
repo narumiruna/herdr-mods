@@ -108,6 +108,7 @@ describe("manifest validation", () => {
     { asset, width: Infinity, height: 1 },
     { asset, width: 1, height: NaN },
     { asset, width: 16385, height: 1 },
+    { asset, width: 5000, height: 5000 },
   ])("rejects invalid graphics %j", (graphic) => {
     expect(() =>
       validateManifest(

@@ -50,6 +50,25 @@ afterEach(async () => {
 const build = (source, extra = {}) =>
   buildDocument({ source, root, file, cache, renderers, job, ...extra })
 
+it("limits native pixel area for each graphic and the whole document", async () => {
+  renderers.render.mockResolvedValueOnce({ svg, width: 5000, height: 5000 })
+  const oversized = await build("```mermaid\nflowchart TD; A-->B\n```")
+  expect(oversized.blocks[0]).toMatchObject({
+    type: "error",
+    error: "Native graphic pixel budget exceeded",
+  })
+  renderers.render.mockResolvedValue({ svg, width: 4000, height: 4000 })
+  const source = Array.from({ length: 5 }, (_, i) =>
+    ["```mermaid", `flowchart TD; A-->B${i}`, "```"].join("\n"),
+  ).join("\n\n")
+  const document = await build(source)
+  expect(document.blocks.filter((block) => block.type === "graphic")).toHaveLength(4)
+  expect(document.blocks.at(-1)).toMatchObject({
+    type: "error",
+    error: "Native graphic pixel budget exceeded",
+  })
+})
+
 it("returns source and canonical dependency inputs without losing ordinary Markdown structure", async () => {
   const source = `# Heading\n\n> Quote\n>\n> - parent\n>   - child **strong**\n\n3. three\n4. four\n\n- [x] done\n- [ ] todo\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n~~deleted~~ and [reference][guide].\n\n[guide]: https://example.test/guide\n\nNote[^n].\n\n[^n]: Footnote *body*.\n`
   const result = await build(source)

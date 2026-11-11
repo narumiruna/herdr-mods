@@ -56,7 +56,7 @@ Vega-Lite supports bounded layer, concat, facet, and repeat charts; named inline
 
 Mermaid directives/frontmatter configuration, external resources, and active links are disabled. Styles are converted to concrete SVG attributes before native display. Layout and fonts can differ from a browser. Diagram types that cannot produce a supported sanitized SVG show an error.
 
-Documents are UTF-8, at most 1 MiB. Binary, invalid UTF-8, non-regular, missing, or changed files produce an error rather than a truncated document. Other bounds include 12,000 AST nodes, 40 nesting levels, 600 native blocks, and 40 graphic blocks. Each renderer has an 8-second work timeout. The helper has a 70-second batch deadline; the host command has a 90-second timeout.
+Documents are UTF-8, at most 1 MiB. Binary, invalid UTF-8, non-regular, missing, or changed files produce an error rather than a truncated document. Other bounds include 12,000 AST nodes, 40 nesting levels, 600 native blocks, and 40 graphic blocks. Native graphics are limited to 16 million pixels each and a 64 million-pixel document budget. Each renderer has an 8-second work timeout. The helper has a 70-second batch deadline; the host command has a 90-second timeout.
 
 ## Local resource policy
 
