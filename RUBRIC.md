@@ -8,14 +8,14 @@ This document defines five evaluation areas with a total of 100 points. Detailed
 
 ## Score Allocation
 
-| Evaluation Area | Maximum Points |
-| --- | ---: |
-| Practical Value | 30 |
-| Intuitive UI/UX | 25 |
-| Workflow Integration | 20 |
-| Performance and Response Time | 15 |
-| Reliability and Trust | 10 |
-| **Total** | **100** |
+| Evaluation Area               | Maximum Points |
+| ----------------------------- | -------------: |
+| Practical Value               |             30 |
+| Intuitive UI/UX               |             25 |
+| Workflow Integration          |             20 |
+| Performance and Response Time |             15 |
+| Reliability and Trust         |             10 |
+| **Total**                     |        **100** |
 
 Practical value and UI/UX receive 55 points because they are the main reasons to install and keep using a mod.
 
