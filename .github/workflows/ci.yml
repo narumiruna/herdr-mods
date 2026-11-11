@@ -28,6 +28,15 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run setup:browser --workspace herdr-markdown-reader
+      # Ubuntu restricts user namespaces for downloaded Chrome builds. Use the
+      # runner's existing root-owned SUID helper; do not disable either sandbox.
+      - name: Verify Chromium sandbox helper
+        run: |
+          sandbox=/opt/google/chrome/chrome-sandbox
+          test -x "$sandbox"
+          test "$(stat -c '%u %a' "$sandbox")" = '0 4755'
       - run: npm run test:browser --workspace herdr-markdown-reader
+        env:
+          CHROME_DEVEL_SANDBOX: /opt/google/chrome/chrome-sandbox
       # Herdr generates the SDK locally; type/native checks also run against the installed app.
       - run: git diff --exit-code

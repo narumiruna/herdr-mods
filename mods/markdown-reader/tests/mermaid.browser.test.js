@@ -217,9 +217,15 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
       },
     })
     const work = renderer.render("flowchart TD\nA-->B", options)
-    const rejected = expect(work).rejects.toThrow(/closed/)
     try {
-      await began
+      // Report startup failure directly instead of waiting for an event that cannot arrive.
+      await Promise.race([
+        began,
+        work.then(() => {
+          throw new Error("Render completed before cancellation")
+        }),
+      ])
+      const rejected = expect(work).rejects.toThrow(/closed/)
       await renderer.close()
       await rejected
       stopped(browser)

@@ -99,6 +99,8 @@ Unverified behavior: the owner's active-profile integration and manual interacti
 
 Static escaping symlinks, traversal, malformed resources, and changed-file identities are tested. The helper revalidates paths and file identity before releasing content. This is not race-proof OS isolation against a hostile local process that can replace intermediate workspace directories concurrently. Use an owner-controlled stable workspace. No plain static-Markdown path to shell execution, automatic resource loading, or active SVG was found in the source review; this is not a comprehensive security-audit claim.
 
+Ubuntu CI uses the runner's existing root-owned Chrome SUID sandbox helper because its AppArmor policy restricts user namespaces for downloaded browsers. CI verifies the helper's owner and mode; it does not disable Chromium's sandbox or change global AppArmor/kernel settings.
+
 Native Windows/Linux appearance, forced app crashes, and manual clipboard/selection/scroll behavior are unverified. The Chromium sandbox is not disabled to make a platform pass. An environment that cannot launch sandboxed Chromium must report the failure rather than use weaker browser settings.
 
 ## Recovery
