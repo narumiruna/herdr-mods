@@ -12,11 +12,13 @@ This document defines the main evaluation areas. Specific checks, scores, and we
 
 **Why is the mod worth installing?**
 
-Solve a real user problem. Make work faster or clearer, or reduce repeated actions. Evaluate the improvement over the existing workflow, not the number of features.
+Identify the target users and their task. Solve a real problem for those users by making work faster or clearer, or reducing repeated actions. Evaluate the improvement over their current workflow, not the number of features.
 
 ### 2. Intuitive UI/UX
 
 **Can users find and use key features without instructions?**
+
+Users can install the mod and complete their first useful task without unnecessary setup.
 
 Provide the necessary features while keeping the interface and controls simple. Users can find functions quickly and predict the results of their actions without memorizing complex rules.
 
@@ -26,15 +28,13 @@ A simple interface does not require fewer features. It requires less knowledge t
 
 **Does the mod work as a natural part of Herdr?**
 
-Follow Herdr's existing interaction patterns. Do not take over existing keyboard shortcuts, hide important information, or force users to change their workflow.
-
-Add useful capabilities without introducing a separate set of interaction rules.
+Preserve existing workflows unless the user explicitly chooses a change. Follow Herdr's interaction patterns when adding new capabilities. Do not take over existing keyboard shortcuts or hide important information without explicit user approval.
 
 ### 4. Performance and Response Time
 
-**Does the mod respond quickly without slowing Herdr down?**
+**Does the mod respond quickly and keep Herdr responsive?**
 
-Keep actions responsive. Do not slow down Herdr startup, switching between views, or daily use.
+Keep Herdr responsive during startup, view changes, and daily use. Added processing time must be justified by the task. Give clear feedback during longer operations.
 
 Evaluate workflow value and performance separately: fewer steps improve the workflow; shorter waits improve performance.
 
@@ -47,6 +47,6 @@ Keep behavior consistent and results predictable. Errors must not disrupt existi
 ## Evaluation Principles
 
 - **Main reasons to use the mod:** practical value and intuitive operation.
-- **Basic requirements:** no workflow disruption, noticeable delays, or damage to existing work and data.
-- Visual design and feature count cannot make up for a lack of practical value or disruption to existing work.
+- **Basic requirements:** no unwanted workflow disruption, unjustified delays, or damage to existing work and data.
+- Visual design and feature count cannot make up for a lack of practical value or unwanted disruption to existing work.
 - Judge whether users would install the mod and keep using it, not how many features it provides.
