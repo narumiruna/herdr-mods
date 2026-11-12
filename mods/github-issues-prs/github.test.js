@@ -1,13 +1,16 @@
-import { describe, expect, mock, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
+import { describe, expect, test, vi } from "vitest"
 import {
   age,
+  checkedItem,
+  checkedList,
   createGitHub,
   detailArgs,
   LIMIT,
   listArgs,
   repositoryFromRemote,
   repositoryName,
+  safeDiagnostic,
   stateLabel,
   withDeadline,
 } from "./github.js"
@@ -278,8 +281,8 @@ globalThis.localStorage = {
   getItem: (key) => storage.get(key) ?? null,
   setItem: (key, value) => storage.set(key, value),
 }
-mock.module("gpui-kit", () => ({ View: class {}, div: builder, svg: builder, image: builder }))
-mock.module("gpui-base", () => ({
+vi.doMock("gpui-kit", () => ({ View: class {}, div: builder, svg: builder, image: builder }))
+vi.doMock("gpui-base", () => ({
   v_flex: builder,
   h_flex: builder,
   Button: { new: builder },
@@ -290,10 +293,14 @@ mock.module("gpui-base", () => ({
     new: ({ value = "" } = {}) => {
       const handlers = {}
       return {
+        released: 0,
+        release() {
+          this.released++
+        },
         value: () => value,
         set_value: (next) => {
           value = next
-          handlers.change?.()
+          handlers.change?.({}, { notify() {} })
         },
         on: (event, handler) => {
           handlers[event] = handler
@@ -303,7 +310,7 @@ mock.module("gpui-base", () => ({
     },
   },
 }))
-mock.module("herdr", () => ({
+vi.doMock("herdr", () => ({
   exec: (...args) => hostExec(...args),
   spaces: () => spaceList,
   panes: () => paneList,
@@ -346,6 +353,10 @@ async function view(options = {}) {
     focus_handle() {
       return {
         count: 0,
+        released: 0,
+        release() {
+          this.released++
+        },
         focus() {
           this.count++
         },
@@ -353,7 +364,16 @@ async function view(options = {}) {
     },
     timer: {
       every(ms, handler) {
-        periodic.push({ ms, handler })
+        const task = {
+          ms,
+          handler,
+          cancelled: false,
+          cancel() {
+            this.cancelled = true
+          },
+        }
+        periodic.push(task)
+        return task
       },
       after(ms, handler) {
         const task = {
@@ -644,9 +664,10 @@ describe("workspace tab bar", () => {
     uiElements.get("tab-new").node.handlers.on_click()
     expect(overlays.at(-1)).toEqual({ mod: "new-menu", kind: "popup", width: 250, height: 512 })
     const root = panel.render(cx)
-    root.node.handlers.on_scroll_wheel({ delta: { y: 2 } })
+    expect(root.node.handlers.on_scroll_wheel).toBeUndefined()
+    uiElements.get("tab-scroll").node.handlers.on_scroll_wheel({ delta: { y: 2 } })
     expect(commands.at(-1)).toEqual({ name: "tab.prev", args: undefined })
-    root.node.handlers.on_scroll_wheel({ delta: { y: -2 } })
+    uiElements.get("tab-scroll").node.handlers.on_scroll_wheel({ delta: { y: -2 } })
     expect(commands.at(-1)).toEqual({ name: "tab.next", args: undefined })
   })
 })
@@ -879,6 +900,24 @@ function renderText(panel, cx) {
 }
 
 describe("redesigned interface", () => {
+  test.each([false, true])(
+    "shows machine-specific auth recovery as visible text (compact=%s)",
+    async (compact) => {
+      const { panel, cx } = await paneView()
+      panel.error =
+        "HTTP 401: Bad credentials\nGitHub CLI: gh on machine m4.\nFor authentication, run: gh auth login on machine m4."
+      panel.items = compact ? [item(1)] : []
+      panel.resultKey = compact ? "fixture" : null
+      const text = renderText(panel, cx)
+      expect(text).toContain("GitHub CLI: gh on machine m4.")
+      expect(text).toContain("For authentication, run: gh auth login on machine m4.")
+      const recovery = uiElements.get(compact ? "github-recovery-compact" : "github-recovery-help")
+      expect(recovery.node.props).toHaveProperty("whitespace_normal")
+      expect(recovery.node.props).not.toHaveProperty("truncate")
+      expect(recovery.node.props).not.toHaveProperty("tooltip")
+    },
+  )
+
   test("uses the renamed mod title and icon paths", async () => {
     const metadata = JSON.parse(readFileSync(new URL("./mod.json", import.meta.url), "utf8"))
     expect(metadata.title).toBe("GitHub Issues & PRs")
@@ -1586,5 +1625,213 @@ describe("view state and deferred rendering", () => {
     expect(panel.items).toEqual([])
     expect(panel.repository).toBe("")
     expect(panel.loading).toBe(false)
+  })
+})
+
+describe("validated responses and cleanup", () => {
+  test("rejects malformed items, duplicate rows, and unsafe external URLs", () => {
+    expect(checkedList([item(1)])).toEqual([item(1)])
+    for (const invalid of [
+      null,
+      [],
+      { ...item(1), number: -1 },
+      { ...item(1), title: {} },
+      { ...item(1), body: [] },
+      { ...item(1), labels: [null] },
+      { ...item(1), author: "example" },
+      { ...item(1), url: "file:///private/data" },
+      { ...item(1), url: "https://github.com.evil.test/a/b/issues/1" },
+      { ...item(1), url: "https://github.com/a/b/issues/2" },
+    ])
+      expect(() => checkedItem(invalid)).toThrow("invalid item")
+    expect(() => checkedItem(item(1), 2)).toThrow("invalid item")
+    expect(() => checkedList([item(1), item(1)])).toThrow("duplicate")
+    expect(() => checkedList(Array.from({ length: 101 }, (_, i) => item(i + 1)))).toThrow()
+  })
+
+  test("redacts credentials in both CLI and Git origin diagnostics", async () => {
+    const secret = "ghp_abcdef123456"
+    const diagnostic = `failure: https://user:password@github.com/a/b\n${secret}\nGH_TOKEN=other-secret`
+    const safe = safeDiagnostic(diagnostic)
+    for (const value of [secret, "password", "other-secret"]) expect(safe).not.toContain(value)
+    const { panel } = await view({
+      spaces: [{ active: true, folder: "/fixture", tabs: [] }],
+      exec: async () => fail(diagnostic),
+    })
+    expect(panel.error).toContain("redacted")
+    expect(panel.error).not.toContain(secret)
+  })
+
+  test("uses explicit initial repository props, not unrelated host props", async () => {
+    const { panel } = await view({
+      props: { repo: "owner/other" },
+      initialProps: { repo: "cli/cli" },
+      exec: async () => ok([]),
+    })
+    expect(panel.repository).toBe("cli/cli")
+    expect(panel.pinned).toBe(true)
+  })
+
+  test("closing cancels refresh, follow, command watchdogs, and releases handles once", async () => {
+    const pending = deferred()
+    const { panel, cx, timers, periodic } = await paneView({ holdFollow: true })
+    hostExec = () => pending.promise
+    panel.refresh(cx, false)
+    await tick()
+    hostFocus = { tab: "tab", pane: "b", terminal: "t-b" }
+    panel.follow(cx)
+    const notify = vi.spyOn(cx, "notify")
+    panel.close()
+    panel.close()
+    await tick()
+    expect(periodic[0].cancelled).toBe(true)
+    expect(timers.every((timer) => timer.cancelled)).toBe(true)
+    expect(panel.pendingCommands.size).toBe(0)
+    for (const handle of [panel.searchInput, panel.panelHandle, ...Object.values(panel.tabHandles)])
+      expect(handle.released).toBe(1)
+    const count = notify.mock.calls.length
+    periodic[0].handler(cx)
+    panel.refresh(cx)
+    pending.resolve({ code: 0, stdout: "git@github.com:other/project.git" })
+    await tick()
+    expect(notify.mock.calls.length).toBe(count)
+    expect(panel.repository).toBe("owner/a")
+    expect(panel.clients.size).toBe(0)
+  })
+
+  test("closing before a command's start microtask prevents new execution", async () => {
+    const { panel, cx } = await view()
+    const execute = vi.fn(async () => ok([]))
+    hostExec = execute
+    const pending = panel.execute("gh", ["--version"], { on: null, timeout: 10000 }, cx)
+    panel.close()
+    await expect(pending).rejects.toThrow("cancelled")
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test("closing invalidates pending descriptions and tab-bar cleanup is harmless", async () => {
+    const { panel, cx } = await paneView()
+    const pending = deferred()
+    panel.clients.set(panel.queryMachine, { read: () => pending.promise })
+    panel.pick(item(1), cx)
+    await tick()
+    panel.close()
+    pending.resolve({ ...item(1), body: "late" })
+    await tick()
+    expect(panel.detail).toBeNull()
+    const tabs = await tabBarView()
+    expect(() => tabs.panel.close()).not.toThrow()
+  })
+
+  test("a removed selection invalidates its in-flight description", async () => {
+    const { panel, cx } = await paneView()
+    const pending = deferred()
+    panel.clients.set(panel.queryMachine, {
+      read: (args) => (args[1] === "view" ? pending.promise : Promise.resolve([])),
+    })
+    panel.pick(item(1), cx)
+    await tick()
+    panel.refresh(cx, false)
+    await tick()
+    expect(panel.selected).toBeNull()
+    expect(panel.detailPending).toBe(false)
+    pending.resolve({ ...item(1), body: "removed" })
+    await tick()
+    expect(panel.detail).toBeNull()
+  })
+
+  test("malformed list/detail responses show retry errors instead of breaking render", async () => {
+    const { panel, cx } = await paneView()
+    panel.clients.set(panel.queryMachine, { read: async () => [null] })
+    panel.refresh(cx, false)
+    await tick()
+    expect(panel.items).toHaveLength(1)
+    expect(panel.error).toContain("invalid item")
+    panel.pick(item(1), cx)
+    await tick()
+    expect(panel.detailError).toContain("invalid item")
+    expect(() => renderText(panel, cx)).not.toThrow()
+  })
+})
+
+describe("search clarity and non-disruptive tab integration", () => {
+  test("shows unapplied search changes and provides clear on populated results", async () => {
+    const { panel, cx } = await paneView()
+    panel.searchInput.set_value("label:bug")
+    panel.submitSearch(cx)
+    await tick()
+    panel.searchInput.set_value("unfinished draft")
+    expect(renderText(panel, cx)).toContain("Showing: label:bug. Press Enter to apply search.")
+    expect(uiElements.has("github-reset-search")).toBe(true)
+    uiElements.get("github-reset-search").node.handlers.on_click({}, cx)
+    await tick()
+    expect(panel.search).toBe("")
+    expect(panel.searchInput.value()).toBe("")
+    renderText(panel, cx)
+    expect(uiElements.has("github-search-draft")).toBe(false)
+  })
+
+  test("modified arrow keys do not replace app or text-editing shortcuts", async () => {
+    const { panel, cx } = await paneView()
+    renderText(panel, cx)
+    uiElements
+      .get("github-tab-issue")
+      .node.handlers.on_key_down({ key: "right", modifiers: { control: true } }, cx)
+    expect(panel.kind).toBe("issue")
+  })
+
+  test("does not offer or restore a panel that is absent from the layout", async () => {
+    const layout = tabBarLayout()
+    layout.children[1].children[0].children = [{ id: "files" }]
+    await tabBarView({ layout, storage: new Map([["panels", '{"space-one":"github"}']]) })
+    expect(uiElements.has("panel-github")).toBe(false)
+    expect(uiElements.has("panel-changes")).toBe(false)
+    expect(uiElements.has("panel-files")).toBe(true)
+    expect(commands).toEqual([])
+  })
+
+  test("tab controls are keyboard focusable and a closed drag source cannot move another tab", async () => {
+    const { panel, cx } = await tabBarView({
+      spaces: [
+        {
+          id: "one",
+          active: true,
+          tabs: [
+            { id: "one", name: "One", active: true },
+            { id: "two", name: "Two" },
+            { id: "three", name: "Three" },
+          ],
+        },
+      ],
+    })
+    for (const id of ["tab-new", "panel-github", "close-one", "tab-one"])
+      expect(uiElements.get(id).node.props.tab_stop).toBe(true)
+    uiElements.get("tab-two").node.handlers.on_key_down({ key: "enter" }, cx)
+    expect(commands.at(-1)).toEqual({ name: "tab.select", args: { id: "two" } })
+    uiElements.get("tab-one").node.handlers.on_mouse_down_left({ click_count: 1 }, cx)
+    spaceList[0].tabs.shift()
+    renderText(panel, cx)
+    commands = []
+    uiElements.get("tab-three").node.handlers.on_mouse_up_left()
+    expect(commands).toEqual([{ name: "tab.select", args: { id: "three" } }])
+  })
+
+  test("invalid shared panel preferences do not break tab rendering", async () => {
+    await tabBarView({ preferences: { files: true } })
+    expect(uiElements.has("panel-files")).toBe(true)
+    expect(uiElements.has("panel-github")).toBe(true)
+  })
+
+  test("storage failure does not break tab rendering", async () => {
+    const write = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("Fixture storage unavailable")
+    })
+    try {
+      const { panel, cx } = await tabBarView()
+      expect(() => panel.render(cx)).not.toThrow()
+      expect(uiElements.has("tab-new")).toBe(true)
+    } finally {
+      write.mockRestore()
+    }
   })
 })

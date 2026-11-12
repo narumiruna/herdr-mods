@@ -175,6 +175,24 @@ describe("native runtime adapter", () => {
     expect(result.mods.every((mod) => !mod.managed && mod.protectedReason)).toBe(true)
     expect(result.mods[0].name).toBe("Actual local manifest")
     expect(result.warnings.join(" ")).toContain("No tools are installed automatically")
+    expect(result.readOnlyReason).toContain("No tools are installed automatically")
+  })
+
+  test.each([
+    { code: 1, stdout: "", stderr: "terminated" },
+    { code: 0, stdout: "incomplete JSON", stderr: "" },
+  ])("reports an unverified mutation outcome after process failure: %j", async (result) => {
+    const { io, host } = fixture()
+    const original = host.exec.getMockImplementation()
+    host.exec.mockImplementation((program, ...args) =>
+      program === "uv" ? Promise.resolve(result) : original(program, ...args),
+    )
+    await expect(io.operate({ action: "uninstall", id: "sample" })).rejects.toThrow(
+      /Outcome is unverified.*Refresh Installed.*journals and backups/,
+    )
+    await expect(io.operate({ action: "check-update", id: "sample" })).rejects.not.toThrow(
+      /Outcome is unverified/,
+    )
   })
 
   test("does not turn a failed directory read into an empty successful list", async () => {

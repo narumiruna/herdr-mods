@@ -63,7 +63,7 @@ vi.mock("herdr", () => ({
 }))
 
 import { Button } from "gpui-base"
-import { openOverlay, run, theme } from "herdr"
+import { closeOverlay, openOverlay, run, theme } from "herdr"
 import LayoutManager from "./main.js"
 import { addPanel, dockPosition, findNode, managedSlots, STACK_ID } from "./model.js"
 
@@ -129,6 +129,275 @@ beforeEach(() => {
   vi.clearAllMocks()
   ui.nodes.clear()
   vi.mocked(theme).mockReturnValue({})
+})
+
+describe("single guarded undo", () => {
+  async function inserted() {
+    const fixture = await ready("example", ordinaryTree())
+    const before = fixture.view.snapshot
+    fixture.view.placeOrdinary(fixture.cx, { kind: "new", name: "example" }, "anchor", "top")
+    await fixture.cx.flush()
+    return { ...fixture, before }
+  }
+
+  it("reverses an accidental insertion through the current file CAS guard once", async () => {
+    const { view, cx, io, files, before } = await inserted()
+    const after = view.snapshot
+    view.render(cx)
+    expect(ui.nodes.get("undo-layout-change").props).toMatchObject({
+      disabled: false,
+      tab_stop: true,
+    })
+    dispatch("undo-layout-change", "on_click", {}, cx)
+    await cx.flush()
+    expect(view.snapshot.tree).toEqual(before.tree)
+    expect(JSON.parse(files.get(before.path))).toEqual(before.tree)
+    expect(io.writeText.mock.calls[1][2]).toBe(after.raw)
+    expect(view.undo).toBeNull()
+    expect(view.canUndo()).toBe(false)
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledTimes(2)
+  })
+
+  it("retains only the last successful change, not redo history", async () => {
+    const { view, cx } = await inserted()
+    const previous = view.snapshot
+    view.placeOrdinary(cx, { kind: "node", id: "saved" }, "anchor", "left")
+    await cx.flush()
+    expect(view.snapshot.tree).not.toEqual(previous.tree)
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(view.snapshot.tree).toEqual(previous.tree)
+    expect(view.undo).toBeNull()
+  })
+
+  it("does not replace undo with an unchanged save", async () => {
+    const { view, cx, before } = await inserted()
+    view.saveChange(cx, (tree) => tree, "No change")
+    await cx.flush()
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(view.snapshot.tree).toEqual(before.tree)
+  })
+
+  it("preserves an external edit and blocks retry after a stale undo", async () => {
+    const { view, cx, io, files } = await inserted()
+    const external = `${view.snapshot.raw}\n`
+    files.set(view.snapshot.path, external)
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(view.needsRefresh).toBe(true)
+    expect(files.get(view.snapshot.path)).toBe(external)
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledTimes(2)
+    view.refresh(cx)
+    await cx.flush()
+    expect(view.undo).toBeNull()
+  })
+
+  it.each(["loading", "busy", "needsRefresh", "closed"])("blocks undo while %s", async (flag) => {
+    const { view, cx, io } = await inserted()
+    view[flag] = true
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledOnce()
+  })
+
+  it("does not undo into another current layout", async () => {
+    const { view, cx, io, changeLayout } = await inserted()
+    changeLayout("different")
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledOnce()
+  })
+
+  it.each(["refresh", "close"])("forgets the undo snapshot on %s", async (action) => {
+    const { view, cx, io } = await inserted()
+    view[action](cx)
+    await cx.flush()
+    expect(view.undo).toBeNull()
+    view.undoLastChange(cx)
+    await cx.flush()
+    expect(io.writeText).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])(
+    "restores props without discarding a later draft (edited=%s)",
+    async (edited) => {
+      const { view, cx, before } = await inserted()
+      view.properties.set_value('{"saved":true}')
+      view.apply(cx)
+      await cx.flush()
+      if (edited) view.properties.set_value("invalid later draft")
+      view.undoLastChange(cx)
+      await cx.flush()
+      expect(view.snapshot.slots).toEqual(before.slots)
+      expect(view.properties.value()).toBe(edited ? "invalid later draft" : "{}")
+      expect(view.hasDrafts()).toBe(edited)
+    },
+  )
+})
+
+describe("props draft recovery and first operation", () => {
+  it.each(['{"unsaved":true}', "invalid JSON"])(
+    "keeps draft %s through a stale save and Refresh without applying it",
+    async (text) => {
+      const { view, cx, files, io } = await ready("example", ordinaryTree())
+      view.properties.set_value(text)
+      view.selectNodeSource("saved", cx)
+      files.set(view.snapshot.path, `${view.snapshot.raw}\n`)
+      view.placeOrdinary(cx, view.nodeSource, "anchor", "top")
+      await cx.flush()
+      expect(view.needsRefresh).toBe(true)
+      view.refresh(cx)
+      await cx.flush()
+      expect(view.properties.value()).toBe(text)
+      expect(view.hasDrafts()).toBe(true)
+      expect(view.needsRefresh).toBe(false)
+      expect(io.writeText).toHaveBeenCalledOnce()
+      expect(findNode(view.snapshot.tree, "saved").hidden).toBe(true)
+    },
+  )
+
+  it("keeps drafts separate for each layout and mod, including invalid JSON", async () => {
+    const { view, cx, files, changeLayout } = await ready()
+    files.set("/fixture/layouts/other.json", JSON.stringify(tree))
+    view.properties.set_value("personal draft")
+    view.mods.push({ name: "second", available: true })
+    view.selectMod("second", cx)
+    view.properties.set_value("second draft")
+    view.selectMod("example", cx)
+    expect(view.properties.value()).toBe("personal draft")
+    changeLayout("other")
+    view.render(cx)
+    expect(ui.nodes.has("source-node-original")).toBe(false)
+    await cx.flush()
+    expect(view.properties.value()).toBe("{}")
+    view.properties.set_value("other draft")
+    changeLayout("personal")
+    view.render(cx)
+    await cx.flush()
+    expect(view.properties.value()).toBe("personal draft")
+    view.mods.push({ name: "second", available: true })
+    view.selectMod("second", cx)
+    expect(view.properties.value()).toBe("second draft")
+    changeLayout("other")
+    view.refresh(cx)
+    await cx.flush()
+    expect(view.properties.value()).toBe("other draft")
+  })
+
+  it("reloads externally changed saved props when there is no user draft", async () => {
+    const initial = addPanel(tree, { name: "example", props: { before: true } })
+    const { view, cx, files } = await ready("example", initial)
+    // Repeated selection must not turn unedited props into a retained draft.
+    view.selectMod("example", cx)
+    expect(view.hasDrafts()).toBe(false)
+    files.set(
+      view.snapshot.path,
+      JSON.stringify(addPanel(tree, { name: "example", props: { after: true } })),
+    )
+    view.refresh(cx)
+    await cx.flush()
+    expect(JSON.parse(view.properties.value())).toEqual({ after: true })
+    expect(view.hasDrafts()).toBe(false)
+  })
+
+  it("retains edits made while Refresh is pending", async () => {
+    const { view, cx } = await ready()
+    view.properties.set_value("before refresh")
+    view.refresh(cx)
+    view.properties.set_value("during refresh")
+    view.selectMod("other", cx)
+    expect(view.selected).toBe("example")
+    await cx.flush()
+    expect(view.properties.value()).toBe("during refresh")
+  })
+
+  it("requires explicit draft discard on Close and permits returning to editing", async () => {
+    const { view, cx } = await ready()
+    view.entry.overlay = "fixture-dialog"
+    view.properties.set_value("invalid unsaved draft")
+    view.render(cx)
+    dispatch("close-layout-manager", "on_click", {}, cx)
+    expect(closeOverlay).not.toHaveBeenCalled()
+    expect(view.confirmClose).toBe(true)
+    view.render(cx)
+    dispatch("keep-editing", "on_click", {}, cx)
+    expect(view.confirmClose).toBe(false)
+    expect(view.properties.value()).toBe("invalid unsaved draft")
+    dispatch("close-layout-manager", "on_click", {}, cx)
+    view.render(cx)
+    dispatch("discard-drafts-close", "on_click", {}, cx)
+    expect(closeOverlay).toHaveBeenCalledExactlyOnceWith("fixture-dialog")
+  })
+
+  it("does not retain a saved managed props draft or require a redundant discard", async () => {
+    const { view, cx } = await ready()
+    view.entry.overlay = "fixture-dialog"
+    view.properties.set_value('{"saved":true}')
+    view.apply(cx)
+    await cx.flush()
+    expect(view.hasDrafts()).toBe(false)
+    view.requestClose(cx)
+    expect(closeOverlay).toHaveBeenCalledExactlyOnceWith("fixture-dialog")
+  })
+
+  it("retains a newer draft typed during a managed props save", async () => {
+    const { view, cx, io } = await ready()
+    const paused = pauseWrite(io)
+    view.properties.set_value('{"saved":true}')
+    view.apply(cx)
+    await paused.started
+    view.properties.set_value("newer invalid draft")
+    paused.release()
+    await cx.flush()
+    view.refresh(cx)
+    await cx.flush()
+    expect(view.snapshot.slots[0].props).toEqual({ saved: true })
+    expect(view.properties.value()).toBe("newer invalid draft")
+    expect(view.hasDrafts()).toBe(true)
+  })
+
+  it("does not erase a draft when a saved managed panel is removed", async () => {
+    const initial = addPanel(tree, { name: "example" })
+    const { view, cx } = await ready("example", initial)
+    view.properties.set_value("keep invalid draft")
+    view.apply(cx, true)
+    await cx.flush()
+    view.refresh(cx)
+    await cx.flush()
+    expect(view.snapshot.slots).toEqual([])
+    expect(view.properties.value()).toBe("keep invalid draft")
+  })
+
+  it("does not start a queued save after the view has closed", async () => {
+    const { view, cx, io } = await ready()
+    view.apply(cx)
+    view.close()
+    await cx.flush()
+    expect(io.writeText).not.toHaveBeenCalled()
+    expect(view.busy).toBe(false)
+  })
+
+  it("provides keyboard mod selection and keeps props before legacy controls", async () => {
+    const { view, cx, io } = await ready("example", ordinaryTree())
+    view.mods.push({ name: "other", title: "Other", available: true })
+    const rendered = view.render(cx)
+    expect(ui.nodes.get("select-mod-other").props).toMatchObject({
+      accessibility_label: "Select mod Other",
+      tab_stop: true,
+      disabled: false,
+    })
+    dispatch("select-mod-other", "on_click", {}, cx)
+    expect(view.selected).toBe("other")
+    const text = uiText(rendered)
+    expect(text.indexOf("Props · JSON object")).toBeLessThan(text.indexOf("Managed panel (legacy)"))
+    expect(text).toContain("select a node ID, choose Target, then a side to save")
+    expect(io.writeText).not.toHaveBeenCalled()
+  })
 })
 
 describe("view actions", () => {
@@ -522,7 +791,7 @@ describe("graphical layout gestures", () => {
       targets.push(target)
       return decorate(element, target)
     })
-    view.editor()
+    view.legacyEditor()
     expect(new Set(targets.map((target) => target.key)).size).toBe(targets.length)
     const beforeEnd = targets.find((target) => target.before === "end")
     const append = targets.find((target) => target.kind === "tab" && target.before === null)
@@ -733,6 +1002,36 @@ describe("ordinary tree UI", () => {
     for (const id of ["saved", "saved-child", "inactive-child"])
       expect(structuralNodes(view.snapshot.tree).filter((node) => node.id === id)).toHaveLength(1)
     expect(io.writeText).toHaveBeenCalledOnce()
+  })
+
+  it("top-aligns shallow schematic siblings beside a deep container", async () => {
+    const initial = {
+      id: "root",
+      type: "row",
+      children: [
+        { id: "shallow", type: "block", content: { mod: "example" } },
+        {
+          id: "deep",
+          type: "column",
+          children: Array.from({ length: 8 }, (_, i) => ({
+            id: `deep-${i}`,
+            type: "block",
+            content: { mod: "example" },
+          })),
+        },
+      ],
+    }
+    const { view, cx, io } = await ready("example", initial)
+    view.render(cx)
+    const row = ui.nodes.get("preview-node-root").items.at(-1)
+    expect(row.props).toHaveProperty("items_start")
+    expect(row.items).toHaveLength(2)
+    expect(row.items[0]).toBe(ui.nodes.get("preview-node-shallow"))
+    expect(row.items[1]).toBe(ui.nodes.get("preview-node-deep"))
+    expect(ui.nodes.get("preview-node-deep").props.h).toBeGreaterThan(
+      ui.nodes.get("preview-node-shallow").props.h,
+    )
+    expect(io.writeText).not.toHaveBeenCalled()
   })
 
   it("renders native source and destination buttons with labels and tab stops", async () => {
@@ -973,6 +1272,39 @@ describe("ordinary tree UI", () => {
     },
   )
 
+  it.each(["keyboard", "stored source"])(
+    "preserves unedited managed props after inspecting another mod via %s placement",
+    async (method) => {
+      const initial = addPanel(ordinaryTree(), {
+        name: "example",
+        props: { mode: "required-mode" },
+      })
+      const { view, cx, io } = await ready("example", initial)
+      view.selectNewView("example", cx)
+      const source = view.nodeSource
+      expect(view.ordinarySource(source).props).toEqual({ mode: "required-mode" })
+      view.mods.push({ name: "other", title: "Other", available: true })
+      view.selectMod("other", cx)
+      view.properties.set_value("invalid unrelated draft")
+      expect(view.drafts.has("example")).toBe(false)
+      expect(view.ordinarySource(source).props).toEqual({ mode: "required-mode" })
+      if (method === "keyboard") {
+        view.render(cx)
+        dispatch("target-node-anchor", "on_click", {}, cx)
+        view.render(cx)
+        dispatch("place-node-top", "on_click", {}, cx)
+      } else view.placeOrdinary(cx, source, "anchor", "top")
+      await cx.flush()
+      expect(findNode(view.snapshot.tree, "view-example").content.props).toEqual({
+        mode: "required-mode",
+      })
+      expect(view.snapshot.slots.find((slot) => slot.name === "example").props).toEqual({
+        mode: "required-mode",
+      })
+      expect(io.writeText).toHaveBeenCalledOnce()
+    },
+  )
+
   it("uses a stored new-view draft instead of a different selected mod's invalid draft", async () => {
     const { view, cx, io } = await ready("example", ordinaryTree())
     view.properties.set_value('{"stored":true}')
@@ -1090,8 +1422,11 @@ describe("ordinary tree save guards and cancellation", () => {
         "choose-new-view",
         "place-node-top",
       ]) {
-        expect(ui.nodes.get(id).props).toMatchObject({ disabled: true, tab_stop: false })
-        dispatch(id, "on_click", {}, cx)
+        if (state === "loading") expect(ui.nodes.has(id)).toBe(false)
+        else {
+          expect(ui.nodes.get(id).props).toMatchObject({ disabled: true, tab_stop: false })
+          dispatch(id, "on_click", {}, cx)
+        }
       }
       for (const [kind, name] of [
         ["node", "saved"],
@@ -1373,6 +1708,7 @@ describe("ordinary outline and legacy boundaries", () => {
     const initial = addPanel(body, { name: "example", props: { managed: true } })
     const { view, cx, io } = await ready("example", initial)
     view.render(cx)
+    view.legacyEditor()
     const ordinary = ui.nodes.get("preview-node-tab-example")
     const managed = ui.nodes.get("preview-tab-example")
     expect(ordinary).toBeDefined()
@@ -1615,9 +1951,14 @@ describe("keyboard tab order controls", () => {
       else view[state] = true
       view.render(cx)
       const button = ui.nodes.get("move-tab-example-later")
-      expect(button.props.disabled).toBe(true)
-      expect(button.props.tab_stop).toBe(false)
-      dispatch("move-tab-example-later", "on_click", {}, cx)
+      if (state === "loading") {
+        expect(button).toBeUndefined()
+        view.movePanel(cx, "example", 1)
+      } else {
+        expect(button.props.disabled).toBe(true)
+        expect(button.props.tab_stop).toBe(false)
+        dispatch("move-tab-example-later", "on_click", {}, cx)
+      }
       await cx.flush()
       expect(io.writeText).not.toHaveBeenCalled()
     },

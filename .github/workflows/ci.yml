@@ -26,6 +26,7 @@ jobs:
           enable-cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run check:bundles
       - run: npm test
       - run: npm run setup:browser --workspace herdr-markdown-reader
       # Ubuntu restricts user namespaces for downloaded Chrome builds. Allow

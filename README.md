@@ -4,10 +4,11 @@ A monorepo for Herdr App mods, managed with npm workspaces.
 
 ## Share Mod Manager
 
-The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. The bundle is incomplete: an inspected screenshot at `mods/mod-manager/preview.png` and native interaction checks are still required. No layout or keybinding file is distributed. GitHub publication requires separate approval.
+The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. No layout or keybinding file is distributed. GitHub publication requires separate approval.
 
 ## Repository structure
 
+- [`mods/github-issues-prs/`](mods/github-issues-prs/): read-only GitHub issues and pull requests, repository context, and optional workspace tabs.
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
 - [`mods/markdown-reader/`](mods/markdown-reader/): native local Markdown reading, display math, official Mermaid SVG, static Vega-Lite, and personal Files integration preparation.
@@ -31,7 +32,7 @@ git diff --check
 
 `check:mod` runs native checks and generates the ignored Herdr SDK declarations inside each mod. Run it before `check:types` or `ci`. Hosted Linux CI runs formatting and fixture tests without the local SDK.
 
-Root `check` checks the whole repository. Root `test` runs the isolated link-script tests, then the workspace tests. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
+Root `check` checks the whole repository. Root `test` runs the isolated shared-script tests, then all four workspace suites. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
 
 ```sh
 npm test --workspace herdr-mod-manager
@@ -39,6 +40,19 @@ npm run check:mod --workspace herdr-mod-manager
 ```
 
 Shared hooks, Changesets, and release commands run from the root.
+
+## Quality and bundle checks
+
+The [quality review](docs/mod-quality-review.md) records scores against [RUBRIC.md](RUBRIC.md), test evidence, and acceptance limits. Scores do not replace native interaction checks.
+
+```sh
+npm run check:bundles
+npm run evidence:previews
+```
+
+`check:bundles` checks every mod root for workspace scripts, recipe sections and local links, license notices, JSON, runtime imports, and bounded PNG structure/inflation. It excludes development dependencies, caches, and generated declarations from its source-file view. It is not a full image decoder or an inspection of a packaged archive. Missing required source files fail the check. Inspect each preview in an image viewer and test native interaction separately; this command does not establish sharing readiness.
+
+`evidence:previews` captures actual fixture views in disposable macOS Herdr profiles. Evidence and process-cleanup records stay outside the repository. Preview generation does not change the owner's profile, perform real GitHub requests, or test physical pointer and keyboard input. A passing structural check or screenshot is not sufficient to call a bundle ready to share.
 
 ## Link local mods
 

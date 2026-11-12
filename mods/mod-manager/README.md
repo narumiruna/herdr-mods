@@ -24,8 +24,9 @@ Root `npm start` also toggles the dialog. It does not create or change the insta
 - **Gallery** loads the same public mod index as the Gallery website: [`assets.herdr.dev/mods/index.json`](https://assets.herdr.dev/mods/index.json). It supports search, source filters, and batches of 50 cards. Search covers the full list, including folder IDs and cards not yet rendered.
 - **Installed** reads actual local manifests. GitHub, development, local, and shipped sources are distinct. A name alone does not establish source identity or ownership. Gallery and Installed share verified membership.
 - **From GitHub** accepts a public `https://github.com/owner/repository` URL, with an optional `.git` suffix. Leave **Mod directory** blank for a repository-root mod, or enter the exact case-sensitive relative directory containing `mod.json` and `main.js`, such as `mods/layout-manager`. Installation uses the repository's default branch. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
+- Each verified GitHub card has **Source**. It opens that card's recorded repository at its commit and exact case-sensitive recipe directory, without installing anything. When Update is available, **Update source** opens the checked update candidate instead of the older installed commit. Without a recorded commit, Source opens the repository root. For a recipe bundle, find the selected mod folder within that source directory. If the browser fails, the exact URL stays visible for manual review. URL delivery does not verify browser display.
 - Gallery selections preserve the exact recipe path and mod folder. For a bundle, select the specific mod card. The manager does not apply recipe layouts or keybindings or install companion mods automatically.
-- A Gallery failure is shown as an error, not an empty successful list. A slow Gallery request does not block an otherwise-ready Installed page or its operations.
+- A Gallery failure is shown as an error, not an empty successful list. A slow Gallery request does not block an otherwise-ready Installed page or its operations. **Show warnings** reveals source and recovery warnings in a scrollable list, 20 at a time.
 
 For example, to install a mod from this repository:
 
@@ -43,11 +44,11 @@ The index has a versioned metadata schema, repository commits, recipe paths, and
 
 Installation accepts an object `mod.json` and nonempty UTF-8 root `main.js` in the selected package. Omitted placement and valid `none`, `left`, `right`, `top`, and `bottom` placements remain supported. Manifest fields are checked; manifests are not rewritten. Herdr can dock and run a newly discovered mod immediately. The manager itself does not edit layouts or keybindings.
 
-Downloads are staged outside `mods/`. Complete validated packages are published with atomic no-overwrite rename. Existing destinations, source conflicts, symbolic links, submodules, and unsafe paths or modes are refused. Hooks, credential helpers, configured checkout filters, prompts, and global/system Git configuration are disabled. Unsupported filesystems and cross-device publication fail closed. File limits and timeouts do not impose a complete disk-use limit on Git history downloads.
+Downloads are staged outside `mods/`. The Git staging phase has a 150-second shared budget; each Git command has at most 120 seconds. This budget does not interrupt live publication or rollback. Repository file sizes come from one Git tree listing, not one process per file. Complete validated packages are published with atomic no-overwrite rename. Existing destinations, source conflicts, symbolic links, submodules, and unsafe paths or modes are refused. Hooks, credential helpers, configured checkout filters, prompts, and global/system Git configuration are disabled. Unsupported filesystems and cross-device publication fail closed. File limits and timeouts do not impose a complete disk-use limit on Git history downloads.
 
 ## Requirements and read-only mode
 
-Gallery and native read-only inventory work without the local backend. File operations require **Git, uv, and an already available Python 3.9 or newer** on a supported POSIX system. Development checks use Python 3.14. The backend requires no-follow directory handles, file locking, hardlinks, and atomic no-overwrite rename. macOS and Linux filesystem tests are required; Windows mutation remains rejected until a safe native implementation is validated. Read-only browsing remains available there.
+Gallery and native read-only inventory work without the local backend. File operations require **Git, uv, and an already available Python 3.9 or newer** on a supported POSIX system. Development checks use Python 3.14. The backend requires no-follow directory handles, file locking, hardlinks, and atomic no-overwrite rename. Keep the adjacent [MIT license](LICENSE) with copied source. macOS and Linux filesystem tests are required; Windows mutation remains rejected until a safe native implementation is validated. Read-only browsing remains available there.
 
 The runner uses isolated standard-library Python with no project discovery or downloads:
 
@@ -56,7 +57,7 @@ uv run --no-project --offline --no-python-downloads python -I -S --version
 git --version
 ```
 
-Install missing tools separately. The mod does not install tools, Python versions, or dependencies. A backend failure leaves inventory read-only, displays the reason, and does not adopt ownership. Source labels can be incomplete in this fallback because native directory listing cannot verify Git provenance or file identities.
+Install missing tools separately. The mod does not install tools, Python versions, or dependencies. A backend failure leaves inventory read-only, displays the reason, and does not adopt ownership. All file actions and update checks remain blocked, including From GitHub installation. **Retry local backend** refreshes Installed from any page; actions return only after verified discovery succeeds. Source labels can be incomplete in this fallback because native directory listing cannot verify Git provenance or file identities. A stopped process or invalid response after a mutation reports an unverified outcome, not a tool-installation diagnosis or a verified rollback. Refresh Installed and preserve recovery evidence before retrying.
 
 ## Ownership migration
 
@@ -77,7 +78,7 @@ Interrupted migration has a separate, retained journal. Its immutable intent is 
 
 ## Updates and uninstall
 
-Use **Check updates** to obtain a validated fast-forward candidate. **Update** uses only that checked revision. Preparation rejects a source revision that no longer matches the checked candidate. Candidate preparation finishes before a fresh runtime/dependency snapshot and commit request.
+Use **Check updates** to obtain a validated fast-forward candidate. The current mod and checked/total count update during the batch. **Stop checks** waits for the current repository, then stops before the next one; it does not kill a subprocess. Closing the dialog also stops further checks. Completed candidates remain available. The final message reports the checked and failed counts instead of claiming that a partial batch completed. A changed identity or protection state stops a stale batch. **Update** uses only that checked revision. Preparation rejects a source revision that no longer matches the checked candidate. Candidate preparation finishes before a fresh runtime/dependency snapshot and commit request.
 
 All mutations recheck ownership, identity, file state, and configured/runtime dependencies. Shipped mods, the running manager, development links, dirty targets, unsafe paths, and active or configured dependencies are protected. Unknown dependency safety blocks mutation. Inactive layouts and keybindings matter too; unrelated display names or theme strings are not mod references.
 
@@ -152,7 +153,7 @@ Recovery steps:
 3. Resume only a migration whose current summary verifies its journal and backups. An unverified live transaction requires maintainer recovery; the manager must not guess which user edits to discard.
 4. Verify either the complete previous state or the complete new state before removing a recovery marker. An uncertain rollback stays blocked with its original evidence. Restore a verified complete profile backup when independent recovery cannot be established.
 
-Prepared but unused updates and retained metadata preimages can remain outside `mods/`. They are not committed installs. Registry publication compares the original hash and inode after preserving the old file; it does not silently overwrite a later edit. Preserve receipts and workspaces referenced by a transaction; inspect unused data before manual cleanup. Complete migration preimages and Git uninstall archives are retained deliberately. Do not treat an older binary as a migration rollback tool.
+Prepared but unused updates and retained metadata preimages can remain outside `mods/`. They are not committed installs. If a preparation receipt may have been published, a later preparation failure retains its pinned workspace rather than leaving a receipt with missing files. Registry publication compares the original hash and inode after preserving the old file; it does not silently overwrite a later edit. Preserve receipts and workspaces referenced by a transaction; inspect unused data before manual cleanup. Complete migration preimages and Git uninstall archives are retained deliberately. Do not treat an older binary as a migration rollback tool.
 
 See [lifecycle contracts and integration design](docs/lifecycle-prerequisites.md) for host boundaries and protocol details.
 
@@ -209,7 +210,7 @@ These handoffs do not authorize automated profile edits, app restart, or release
 
 ## Development checks
 
-Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.14. Shared development tools and the lockfile are at the repository root. Run from the repository root:
+Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Shared development tools and the lockfile are at the repository root. Run from the repository root:
 
 ```sh
 npm ci
@@ -218,7 +219,7 @@ npm run ci
 git diff --check
 ```
 
-Root commands delegate to the npm workspaces. To select only this mod, use `npm test --workspace herdr-mod-manager` or `npm run check:mod --workspace herdr-mod-manager`. `check:mod` runs the native entry check, generates the ignored real SDK at `mods/mod-manager/gpui-kit.d.ts` for no-emit JavaScript type checks, and runs all native view fixtures, including expanded/narrow footers with and without an app update indicator. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `mods/mod-manager/scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
+Root commands delegate to the npm workspaces. To select only this mod, use `npm test --workspace herdr-mod-manager` or `npm run check:mod --workspace herdr-mod-manager`. `check:mod` uses a disposable `HERDR_APP_HOME` for the native entry check and each fixture check. It generates the ignored real SDK at `mods/mod-manager/gpui-kit.d.ts` for no-emit JavaScript type checks and runs 24 native view fixtures, including read-only, warnings, update progress, and expanded/narrow footers with and without an app update indicator. `ci` runs Biome, JavaScript model/runtime/UI tests, real JavaScript-to-Python lifecycle tests, Python filesystem/fault tests, and type checks. `check:views` runs only the native view fixtures through `mods/mod-manager/scripts/check-views.mjs`. These tests use an isolated `HERDR_APP_HOME` for all pages and loading, error, confirmation, migration, protection, and archive states. They are tests of the live view, not a product preview mode.
 
 Tests use disposable profiles and real local Git repositories. Test-only transport injection is not a production local-install mode. Cross-version fixtures cover both stores, mixed ownership, explicit confirmation, directory/busy/corrupt locks, retained Git data, ref failures, and recovery. Never use the user's mods for lifecycle tests.
 

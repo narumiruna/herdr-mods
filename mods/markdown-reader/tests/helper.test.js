@@ -139,6 +139,21 @@ it("closes the renderer and removes signal listeners after a document-level fail
   expect(process.listenerCount("SIGTERM")).toBe(count)
 })
 
+it("removes partial asset leases when a document exceeds its native block budget", async () => {
+  await writeFile(file, `\`\`\`mermaid\ngraph TD; A-->B\n\`\`\`\n\n${"paragraph\n\n".repeat(600)}`)
+  await expect(run()).rejects.toThrow("native block limit")
+  expect(renderer.render).toHaveBeenCalledOnce()
+  expect(renderer.close).toHaveBeenCalledOnce()
+  await expect(lstat(leasePath())).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("removes leases even when renderer cleanup fails", async () => {
+  await writeFile(file, "```mermaid\ngraph TD; A-->B\n```")
+  renderer.close.mockRejectedValueOnce(new Error("cleanup failed"))
+  await expect(run()).rejects.toThrow("cleanup failed")
+  await expect(lstat(leasePath())).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("does not start a renderer for a missing document", async () => {
   await rm(file)
   await expect(run()).rejects.toMatchObject({ code: "ENOENT" })

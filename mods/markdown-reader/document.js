@@ -6,7 +6,14 @@ import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
-import { classifyURL, localPath, MAX_IMAGE_BYTES, workspaceFile, workspaceRead } from "./files.js"
+import {
+  classifyURL,
+  localPath,
+  MAX_IMAGE_BYTES,
+  within,
+  workspaceFile,
+  workspaceRead,
+} from "./files.js"
 
 const MAX_NODES = 12000
 const MAX_DEPTH = 40
@@ -60,7 +67,9 @@ export async function buildDocument({
   const assets = new Set()
   const dependencies = new Set([file])
   let unresolvedImages = false
+  let unresolvedLinks = false
   const links = {}
+  let linkId = 0
   const tasks = new Map()
   let taskId = 0
   let graphics = 0
@@ -202,11 +211,14 @@ export async function buildDocument({
       const target = classifyURL(String(node.properties.href || ""), file)
       if (target.kind === "local") {
         try {
+          if (within(root, target.file)) dependencies.add(target.file)
           const location = await workspaceFile(root, target.file)
           if (!/\.(?:md|markdown)$/i.test(location.file))
             throw new Error("Only Markdown file links can be opened")
+          dependencies.add(location.file)
           Object.assign(target, location)
         } catch (error) {
+          if (error.code === "ENOENT" && within(root, target.file)) unresolvedLinks = true
           warnings.add(`Link unavailable: ${error.message}`)
           delete node.properties.href
           return
@@ -214,7 +226,7 @@ export async function buildDocument({
       }
       if (target.kind === "blocked") delete node.properties.href
       else {
-        const href = `https://herdr-markdown.invalid/link/${Object.keys(links).length}`
+        const href = `https://herdr-markdown.invalid/link/${linkId++}`
         links[href] = target
         node.properties.href = href
       }
@@ -343,5 +355,6 @@ export async function buildDocument({
     assets: [...assets],
     dependencies: [...dependencies],
     unresolvedImages,
+    unresolvedLinks,
   }
 }

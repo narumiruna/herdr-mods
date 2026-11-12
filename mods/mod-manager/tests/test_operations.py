@@ -1658,6 +1658,79 @@ class LifecycleTests(unittest.TestCase):
         intents = list(self.state.glob("work-*/transaction-intent.json"))
         self.assertTrue(any(json.loads(p.read_text())["action"] == "install" for p in intents))
 
+    def test_tree_metadata_uses_one_size_listing_without_per_file_processes(self):
+        backend = operations.Operations(str(self.home))
+        entries = b"".join(f"100644 blob {'b' * 40}       3\tfile-{n}.js\0".encode() for n in range(250))
+        try:
+            with mock.patch.object(backend, "_git", side_effect=[b"a" * 40 + b"\n", entries]) as git:
+                commit, tree = backend._tree(backend.fs.root)
+            self.assertEqual(len(tree), 250)
+            self.assertEqual(commit, "a" * 40)
+            self.assertEqual(git.call_count, 2)
+            self.assertIn("-l", git.call_args.args[0])
+            for size in (str(operations.LIMIT + 1), "-", "-1"):
+                with self.subTest(size=size), mock.patch.object(backend, "_git", side_effect=[b"a" * 40, f"100644 blob {'b' * 40} {size}\tmain.js\0".encode()]):
+                    with self.assertRaisesRegex(operations.SafetyError, "size|limit"):
+                        backend._tree(backend.fs.root)
+        finally:
+            backend.close()
+
+    def test_git_staging_uses_remaining_budget_and_never_launches_after_expiry(self):
+        backend = operations.Operations(str(self.home))
+        backend.download_deadline = 105
+        try:
+            result = subprocess.CompletedProcess([], 0, b"ok", b"")
+            with mock.patch.object(operations.time, "monotonic", return_value=100), mock.patch.object(operations.subprocess, "run", return_value=result) as run:
+                backend._git(["status"], backend.fs.root)
+                self.assertEqual(run.call_args.kwargs["timeout"], 5)
+            with mock.patch.object(operations.time, "monotonic", return_value=106), mock.patch.object(operations.subprocess, "run") as run:
+                with self.assertRaisesRegex(operations.SafetyError, "staging timed out"):
+                    backend._git(["status"], backend.fs.root)
+                run.assert_not_called()
+        finally:
+            backend.close()
+
+    def test_expired_download_cleans_private_work_without_publishing_files(self):
+        class Expired(self.backend):
+            def _tree(inner, *args):
+                result = super()._tree(*args)
+                inner.download_deadline = operations.time.monotonic() - 1
+                return result
+        self.bad(self.run_request("install", backend=Expired, repository="example/fixture"), "staging timed out")
+        self.assertEqual(list((self.home / "mods").iterdir()), [])
+        self.assertEqual(list(self.state.glob("work-*")), [])
+        self.assertFalse((self.state / "transaction.json").exists())
+
+    def test_git_timeout_is_actionable_and_cleans_private_download(self):
+        with mock.patch.object(operations.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 120)):
+            self.bad(self.run_request("install", backend=operations.Operations, repository="example/fixture"), "installed files were not changed by this download")
+        self.assertEqual(list((self.home / "mods").iterdir()), [])
+        self.assertEqual(list(self.state.glob("work-*")), [])
+
+    def test_late_preparation_failure_retains_the_receipt_workspace(self):
+        self.install()
+        before = self.confirmation()
+        path = self.home / "mods/fixture/main.js"
+        inode, contents = path.stat().st_ino, path.read_bytes()
+        self.write_mod(text="export default {next:true};")
+        candidate = self.commit()
+        class Failure(self.backend):
+            def _eligible(inner, *args, **kwargs):
+                record = super()._eligible(*args, **kwargs)
+                if list(self.state.glob("stage-*.json")):
+                    raise OSError("final eligibility changed")
+                return record
+        self.bad(self.run_request("prepare-update", backend=Failure, **before, targetCommit=candidate), "final eligibility changed")
+        receipts = list(self.state.glob("stage-*.json"))
+        self.assertEqual(len(receipts), 1)
+        token = json.loads(receipts[0].read_bytes())["token"]
+        work = self.state / ("work-" + token)
+        self.assertTrue((work / "prepared.json").is_file())
+        self.assertTrue((work / "prepared/fixture/main.js").is_file())
+        self.assertEqual(path.stat().st_ino, inode)
+        self.assertEqual(path.read_bytes(), contents)
+        self.assertFalse((self.state / "transaction.json").exists())
+
     def test_cli_one_json_even_on_validation_failure(self):
         result = subprocess.run(
             ["uv", "run", "--offline", "--no-project", "--no-python-downloads", "python", "-I", "-S", str(Path(operations.__file__)), str(self.home), '{"action":"discover"}'],

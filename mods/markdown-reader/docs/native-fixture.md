@@ -32,6 +32,7 @@ Each app loads a fixture subclass of the repository's `main.js`, copied as `view
 
 | Mode            | Native state                                                                    |
 | --------------- | ------------------------------------------------------------------------------- |
+| `empty`         | Actual no-props first-open form with explicit workspace/file inputs             |
 | `light`         | Full manifest, paper theme                                                      |
 | `dark`          | Full manifest, graphite theme, dark SVG generation                              |
 | `narrow`        | Full manifest in a 480 logical-pixel window; 400-pixel helper width             |
@@ -75,7 +76,7 @@ No generated image or binary belongs in the repository. Remove only the printed 
 
 ## Observed result and support boundary
 
-The reviewed Herdr 0.1.15 runs completed all ten modes. All checks passed, both status samples per mode had `errors: []`, and no recorded owned process group remained. Each run records its actual elapsed time in `captures.json` and `timing.json`.
+The earlier reviewed Herdr 0.1.15 runs completed the original ten modes. The current script adds `empty` for the new first-open form; this revision requires a new eleven-mode capture run before that form has native visual evidence. All checks passed, both status samples per mode had `errors: []`, and no recorded owned process group remained. Each run records its actual elapsed time in `captures.json` and `timing.json`.
 
 Visual inspection established these fixture-specific results:
 

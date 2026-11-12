@@ -11,7 +11,8 @@ Sharing status is incomplete: the source bundle and automated implementation che
 ## What you see
 
 - A focusable pane or a 1,000 × 760 dialog, with no default docking (`place: "none"`). Pane size follows the host layout.
-- A 44-pixel header with the file path, Reload, and Source. The dialog also has Close.
+- A 44-pixel header with the file path, Open…, Reload, and Source. The dialog also has Close.
+- With no file props, show native workspace-root and file-path inputs plus Open file. Give each input an explicit label. Do not show an error before the user submits.
 - Native Markdown text, tables, read-only task markers, lists, quotes, and compiled footnote links. Use 16-pixel text, 18-pixel document padding, and 14-pixel block gaps.
 - Read-only syntax-highlighted code cards and full-document source mode.
 - Graphic cards with Copy source, Source/Render, Fit, and zoom controls. Show block errors with the original source, without hiding other content.
@@ -19,14 +20,14 @@ Sharing status is incomplete: the source bundle and automated implementation che
 
 ## How it behaves
 
-- Open through `tab.new` or `pane.split`, with props `{ file, root, on: null }`. Both paths are absolute. An optional fragment selects a heading after load. A non-null machine identity is rejected before local reads.
+- Open from the mod menu, enter explicit absolute workspace/file paths, and select Open file or press Enter. Open… can select another local file in the same view; Cancel keeps the current document. Do not infer a root, save entered paths, or offer a local fallback for a remote identity. Also support `tab.new` or `pane.split`, with props `{ file, root, on: null }`. Both paths are absolute. An optional fragment selects a heading after load. A non-null machine identity is rejected before local reads.
 - Read UTF-8 `.md` and `.markdown` files up to 1 MiB. Reject missing, binary, invalid UTF-8, non-regular, oversized, changed, or outside-root files rather than truncating them.
 - Parse Markdown to an AST with GFM/math extensions. Preserve nested containers, definitions, relative links, and footnotes. Do not split Markdown with regular expressions or rasterize the whole document.
 - Use native `TextView.html()` for trusted compiler output, native `Editor`/`EditorState` for code, and `image(path)` for full-color assets. Prepare editor states outside render; finish each single-use element before attaching it to a parent.
 - Send one file-based request to a local Node helper per document batch, using `herdr.exec()` and argument arrays. Return a bounded JSON manifest, not HTML scripts or a web server.
 - Render display TeX with MathJax SVG. Render Mermaid with the official bundled Mermaid.js in one sandboxed Puppeteer/Chromium browser per batch. Compile Vega-Lite and render static SVG in a bounded worker. Sanitize SVG, resolve styles, and bound bytes, dimensions, and pixel area before native display.
-- Watch the local root and debounce changes by 250 ms. Refresh every 10 seconds on Linux, where watches skip Git-ignored directories, or after watching fails. Do not interrupt active rendering for a periodic refresh. Track safe missing image paths so creation can recover. While an image has an unresolved path, use the same periodic refresh on all platforms; symlink targets can emit events under an unknown canonical path. Keep the last good result and outer scroll handle after a failed refresh. Cancel pending work, discard stale results, and close owned workers/browsers.
-- Keep generated assets and expiring reader leases under `<app-home>/data/markdown-reader/`. Bound assets to 64 MiB, protect active assets, and collect stale jobs.
+- Start watching the explicit local root before the first read and debounce changes by 250 ms. Before the first successful read, retry every 10 seconds so a missing document or root can recover. Refresh every 10 seconds on Linux, where watches skip Git-ignored directories, or after watching fails. Do not interrupt active rendering for a periodic refresh. Track safe missing image and Markdown-link paths so creation can recover. Keep unavailable links inactive until revalidated. While an image or link has an unresolved path, use the same periodic refresh on all platforms; symlink targets can emit events under an unknown canonical path. Keep the last good result and outer scroll handle after a failed refresh. Cancel pending work, discard stale results and old-root watch events after reopening, and close owned workers/browsers. Reuse unchanged code editor states; release changed/removed states outside render.
+- Keep generated assets and expiring reader leases under `<app-home>/data/markdown-reader/`. Bound assets to 64 MiB, protect active assets, and collect stale jobs. Wait for pending renewals before releasing retired leases; do not delay replacement display for old-lease cleanup. Remove partial leases when helper work or renderer cleanup fails.
 - Open local Markdown links in reader tabs, fragments through a native scroll handle, and HTTP(S)/mail links only after an explicit click. Never execute code fences or authored HTML.
 
 ## Built from
@@ -63,6 +64,7 @@ Completed implementation checks:
 
 External acceptance remains open:
 
+- In a disposable profile, verify the new no-props Open form and its submit/cancel interaction. The native description check and mocked input handlers do not prove keyboard/pointer behavior.
 - The profile owner installs/activates the reader and any optional personal Files integration, then checks actual clicks, fragments, selection/copy, scrolling, zoom, refresh, and unchanged normal app use.
 - A Herdr maintainer supplies a supported inline-asset API, and native baseline/wrapping/copy tests pass before any full inline-math claim.
 - Community publication requires a separate publication decision and default-branch/topic/listing checks. This pull request is not that publication.

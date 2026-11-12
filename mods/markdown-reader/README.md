@@ -30,7 +30,9 @@ Stop Herdr before linking mods with the repository's `scripts/link-mods.sh`. Reo
 
 ## Open a document
 
-In an existing local space, open a tab with explicit file and workspace-root paths:
+Open Markdown Reader from Herdr's mod menu. Enter the absolute workspace root and Markdown file paths, then select **Open file** or press Enter. No Files clone or shell command is needed for this first open. **Open…** selects another local file; **Cancel** keeps the current document. Neither path is inferred or saved between reader instances.
+
+For a command-based open in an existing local space, pass explicit paths:
 
 ```sh
 herdr-app do tab.new '{"name":"README","mod":"markdown-reader","props":{"file":"/absolute/project/README.md","root":"/absolute/project","on":null}}'
@@ -42,19 +44,19 @@ To open Markdown by clicking Files, use the [offline Files-clone preparation gui
 
 ## Features and limits
 
-| Content            | Behavior                                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Markdown/GFM       | Native text, tables, strikethrough, lists, quotes, read-only task markers, and compiled footnote links                    |
-| Code fences        | Native syntax colors, selection, line numbers, and an explicit Copy source button                                         |
-| Display math       | MathJax SVG; TeX mathematics, not full LaTeX documents                                                                    |
-| Inline math        | TeX source plus warning; typesetting unavailable                                                                          |
-| `mermaid` fences   | Official Mermaid.js 12.3.0 through local headless Chromium                                                                |
-| `vega-lite` fences | Static SVG with inline data; no tooltips, parameter bindings, or animation                                                |
-| Local images       | PNG, JPEG, GIF, WebP; rendered as separate image blocks, not inline rich-text images                                      |
-| Links              | Local Markdown and fragments stay in the reader; HTTP(S)/mail links open only after a click                               |
-| Refresh            | Local folder watch, a 250 ms debounce, and a 10-second refresh on Linux, after watch failure, or while images are missing |
+| Content            | Behavior                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Markdown/GFM       | Native text, tables, strikethrough, lists, quotes, read-only task markers, and compiled footnote links                                                                |
+| Code fences        | Native syntax colors, selection, line numbers, and an explicit Copy source button                                                                                     |
+| Display math       | MathJax SVG; TeX mathematics, not full LaTeX documents                                                                                                                |
+| Inline math        | TeX source plus warning; typesetting unavailable                                                                                                                      |
+| `mermaid` fences   | Official Mermaid.js 12.3.0 through local headless Chromium                                                                                                            |
+| `vega-lite` fences | Static SVG with inline data; no tooltips, parameter bindings, or animation                                                                                            |
+| Local images       | PNG, JPEG, GIF, WebP; rendered as separate image blocks, not inline rich-text images                                                                                  |
+| Links              | Local Markdown and fragments stay in the reader; HTTP(S)/mail links open only after a click                                                                           |
+| Refresh            | Local folder watch, a 250 ms debounce, and a 10-second retry on Linux, after watch failure, before the first successful read, or while local images/links are missing |
 
-Use Source to inspect the full document. Graphic cards have source, copy, fit, and zoom controls. A failed graphic shows its error and source without hiding other blocks. A failed refresh keeps the previous document. The outer scroll handle survives document refreshes; manual interaction checks are listed separately in the verification guide.
+Use Source to inspect the full document. Graphic cards have source, copy, fit, and zoom controls. Missing local links remain inactive until a refresh validates their target. The root watch starts before the first read, so a restored document can recover without closing the pane. A failed graphic shows its error and source without hiding other blocks. A failed refresh keeps the previous document. The outer scroll handle survives document refreshes; manual interaction checks are listed separately in the verification guide.
 
 Vega-Lite supports bounded layer, concat, facet, and repeat charts; named inline datasets; safe presentation config; and selected filter, calculate, aggregate, joinaggregate, bin, and timeUnit transforms. It rejects generators, lookups, image/href output, parameters, regex functions, data-access expressions, and string addition. Keep charts small: at most 5,000 inline rows, 16 leaf views, and a 20,000 row-view budget. Unsupported specifications show an error; they are not executed with weaker settings.
 
@@ -78,6 +80,8 @@ The workspace must be owner-controlled while it is read. Canonical-path checks a
 Generated files live under `<app-home>/data/markdown-reader/`, not under mod source or document folders. Keys include renderer version, source, theme, fonts, and width. Asset names are content hashes; cached bytes are checked before reuse.
 
 The asset budget is 64 MiB, with at most 512 render metadata entries. Active reader leases protect displayed assets. Leases renew every 10 seconds and expire after 60 seconds if a reader disappears. Stale job files and abandoned temporary assets are collected after two minutes. A full cache of active assets produces an error instead of deleting displayed assets.
+
+Unchanged code editor states are reused across image and width refreshes; changed or removed states are released. Lease release waits for in-flight renewals so a closed reader cannot recreate its old lease. Replacement content does not wait for old-lease cleanup.
 
 One Mermaid browser is used per document batch and closed afterward. Math/Vega run in a bounded worker. New requests cancel obsolete work; late results are discarded. Close sends a cancellation marker for pending work. Normal cleanup is tested, but app crashes and forced termination have only the helper deadlines and lease expiry as recovery paths. Cleanup on app quit is limited by Herdr's 250 ms budget.
 

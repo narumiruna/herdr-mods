@@ -51,7 +51,8 @@ export const INDEX_URL = "https://assets.herdr.dev/mods/index.json"
 /** @typedef {Readonly<{id: string, path: string, repository: string, kind: string}>} MigrationTarget */
 /** @typedef {Readonly<{required: boolean, blocked: boolean, token: string, targets: readonly MigrationTarget[], reason?: string}>} Migration */
 /** @typedef {Readonly<{summary: Migration, managed: readonly ManagerMod[]}>} MigrationConfirmation */
-/** @typedef {{mods: unknown[], warnings: string[], migration?: Migration}} Discovery */
+/** @typedef {{mods: unknown[], warnings: string[], migration?: Migration, readOnlyReason?: string}} Discovery */
+/** @typedef {Readonly<{completed: number, total: number, name: string, cancelRequested: boolean}>} UpdateCheck */
 /**
  * @typedef {object} ManagerIO
  * @property {() => Promise<Discovery>} discover
@@ -179,6 +180,25 @@ export function parseRepository(value) {
     throw new Error("Enter a GitHub repository URL: the repository name is not supported.")
   }
   return { id: name, label: `${owner}/${name}`, url: `https://github.com/${owner}/${name}.git` }
+}
+
+/** Open the recorded source, never an arbitrary metadata URL or display label.
+ * @param {Pick<ManagerMod, "repository" | "recipePath" | "commit" | "updateCommit">} mod
+ */
+export function sourceURL(mod) {
+  if (!mod.repository) return ""
+  try {
+    const repository = normalizeRepository(`https://github.com/${mod.repository}`)
+    const path = recipePath(mod.recipePath)
+    const revision = mod.updateCommit
+      ? commit(mod.updateCommit)
+      : mod.commit
+        ? commit(mod.commit)
+        : ""
+    return `https://github.com/${repository}${revision ? `/tree/${revision}${path ? `/${path}` : ""}` : ""}`
+  } catch {
+    return ""
+  }
 }
 
 /** Structural checks do not execute or rewrite mod code.
@@ -465,7 +485,12 @@ function parseDiscovery(response) {
       mod.id = `collision:${mod.modName}:${index}`
     }
   })
-  return { mods, warnings, migration: parseMigration(data.migration) }
+  return {
+    mods,
+    warnings,
+    migration: parseMigration(data.migration),
+    readOnlyReason: data.readOnlyReason === undefined ? "" : text(data.readOnlyReason, 4096, false),
+  }
 }
 
 /** @param {unknown} value @returns {Migration | null} */
@@ -554,6 +579,9 @@ export class ManagerSession {
   discoveryStatus = "idle"
   galleryError = ""
   discoveryError = ""
+  readOnlyReason = ""
+  /** @type {UpdateCheck | null} */
+  updateCheck = null
   /** @type {string[]} */
   warnings = []
   /** @type {Migration | null} */
@@ -645,6 +673,7 @@ export class ManagerSession {
       const data = parseDiscovery(await this.io.discover())
       if (request !== this._discoveryRequest) throw new Error("Discovery was superseded. Retry.")
       this._installed = data.mods
+      this.readOnlyReason = data.readOnlyReason
       this.migration = data.migration
       this._discoveryWarnings = data.warnings
       this.discoveryStatus = "ready"
@@ -729,6 +758,7 @@ export class ManagerSession {
   }
 
   _migrationReady() {
+    if (this.readOnlyReason) throw new Error(`Read-only inventory: ${this.readOnlyReason}`)
     if (this.migration?.required || this.migration?.blocked) {
       throw new Error(
         this.migration.reason || "Ownership migration is required before file operations.",
@@ -747,6 +777,7 @@ export class ManagerSession {
   }
 
   requestMigration() {
+    if (this.readOnlyReason) throw new Error(`Read-only inventory: ${this.readOnlyReason}`)
     if (this.pending || this.confirmation || this.migrationConfirmation) {
       throw new Error("Finish or cancel the current operation first.")
     }
@@ -986,6 +1017,7 @@ export class ManagerSession {
         `Installed-mod discovery failed: ${this.discoveryError || "superseded request"}`,
       )
     }
+    if (this.readOnlyReason) throw new Error(`Read-only inventory: ${this.readOnlyReason}`)
   }
 
   /** @param {string} input @param {string} [directory] */
@@ -1045,20 +1077,48 @@ export class ManagerSession {
     }
   }
 
+  // Cancellation stops BETWEEN repositories. Never terminate a backend transaction.
+  cancelUpdateCheck() {
+    if (!this.updateCheck) return
+    this.updateCheck = Object.freeze({ ...this.updateCheck, cancelRequested: true })
+  }
+
   // Checking is explicit and read-only. A failed check removes any old candidate.
-  async checkUpdates() {
+  /** @param {() => void} [onChange] */
+  async checkUpdates(onChange = () => {}) {
     this._available()
     this.pending = Object.freeze({ id: "updates", action: "check-update" })
+    this.updateCheck = Object.freeze({ completed: 0, total: 0, name: "", cancelRequested: false })
+    let failed = 0
+    let stopped = false
     try {
       await this._readDiscovery()
       this._migrationReady()
       const eligible = this.mods.filter(
         (mod) => mod.state === "installed" && mod.managed && !mod.protectedReason,
       )
-      for (const mod of eligible) {
+      this.updateCheck = Object.freeze({ ...this.updateCheck, total: eligible.length })
+      onChange()
+      for (const snapshot of eligible) {
+        if (this.updateCheck.cancelRequested) break
+        // A previous failure can refresh discovery. Do not use its old eligibility snapshot.
+        const mod = this.mods.find((item) => item.id === snapshot.id)
+        if (
+          !mod ||
+          mod.protectedReason ||
+          mod.state !== "installed" ||
+          mod.commit !== snapshot.commit ||
+          mod.identityToken !== snapshot.identityToken
+        ) {
+          stopped = true
+          break
+        }
         this.pending = Object.freeze({ id: mod.id, action: "check-update" })
+        this.updateCheck = Object.freeze({ ...this.updateCheck, name: mod.name })
         this._updates.delete(mod.id)
         delete this.updateErrors[mod.id]
+        this._rebuild()
+        onChange()
         try {
           const result = operationResult(
             await this.io.operate(this._targetRequest("check-update", mod)),
@@ -1075,19 +1135,35 @@ export class ManagerSession {
               })
           }
         } catch (error) {
+          failed++
           this.updateErrors[mod.id] = errorMessage(error)
           await this._discover()
-          if (
+          stopped = Boolean(
             this.discoveryStatus !== "ready" ||
-            this.migration?.required ||
-            this.migration?.blocked
+              this.readOnlyReason ||
+              this.migration?.required ||
+              this.migration?.blocked,
           )
-            break
         }
+        this.updateCheck = Object.freeze({
+          ...this.updateCheck,
+          completed: this.updateCheck.completed + 1,
+        })
         this._rebuild()
+        onChange()
+        if (stopped) break
       }
+      const { completed, total, cancelRequested } = this.updateCheck
+      const message =
+        total === 0
+          ? "No eligible manager-owned mods to check."
+          : `Update check ${cancelRequested || stopped ? "stopped" : "complete"}. ${completed} of ${total} mods checked; ${failed} failed.${stopped ? " Installed state changed or is unavailable. Refresh Installed before retrying." : ""}`
+      this.lastMessage = message
+      return { message }
     } finally {
+      this.updateCheck = null
       this.pending = null
+      onChange()
     }
   }
 }
