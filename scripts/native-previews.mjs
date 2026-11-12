@@ -33,9 +33,9 @@ const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
 const json = (path, value) => writeFile(path, `${JSON.stringify(value, null, 2)}\n`)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
-const groups = new Set()
+const apps = createAppOwner()
+const { groups } = apps
 let output
-let active
 let interrupted = false
 
 function replaceOnce(source, oldText, newText) {
@@ -118,11 +118,33 @@ async function stop(group) {
   }
   if (alive(group)) throw new Error(`Owned process group remains: ${group}`)
 }
-async function quit(app, env) {
-  await command(app, ["do", "app.quit"], env, 3000).catch(() => {})
-  for (let attempt = 0; attempt < 30 && alive(active.pid); attempt++) await sleep(100)
-  await stop(active.pid)
-  active = null
+export function createAppOwner({ start = spawn, run = command } = {}) {
+  const groups = new Set()
+  let active = null
+  return {
+    groups,
+    start(app, env, fd) {
+      active = null
+      if (!env?.HOME || !env.HERDR_APP_HOME)
+        throw new Error("App launch requires an isolated environment")
+      const child = start(app, [], { env, detached: true, stdio: ["ignore", fd, fd] })
+      // A failed spawn can emit an error while the caller closes the log.
+      child.on("error", (error) => console.error(error.message))
+      if (!child.pid) throw new Error("App did not start")
+      active = { pid: child.pid, env }
+      groups.add(child.pid)
+      return child
+    },
+    async quit(app) {
+      const owned = active
+      if (!owned?.pid || !groups.has(owned.pid) || !owned.env?.HOME || !owned.env.HERDR_APP_HOME)
+        return
+      await run(app, ["do", "app.quit"], owned.env, 3000).catch(() => {})
+      for (let attempt = 0; attempt < 30 && alive(owned.pid); attempt++) await sleep(100)
+      await stop(owned.pid)
+      active = null
+    },
+  }
 }
 async function isolation(root, core) {
   for (const path of [
@@ -294,17 +316,14 @@ async function main() {
       await json(join(profile, "update-notes.json"), { last_run: version, presented: [] })
       await json(join(root, "check.json"), await command(app, ["check", fixture], env, 30000))
       const log = await open(join(root, "app.log"), "w")
+      let child
       try {
-        active = spawn(app, [], { env, detached: true, stdio: ["ignore", log.fd, log.fd] })
+        child = apps.start(app, env, log.fd)
       } finally {
         await log.close()
       }
-      if (!active.pid) throw new Error("App did not start")
-      groups.add(active.pid)
-      active.on("error", (error) => console.error(error.message))
-      active.env = env
-      await json(join(root, "owned-app.json"), { pid: active.pid, group: active.pid })
-      const status = await waitForStatus(app, env, active, mode)
+      await json(join(root, "owned-app.json"), { pid: child.pid, group: child.pid })
+      const status = await waitForStatus(app, env, child, mode)
       await json(join(root, "status.json"), status)
       if (status.layout !== "evidence") throw new Error(`Wrong layout: ${mode}`)
       const processes = spawnSync("/bin/ps", ["-axo", "pid,ppid,pgid,command"], {
@@ -316,7 +335,7 @@ async function main() {
         join(root, "processes.txt"),
         processes.stdout
           .split("\n")
-          .filter((line) => Number(line.trim().split(/\s+/)[2]) === active.pid)
+          .filter((line) => Number(line.trim().split(/\s+/)[2]) === child.pid)
           .join("\n"),
       )
       const path = join(output, "captures", `${mode}.png`)
@@ -327,7 +346,7 @@ async function main() {
         throw new Error(
           `Native runtime errors after shot: ${mode}: ${JSON.stringify(after.errors)}`,
         )
-      await quit(app, env)
+      await apps.quit(app)
       const coreLog = (await readFile(join(root, "offline-core.jsonl"), "utf8"))
         .trim()
         .split("\n")
@@ -385,8 +404,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     process.exitCode = 1
     if (output) await json(join(output, "failure.json"), { error: String(error.stack || error) })
   } finally {
-    if (active)
-      await quit("/Applications/Herdr.app/Contents/MacOS/Herdr", active.env).catch(() => {})
+    await apps.quit("/Applications/Herdr.app/Contents/MacOS/Herdr").catch(() => {})
     const errors = []
     for (const group of groups) await stop(group).catch((error) => errors.push(error.message))
     if (output)

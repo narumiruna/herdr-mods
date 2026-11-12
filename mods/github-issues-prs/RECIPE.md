@@ -20,7 +20,9 @@ The bundle remains incomplete until the interaction checks below pass.
   replaces the list with Markdown, labels, and PR branch/review/change counts.
 - Loading, no repository, no results, operational error, and retry states.
   Existing results remain visible after a background failure. Show machine-specific
-  authentication recovery as wrapped visible text, not only a hover tooltip.
+  authentication recovery as wrapped visible text in list and detail errors, not
+  only a hover tooltip. Generate help from the request's machine and CLI transport;
+  do not treat CLI output as recovery instructions.
 - Theme colors and bundled SVG icons. Body text is 12–13 px; the detail title is
   16 px. The header is 56 px and the footer is 28 px.
 - Optional `tabs: true` mode replaces a workspace tab bar, not the panel itself.
@@ -82,8 +84,11 @@ The bundle remains incomplete until the interaction checks below pass.
 - Commands read local/remote Git configuration and access GitHub over the network.
   The CLI's account, permissions, and environment control authentication. This mod
   does not read tokens, log in, modify repositories, or write to GitHub.
-- CLI and Git diagnostics redact common credential formats, but do not share
-  private diagnostics or screenshots without inspection.
+- CLI and Git diagnostics redact common credential formats. Limit each complete
+  error, including generated recovery, to 1,600 characters. Reserve space for
+  recovery before truncating the diagnostic. Redact and limit the recovery's
+  machine name to 160 characters before JSON quoting; use the full name for routing.
+  Do not share private diagnostics or screenshots without inspection.
 - Return at most 100 items. Render at most 80,000 description characters. Comments,
   diffs, CI checks, GitHub Enterprise, and repository mutation are not supported.
 - Tab-bar mode explicitly replaces a layout block and writes only per-space panel

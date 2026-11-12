@@ -50,7 +50,7 @@ npm run check:bundles
 npm run evidence:previews
 ```
 
-`check:bundles` checks every mod root for workspace scripts, recipe sections and local links, license notices, JSON, runtime imports, and bounded PNG structure/inflation. It excludes development dependencies, caches, and generated declarations from its source-file view. It is not a full image decoder or an inspection of a packaged archive. Missing required source files fail the check. Inspect each preview in an image viewer and test native interaction separately; this command does not establish sharing readiness.
+`check:bundles` checks every mod root for workspace scripts, recipe sections and local links, license notices, JSON, parsed runtime imports, and bounded PNG structure/inflation with chunk CRCs. It excludes development dependencies, caches, and generated declarations from its source-file view. It is not a full image decoder or an inspection of a packaged archive. Missing required source files fail the check. Inspect each preview in an image viewer and test native interaction separately; this command does not establish sharing readiness.
 
 `evidence:previews` captures actual fixture views in disposable macOS Herdr profiles. Evidence and process-cleanup records stay outside the repository. Preview generation does not change the owner's profile, perform real GitHub requests, or test physical pointer and keyboard input. A passing structural check or screenshot is not sufficient to call a bundle ready to share.
 

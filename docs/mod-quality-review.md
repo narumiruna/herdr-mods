@@ -1,6 +1,6 @@
 # Mod quality review
 
-Review date: 2026-11-12. Checked host: Herdr App 0.1.15 on macOS.
+Review date: 2026-11-12. Checked host: Herdr App 0.1.15 on macOS. The later [PR #26 feedback ledger](reviews/pr-26-feedback.md) records new findings, fixes, validation, and unresolved acceptance limits.
 
 ## Scope and scoring method
 

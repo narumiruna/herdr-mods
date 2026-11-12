@@ -78,6 +78,8 @@ export function age(date, now = Date.now()) {
         : `${Math.floor(minutes / 1440)}d`
 }
 
+const ERROR_LIMIT = 1600
+
 // CLI and host diagnostics can contain credentials. Apply this to git errors too.
 export function safeDiagnostic(message) {
   return String(message)
@@ -87,7 +89,21 @@ export function safeDiagnostic(message) {
       "[redacted credentials]",
     )
     .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, "$1[redacted]@")
-    .slice(0, 1600)
+    .slice(0, ERROR_LIMIT)
+}
+
+// Only locally generated recovery is eligible for the visible help area.
+class RequestError extends Error {
+  constructor(message, recovery) {
+    super(`${safeDiagnostic(message).slice(0, ERROR_LIMIT - recovery.length - 1)}\n${recovery}`)
+    this.recovery = recovery
+  }
+}
+
+export function safeFailure(error) {
+  return error instanceof RequestError
+    ? { message: error.message, recovery: error.recovery }
+    : { message: safeDiagnostic(error?.message || error), recovery: "" }
 }
 
 // Reject malformed CLI data before it reaches native rendering or URL dispatch.
@@ -159,15 +175,19 @@ export function createGitHub(exec, platform, machine = null) {
       "The GitHub CLI machine must be null or a nonblank name without control characters.",
     )
   }
-  const location = machine === null ? "this machine" : `machine ${JSON.stringify(machine)}`
+  // Bound the displayed name, not the machine used for command routing.
+  const location =
+    machine === null
+      ? "this machine"
+      : `machine ${JSON.stringify(safeDiagnostic(machine).slice(0, 160))}`
   let runner
   let discovery = 0
 
   function requestError(message, transport = "gh") {
-    const safe = safeDiagnostic(message)
     const login = transport === "WSL gh" ? "wsl.exe --exec gh auth login" : "gh auth login"
-    return new Error(
-      `${safe.slice(0, 1600)}\nGitHub CLI: ${transport} on ${location}.\nFor authentication, run: ${login} on ${location}.`,
+    return new RequestError(
+      message,
+      `GitHub CLI: ${transport} on ${location}.\nFor authentication, run: ${login} on ${location}.`,
     )
   }
 

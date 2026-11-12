@@ -11,7 +11,7 @@ import {
   listArgs,
   repositoryFromRemote,
   repositoryName,
-  safeDiagnostic,
+  safeFailure,
   stateLabel,
   withDeadline,
 } from "./github.js"
@@ -51,8 +51,10 @@ export default class GitHubIssuesPRs extends View {
     this.detail = null
     this.detailPending = false
     this.error = ""
+    this.errorRecovery = ""
     this.notice = ""
     this.detailError = ""
+    this.detailRecovery = ""
     this.loading = false
     this.phase = ""
     this.request = 0
@@ -171,6 +173,7 @@ export default class GitHubIssuesPRs extends View {
     this.detail = null
     this.detailPending = false
     this.detailError = ""
+    this.detailRecovery = ""
     this.resultKey = null
   }
 
@@ -218,6 +221,7 @@ export default class GitHubIssuesPRs extends View {
     this.selected = null
     this.detail = null
     this.detailError = ""
+    this.detailRecovery = ""
     cx.notify()
   }
 
@@ -282,6 +286,7 @@ export default class GitHubIssuesPRs extends View {
         "…"
       : `Reading origin on ${place.on || "this machine"}…`
     this.error = ""
+    this.errorRecovery = ""
     this.notice = ""
     if (clear) this.clearData()
     const current = () => !this.closed && request === this.request && context === this.context()
@@ -356,6 +361,7 @@ export default class GitHubIssuesPRs extends View {
           this.detailRequest++
           this.detailPending = false
           this.detailError = ""
+          this.detailRecovery = ""
           this.selected = null
           this.detail = null
         } else if (this.selected && detailRequest === this.detailRequest) {
@@ -371,7 +377,9 @@ export default class GitHubIssuesPRs extends View {
             this.clearData()
             if (!pinned) this.repository = ""
           }
-          this.error = safeDiagnostic(error.message || error)
+          const failure = safeFailure(error)
+          this.error = failure.message
+          this.errorRecovery = failure.recovery
         }
       } finally {
         if (!this.closed && request === this.request) {
@@ -394,6 +402,7 @@ export default class GitHubIssuesPRs extends View {
     this.detailPending = true
     if (!background) this.detail = null
     this.detailError = ""
+    this.detailRecovery = ""
     const current = () =>
       !this.closed && request === this.detailRequest && context === this.context()
     cx.spawn(async (cx) => {
@@ -406,7 +415,11 @@ export default class GitHubIssuesPRs extends View {
         )
         if (current()) this.detail = checkedItem(detail, item.number)
       } catch (error) {
-        if (current()) this.detailError = safeDiagnostic(error.message || error)
+        if (current()) {
+          const failure = safeFailure(error)
+          this.detailError = failure.message
+          this.detailRecovery = failure.recovery
+        }
       } finally {
         if (!this.closed && request === this.detailRequest) {
           this.detailPending = false
@@ -786,21 +799,22 @@ export default class GitHubIssuesPRs extends View {
       .child(Scrollbar.vertical("github-list").absolute().inset_0())
   }
 
+  recoveryView(id, recovery, t) {
+    return div()
+      .id(id)
+      .w_full()
+      .whitespace_normal()
+      .text_size(11)
+      .text_color(t.muted)
+      .child(recovery)
+  }
+
   errorView(t, compact = false) {
     const title = `Could not load ${this.typeLabel().toLowerCase()}`
     const message = this.error.split("\n")[0]
-    const recovery = this.error
-      .split("\n")
-      .filter((line) => /^(?:GitHub CLI:|For authentication, run:)/.test(line))
-      .join("\n")
+    const recovery = this.errorRecovery
     const recoveryView = () =>
-      div()
-        .id(compact ? "github-recovery-compact" : "github-recovery-help")
-        .w_full()
-        .whitespace_normal()
-        .text_size(11)
-        .text_color(t.muted)
-        .child(recovery)
+      this.recoveryView(compact ? "github-recovery-compact" : "github-recovery-help", recovery, t)
     if (compact)
       return h_flex()
         .flex_none()
@@ -1068,6 +1082,11 @@ export default class GitHubIssuesPRs extends View {
                         .text_color(t.muted)
                         .tooltip(this.detailError)
                         .child(this.detailError.split("\n")[0]),
+                    )
+                    .when(Boolean(this.detailRecovery), (element) =>
+                      element.child(
+                        this.recoveryView("github-detail-recovery", this.detailRecovery, t),
+                      ),
                     )
                     .child(
                       this.button(

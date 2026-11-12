@@ -59,7 +59,7 @@ For keyboard placement:
 Search the inventory by title or folder name. Select its title button with the pointer or keyboard and edit **Props** if needed. Props appear after ordinary placement, before the legacy controls. Drag the inventory grip beside a destination node, or activate **Add new view**, choose **Target**, then activate a placement side.
 
 - **Add new view** always creates a new ordinary block with a collision-free ID, even if that mod already appears elsewhere.
-- The new block uses that mod's props draft, or `{}` by default. Invalid props and unavailable mods cannot be added.
+- The new block uses that mod's props in this order: its draft, its saved managed-panel props in the current layout, then `{}`. This order also applies if you select another inventory mod before placement; that other mod's draft is not used. Invalid source props and unavailable mods cannot be added.
 - Moving an existing node keeps its saved props and does not parse an unrelated draft.
 - Adding an ordinary view does not create or move the legacy managed dock.
 - To move one of several existing instances of the same mod, select its node ID in the canvas or outline instead of dragging from inventory.
@@ -141,7 +141,7 @@ Regression tests also cover draft recovery after stale saves, per-layout/mod dra
 
 ## Unverified acceptance and owner handoff
 
-The owner approved implementation and PR delivery using documented contracts plus model/handler tests and isolated eager native checks. **The new editor has not been visually or physically verified.**
+Inspected native fixture captures show the editor's appearance in those states. They do not verify physical interaction, host layout geometry, live reload, or terminal/session continuity.
 
 The profile owner must load the updated mod with explicit approval and use a disposable personal clone to verify:
 

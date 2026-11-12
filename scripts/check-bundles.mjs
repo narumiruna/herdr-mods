@@ -1,7 +1,8 @@
 import { lstat, readdir, readFile, realpath } from "node:fs/promises"
-import { dirname, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { inflateSync } from "node:zlib"
+import { crc32, inflateSync } from "node:zlib"
+import { parse } from "acorn"
 
 const repository = fileURLToPath(new URL("..", import.meta.url))
 const hostModules = new Set([
@@ -15,7 +16,7 @@ const hostModules = new Set([
 const excluded = new Set(["node_modules", "__pycache__", ".git", ".cache", "coverage"])
 const inside = (root, path) => path.startsWith(root + sep)
 
-// Check chunk framing, dimensions, and bounded IDAT inflation, not pixel decoding.
+// Check chunk framing, CRCs, dimensions, and bounded IDAT inflation, not pixel decoding.
 // This is not a full PNG decoder: inspect readability, appearance, and private
 // content in an image viewer before accepting any preview.
 export function checkPNG(bytes) {
@@ -28,6 +29,9 @@ export function checkPNG(bytes) {
     const length = bytes.readUInt32BE(offset)
     if (length > bytes.length - offset - 12) throw new Error("truncated PNG chunk")
     const kind = bytes.toString("ascii", offset + 4, offset + 8)
+    const checksum = bytes.readUInt32BE(offset + 8 + length)
+    if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== checksum)
+      throw new Error(`invalid PNG chunk CRC: ${kind}`)
     if (offset === 8) {
       if (kind !== "IHDR" || length !== 13) throw new Error("missing PNG header")
       const width = bytes.readUInt32BE(offset + 8)
@@ -45,6 +49,33 @@ export function checkPNG(bytes) {
   if (!ended || !data.length) throw new Error("incomplete PNG")
   if (!inflateSync(Buffer.concat(data), { maxOutputLength: 256 * 1024 * 1024 }).length)
     throw new Error("empty PNG image stream")
+}
+
+function runtimeImports(source) {
+  const specifiers = []
+  function visit(node) {
+    if (
+      [
+        "ImportDeclaration",
+        "ImportExpression",
+        "ExportNamedDeclaration",
+        "ExportAllDeclaration",
+      ].includes(node.type)
+    ) {
+      const target = node.source
+      if (target?.type === "Literal" && typeof target.value === "string")
+        specifiers.push(target.value)
+      else if (target?.type === "TemplateLiteral" && target.expressions.length === 0)
+        specifiers.push(target.quasis[0].value.cooked)
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const child of value) if (child?.type) visit(child)
+      } else if (value?.type) visit(value)
+    }
+  }
+  visit(parse(source, { ecmaVersion: "latest", sourceType: "module" }))
+  return specifiers
 }
 
 export async function inspectBundle(directory) {
@@ -102,7 +133,13 @@ export async function inspectBundle(directory) {
       "Done when",
     ])
       if (!recipe.includes(`## ${heading}`)) report("RECIPE.md", `missing section: ${heading}`)
-    if (!/!\[[^\]]+\]\(preview\.png\)/.test(recipe))
+    const images = [...recipe.matchAll(/!\[[^\]]+\]\(([^)]+)\)/g)]
+    if (
+      !images.some((match) => {
+        const path = match[1].split("#")[0]
+        return !isAbsolute(path) && resolve(root, path) === resolve(root, "preview.png")
+      })
+    )
       report("RECIPE.md", "missing adjacent preview.png image reference")
     for (const match of recipe.matchAll(/\]\(([^)]+)\)/g)) {
       const link = match[1].split("#")[0]
@@ -128,8 +165,14 @@ export async function inspectBundle(directory) {
       !/^(?:scripts|tests|fixtures)\//.test(name),
   )) {
     const source = await readFile(resolve(root, name), "utf8")
-    for (const match of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"'\n]+)["']/g)) {
-      const specifier = match[1]
+    let specifiers
+    try {
+      specifiers = runtimeImports(source)
+    } catch (error) {
+      report(name, `invalid JavaScript: ${error.message}`)
+      continue
+    }
+    for (const specifier of specifiers) {
       if (specifier.startsWith(".")) await localFile(name, specifier)
       else if (!specifier.startsWith("node:") && !hostModules.has(specifier)) {
         const dependency = specifier.startsWith("@")

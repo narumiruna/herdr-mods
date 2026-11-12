@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { crc32 } from "node:zlib"
 import { checkPNG, inspectBundle } from "./check-bundles.mjs"
 
 // This tiny image is test data only. It is never used as a mod preview.
 const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
   "base64",
 )
 async function fixture(t) {
@@ -70,6 +71,95 @@ test("rejects truncated PNG data and invalid compressed image data", () => {
   const corrupt = Buffer.from(png)
   corrupt[42] ^= 0xff
   assert.throws(() => checkPNG(corrupt))
+})
+
+test("rejects a changed CRC in every PNG chunk", () => {
+  for (let offset = 8; offset + 12 <= png.length; ) {
+    const length = png.readUInt32BE(offset)
+    const corrupt = Buffer.from(png)
+    corrupt[offset + 8 + length] ^= 1
+    assert.throws(() => checkPNG(corrupt), /CRC/)
+    offset += length + 12
+  }
+})
+
+test("still rejects a corrupt image stream with a valid chunk CRC", () => {
+  const corrupt = Buffer.from(png)
+  const offset = 33
+  const length = corrupt.readUInt32BE(offset)
+  corrupt[offset + 8] ^= 0xff
+  corrupt.writeUInt32BE(
+    crc32(corrupt.subarray(offset + 4, offset + 8 + length)),
+    offset + 8 + length,
+  )
+  assert.throws(() => checkPNG(corrupt))
+})
+
+for (const reference of ["preview.png", "./preview.png", "./folder/../preview.png"]) {
+  test(`accepts the adjacent preview reference ${reference}`, async (t) => {
+    const { mod } = await fixture(t)
+    const path = join(mod, "RECIPE.md")
+    const recipe = await readFile(path, "utf8")
+    await writeFile(path, recipe.replace("](preview.png)", `](${reference})`))
+    assert.deepEqual((await inspectBundle(mod)).errors, [])
+  })
+}
+
+for (const reference of ["../preview.png", "https://example.test/preview.png", "other.png"]) {
+  test(`does not accept a different preview ${reference}`, async (t) => {
+    const { mod } = await fixture(t)
+    const path = join(mod, "RECIPE.md")
+    const recipe = await readFile(path, "utf8")
+    await writeFile(path, recipe.replace("](preview.png)", `](${reference})`))
+    assert.ok(
+      (await inspectBundle(mod)).errors.some((error) => error.includes("missing adjacent preview")),
+    )
+  })
+}
+
+test("ignores import-like text in comments, strings, regexes, and JSDoc", async (t) => {
+  const { mod } = await fixture(t)
+  await writeFile(
+    join(mod, "main.js"),
+    [
+      '// import "./comment.js"',
+      '/* import "./block-comment.js" */',
+      '/** @type {import("./types.js").Example} */',
+      "const text = 'import \"./string.js\"'",
+      'const pattern = /import "[.]\\/regex.js"/',
+      'const template = `import "./template-text.js"`',
+    ].join("\n"),
+  )
+  assert.deepEqual((await inspectBundle(mod)).errors, [])
+})
+
+for (const statement of [
+  'import /* note */ "./required.js"',
+  'import { value } from /* note */ "./required.js"',
+  'import /* note */ ( /* note */ "./required.js")',
+  "import(`./required.js`)",
+  'export { value } from /* note */ "./required.js"',
+  'export * from "./required.js"',
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: Parse source data without evaluating it.
+  'const text = `${import("./required.js")}`',
+]) {
+  test(`checks the real runtime source in ${statement}`, async (t) => {
+    const { mod } = await fixture(t)
+    await writeFile(join(mod, "main.js"), statement)
+    assert.ok(
+      (await inspectBundle(mod)).errors.some((error) =>
+        error.includes("missing local file: ./required.js"),
+      ),
+    )
+    await writeFile(join(mod, "required.js"), "export const value = 1")
+    assert.deepEqual((await inspectBundle(mod)).errors, [])
+  })
+}
+
+test("reports invalid JavaScript without executing it", async (t) => {
+  const { mod } = await fixture(t)
+  await writeFile(join(mod, "main.js"), "throw new Error('must not execute'); import {")
+  assert.ok((await inspectBundle(mod)).errors.some((error) => error.includes("invalid JavaScript")))
 })
 
 test("rejects missing and escaping runtime imports and undeclared packages", async (t) => {

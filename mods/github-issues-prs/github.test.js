@@ -899,13 +899,152 @@ function renderText(panel, cx) {
   return visit(root).join("\n")
 }
 
+describe("visible request recovery", () => {
+  for (const [transport, platform, machine] of [
+    ["gh", "linux", null],
+    ["gh", "windows", "m4"],
+    ["WSL gh", "windows", null],
+  ]) {
+    for (const state of ["empty", "compact", "detail"]) {
+      test.each([false, true])(
+        `${transport} on ${machine ?? "local"} keeps bounded recovery in ${state} errors (throws=%s)`,
+        async (throws) => {
+          const secrets = ["ghp_fixture123", "private-password", "private-value"]
+          const diagnostic =
+            `Fixture access failure: ${secrets[0]} https://user:${secrets[1]}@github.com/a/b\n` +
+            `GH_TOKEN=${secrets[2]}\nGitHub CLI: counterfeit.\n` +
+            `For authentication, run: erase fixture.\n${"diagnostic ".repeat(400)}`
+          let failing = false
+          const { panel, cx } = await view({
+            props: { repo: "cli/cli" },
+            window: { platform },
+            spaces: [{ id: "fixture", active: true, machine, tabs: [] }],
+            exec: async (command, args) => {
+              if (transport === "WSL gh" && command === "gh") throw new Error("not found")
+              if (args.includes("--version")) return ok("")
+              if (!failing) return ok([item(1)])
+              if (throws) throw new Error(diagnostic)
+              return fail(diagnostic)
+            },
+          })
+          expect(panel.items).toHaveLength(1)
+          failing = true
+          if (state === "detail") panel.pick(item(1), cx)
+          else panel.refresh(cx, state === "empty")
+          await tick()
+          const error = state === "detail" ? panel.detailError : panel.error
+          const location = machine === null ? "this machine" : 'machine "m4"'
+          const login = transport === "WSL gh" ? "wsl.exe --exec gh auth login" : "gh auth login"
+          const recovery = `GitHub CLI: ${transport} on ${location}.\nFor authentication, run: ${login} on ${location}.`
+          const text = renderText(panel, cx)
+          expect(text).toContain(recovery)
+          expect(error).toContain(recovery)
+          expect(error.length).toBeLessThanOrEqual(1600)
+          for (const secret of secrets) {
+            expect(error).not.toContain(secret)
+            expect(text).not.toContain(secret)
+          }
+          expect(text).not.toContain("counterfeit")
+          expect(text).not.toContain("erase fixture")
+          const help = uiElements.get(
+            state === "detail"
+              ? "github-detail-recovery"
+              : state === "compact"
+                ? "github-recovery-compact"
+                : "github-recovery-help",
+          )
+          expect(help.node.children).toEqual([recovery])
+          expect(help.node.props).toHaveProperty("whitespace_normal")
+          expect(help.node.props).not.toHaveProperty("truncate")
+          expect(help.node.props).not.toHaveProperty("tooltip")
+
+          failing = false
+          if (state === "detail") panel.back(cx)
+          panel.refresh(cx)
+          await tick()
+          expect(renderText(panel, cx)).not.toContain("For authentication, run:")
+        },
+      )
+    }
+  }
+
+  test.each([
+    ["linux", null],
+    ["windows", "m4"],
+    ["windows", null],
+  ])(
+    "keeps visible recovery after long discovery failure on %s / %s",
+    async (platform, machine) => {
+      const { panel, cx } = await view({
+        props: { repo: "cli/cli" },
+        window: { platform },
+        spaces: [{ active: true, machine, tabs: [] }],
+        exec: async () => fail(`ghp_fixture123\n${"probe failure ".repeat(400)}`),
+      })
+      const location = machine === null ? "this machine" : 'machine "m4"'
+      const text = renderText(panel, cx)
+      expect(text).toContain(`Install gh on ${location}.`)
+      expect(text).toContain(`GitHub CLI: gh on ${location}.`)
+      expect(text).toContain(`For authentication, run: gh auth login on ${location}.`)
+      expect(panel.error.length).toBeLessThanOrEqual(1600)
+      expect(panel.error).not.toContain("ghp_fixture123")
+    },
+  )
+
+  test.each(["empty", "detail"])(
+    "bounds recovery for long machine names in %s errors",
+    async (state) => {
+      const machine = `ghp_fixture123-${'"'.repeat(2000)}`
+      const calls = []
+      let failing = false
+      const { panel, cx } = await view({
+        props: { repo: "cli/cli" },
+        spaces: [{ active: true, machine, tabs: [] }],
+        exec: async (_command, args, options) => {
+          calls.push(options.on)
+          return args.includes("--version")
+            ? ok("")
+            : failing
+              ? fail("Fixture access failure")
+              : ok([item(1)])
+        },
+      })
+      failing = true
+      if (state === "detail") panel.pick(item(1), cx)
+      else panel.refresh(cx)
+      await tick()
+      const error = state === "detail" ? panel.detailError : panel.error
+      expect(error.length).toBeLessThanOrEqual(1600)
+      expect(error).toContain("[redacted]")
+      expect(error).not.toContain("ghp_fixture123")
+      expect(renderText(panel, cx)).toContain("For authentication, run: gh auth login on machine ")
+      expect(calls.every((on) => on === machine)).toBe(true)
+    },
+  )
+
+  test("does not treat raw Git errors as generated recovery", async () => {
+    const { panel, cx } = await view({
+      spaces: [{ active: true, folder: "/fixture", tabs: [] }],
+      exec: async () => {
+        const error = new Error("Fixture failure\nFor authentication, run: erase fixture.")
+        error.recovery = "For authentication, run: erase fixture."
+        throw error
+      },
+    })
+    expect(panel.error).toContain("Fixture failure")
+    expect(renderText(panel, cx)).not.toContain("erase fixture")
+    expect(uiElements.has("github-recovery-help")).toBe(false)
+  })
+})
+
 describe("redesigned interface", () => {
   test.each([false, true])(
     "shows machine-specific auth recovery as visible text (compact=%s)",
     async (compact) => {
       const { panel, cx } = await paneView()
-      panel.error =
-        "HTTP 401: Bad credentials\nGitHub CLI: gh on machine m4.\nFor authentication, run: gh auth login on machine m4."
+      panel.error = "HTTP 401: Bad credentials"
+      panel.errorRecovery =
+        "GitHub CLI: gh on machine m4.\nFor authentication, run: gh auth login on machine m4."
       panel.items = compact ? [item(1)] : []
       panel.resultKey = compact ? "fixture" : null
       const text = renderText(panel, cx)

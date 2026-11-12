@@ -35,12 +35,16 @@ export default class extends GitHub {
     this.notice = ""
     this.loading = state === "loading"
     this.phase = "Loading fixture data…"
-    this.error = state === "error" ? "Fixture authentication unavailable.\\nGitHub CLI: gh on this machine.\\nFor authentication, run: gh auth login on this machine." : ""
+    this.errorRecovery = state === "error" ? "GitHub CLI: gh on this machine.\\nFor authentication, run: gh auth login on this machine." : ""
+    this.error = state === "error" ? "Fixture authentication unavailable.\\n" + this.errorRecovery : ""
     this.items = state === "list" ? [item] : state === "many" ? Array.from({length:100}, (_,i) => ({...item,number:i+1})) : []
     this.resultKey = this.items.length ? "fixture" : null
     if (["issue", "pr", "detail-error"].includes(state)) {
       this.selected = item
-      if (state === "detail-error") this.detailError = "Fixture description unavailable. Retry."
+      if (state === "detail-error") {
+        this.detailRecovery = "GitHub CLI: gh on this machine.\\nFor authentication, run: gh auth login on this machine."
+        this.detailError = "Fixture description unavailable.\\n" + this.detailRecovery
+      }
       else this.detail = {...item,body:"# Fixture description\\n\\nRead-only repository context.",headRefName:"fix/keyboard",baseRefName:"main",reviewDecision:"REVIEW_REQUIRED",changedFiles:2,additions:12,deletions:3}
       if (state === "pr") this.kind = "pr"
     }

@@ -24,8 +24,11 @@ disposable-profile interaction checks pass.
 - **Detail:** the back button or Escape returns to the list. The external-link
   icon opens the item on GitHub. List search and filters are hidden while reading.
 - **Empty states:** a non-Git folder or non-GitHub origin shows a neutral
-  explanation, not a fatal error. Operational failures show Retry; hover the
-  error summary to see the full diagnostic.
+  explanation, not a fatal error. Operational failures show Retry. CLI list and
+  detail errors show generated machine, CLI, and login help as wrapped text.
+  Hover the summary to see the redacted diagnostic and help (at most 1,600 characters).
+  Help is not taken from CLI output. Recovery labels use at most 160 characters
+  of the redacted machine name before JSON quoting; command routing uses the full name.
 
 There is no repository input, Use button, or Auto button. A layout or pane
 may still pass `props: {"repo":"owner/repo"}` to pin a repository explicitly.
@@ -168,6 +171,7 @@ The profile owner must verify in a disposable profile:
    items, and handles failed commands without changing accounts.
 
 No live-profile migration, native interaction check, or authenticated GitHub
-request was performed. Add an inspected PNG of the actual mod, with private
-content removed, before sharing. No `keys.json` is needed. Existing app shortcuts
-remain in place; modified arrow keys are not handled by the panel's type tabs.
+request was performed. The existing preview shows the list, not the updated error
+states. Owner inspection of those states is still required before sharing.
+No `keys.json` is needed. Existing app shortcuts remain in place; modified arrow
+keys are not handled by the panel's type tabs.
