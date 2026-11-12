@@ -94,7 +94,7 @@ The unlink script removes only same-name links that point to this checkout's mod
 
 All link scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
-Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. On Windows, run `node --test scripts/links-powershell.test.mjs` to test the PowerShell script with temporary checkouts and profiles. The file-symbolic-link test is skipped if Windows PowerShell cannot create those links. These tests do not change your Herdr profile.
+Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. These tests do not change your Herdr profile.
 
 ## Open Mod Manager
 
