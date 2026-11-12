@@ -1,5 +1,5 @@
-# Match the checkout path without following the final mod entry.
-link_points_to_mod() (
+# Match the checkout path without following the final source entry.
+link_points_to_source() (
     [ -L "$1" ] || exit 1
     candidate=$(readlink "$1") || exit 1
     expected=$2
@@ -18,7 +18,7 @@ link_points_to_mod() (
     [ "$candidate" = "$expected" ] && exit 0
 
     # Remove matching missing entries until both parent directories exist.
-    # This also handles removed mods/ directories without following source links.
+    # This also handles removed source directories without following source links.
     while [ "${candidate##*/}" = "${expected##*/}" ]; do
         candidate=${candidate%/*}
         expected=${expected%/*}

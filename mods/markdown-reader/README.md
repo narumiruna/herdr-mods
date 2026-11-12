@@ -26,7 +26,7 @@ For a standalone mod folder, run `npm install --omit=dev` and `npm run setup:bro
 
 Browser setup downloads the build selected by the pinned Puppeteer version. It is an explicit setup step, not a download on document open. The renderer keeps Chromium's sandbox enabled.
 
-Stop Herdr before linking mods with the repository's `scripts/link-mods.sh`. Reopen it afterward. Do not edit shipped mods or layouts. The reader has `"place": "none"`; linking it alone does not change Files clicks.
+Stop Herdr before running the repository's `scripts/link.sh`, which links local mods and layouts. Reopen it afterward. Do not edit shipped mods or layouts. The reader has `"place": "none"`; linking it alone does not change Files clicks.
 
 ## Open a document
 
