@@ -19,6 +19,7 @@ import { Renderers } from "../renderers/index.js"
 
 const modRoot = fileURLToPath(new URL("..", import.meta.url))
 const modes = [
+  "empty",
   "light",
   "dark",
   "narrow",
@@ -467,9 +468,9 @@ export default class extends Reader {
     }
   }
   init(_props, cx) {
-    super.init({ file:manifest.file, root:manifest.root, on:null }, cx)
+    super.init(mode === "empty" ? {} : { file:manifest.file, root:manifest.root, on:null }, cx)
     this.raw = mode === "raw"
-    if (this.session.manifest) this.prepareEditors(this.session.manifest)
+    if (this.session?.manifest) this.prepareEditors(this.session.manifest)
   }
   render(cx) {
     const label = mode.startsWith("graphics") ? mode + " (filtered graphic blocks)" : mode === "prose" ? mode + " (filtered prose blocks)" : mode === "footnotes" ? mode + " (filtered footnote blocks)" : mode

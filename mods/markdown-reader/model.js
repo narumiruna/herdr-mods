@@ -107,6 +107,22 @@ export class ReaderSession {
     this.serial = 0
     this.pending = null
     this.current = null
+    this.renewals = new Map()
+    this.retiring = new Set()
+  }
+
+  retire(request) {
+    const cleanup = this.release(request)
+    this.retiring.add(cleanup)
+    void cleanup.then(
+      () => this.retiring.delete(cleanup),
+      () => this.retiring.delete(cleanup),
+    )
+  }
+
+  async release(request) {
+    await this.renewals.get(request)
+    await this.io.release(request).catch(() => {})
   }
 
   async refresh(options) {
@@ -116,9 +132,10 @@ export class ReaderSession {
     this.pending = null
     this.busy = true
     this.error = ""
-    if (previousPending) await this.io.cancel(previousPending).catch(() => {})
     let request
     try {
+      if (previousPending) await this.io.cancel(previousPending).catch(() => {})
+      if (this.closed || serial !== this.serial) return false
       request = await this.io.request(this.entry, options)
       if (this.closed || serial !== this.serial) {
         await this.io.release(request)
@@ -139,7 +156,7 @@ export class ReaderSession {
       const previous = this.current
       this.current = request
       this.manifest = manifest
-      if (previous) await this.io.release(previous).catch(() => {})
+      if (previous) this.retire(previous)
       return true
     } catch (error) {
       if (request) await this.io.release(request).catch(() => {})
@@ -155,8 +172,15 @@ export class ReaderSession {
   }
 
   async heartbeat() {
-    if (!this.closed && this.current && this.manifest)
-      await this.io.renew(this.current, this.manifest.assets).catch(() => {})
+    const current = this.current
+    if (this.closed || !current || !this.manifest || this.renewals.has(current)) return
+    const renewal = this.io.renew(current, this.manifest.assets).catch(() => {})
+    this.renewals.set(current, renewal)
+    try {
+      await renewal
+    } finally {
+      this.renewals.delete(current)
+    }
   }
 
   async close() {
@@ -167,7 +191,9 @@ export class ReaderSession {
     const current = this.current
     this.pending = null
     this.current = null
+    this.busy = false
     if (pending) await this.io.cancel(pending).catch(() => {})
-    if (current) await this.io.release(current).catch(() => {})
+    if (current) await this.release(current)
+    await Promise.allSettled(this.retiring)
   }
 }

@@ -26,41 +26,62 @@ export function ordinaryNodes(root) {
   return result
 }
 
-/** Shared validation for target eligibility and immutable placement. */
+/** Validate one source once, then check all its destinations in constant time. */
+export function placementValidator(root, source) {
+  const entries = ordinaryNodes(root)
+  const byId = new Map(entries.map((entry) => [entry.node.id, entry]))
+  const descendants = new Set()
+  let sourceError = ""
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    sourceError = "Select an existing node or a new view as the source."
+  } else if (source.kind === "new") {
+    if (!validName(source.name)) {
+      sourceError =
+        "Use a nonempty mod name with letters, digits, dots, underscores or hyphens; start with a letter or digit."
+    } else {
+      try {
+        checkProps(source.props === undefined ? {} : source.props)
+      } catch (error) {
+        sourceError = error.message
+      }
+    }
+  } else if (source.kind !== "node") sourceError = "Source kind must be node or new."
+  else if (typeof source.id !== "string" || !source.id.trim()) {
+    sourceError = "Select a source node with a nonempty ID."
+  } else {
+    const from = byId.get(source.id)
+    if (!from) sourceError = `Source "${source.id}" is missing or outside the ordinary layout body.`
+    else if (!from.parent) sourceError = "The layout root or original body cannot be moved."
+    else {
+      for (let index = entries.indexOf(from) + 1; index < entries.length; index += 1) {
+        if (entries[index].depth <= from.depth) break
+        descendants.add(entries[index].node.id)
+      }
+    }
+  }
+  return {
+    entries,
+    error(targetId, side) {
+      if (!SIDES.has(side)) return "Placement side must be left, right, top or bottom."
+      if (typeof targetId !== "string" || !targetId.trim()) {
+        return "Select a destination node with a nonempty ID."
+      }
+      if (!byId.has(targetId))
+        return `Destination "${targetId}" is missing or outside the ordinary layout body.`
+      if (sourceError) return sourceError
+      if (source.kind === "node" && source.id === targetId)
+        return "A node cannot be placed beside itself."
+      if (descendants.has(targetId))
+        return "A container cannot be placed beside one of its own descendants."
+      return ""
+    },
+  }
+}
+
+/** Pointer handlers and transforms must use a fresh validator, not render state. */
 export function placementError(root, source, targetId, side) {
   try {
-    const entries = ordinaryNodes(root)
-    const byId = new Map(entries.map((entry) => [entry.node.id, entry]))
-    if (!SIDES.has(side)) return "Placement side must be left, right, top or bottom."
-    if (typeof targetId !== "string" || !targetId.trim()) {
-      return "Select a destination node with a nonempty ID."
-    }
-    const target = byId.get(targetId)
-    if (!target) return `Destination "${targetId}" is missing or outside the ordinary layout body.`
-    if (!source || typeof source !== "object" || Array.isArray(source)) {
-      return "Select an existing node or a new view as the source."
-    }
-    if (source.kind === "new") {
-      if (!validName(source.name)) {
-        return "Use a nonempty mod name with letters, digits, dots, underscores or hyphens; start with a letter or digit."
-      }
-      checkProps(source.props === undefined ? {} : source.props)
-      return ""
-    }
-    if (source.kind !== "node") return "Source kind must be node or new."
-    if (typeof source.id !== "string" || !source.id.trim()) {
-      return "Select a source node with a nonempty ID."
-    }
-    const from = byId.get(source.id)
-    if (!from) return `Source "${source.id}" is missing or outside the ordinary layout body.`
-    if (!from.parent) return "The layout root or original body cannot be moved."
-    if (source.id === targetId) return "A node cannot be placed beside itself."
-    for (let ancestor = target.parent; ancestor; ancestor = byId.get(ancestor.id).parent) {
-      if (ancestor.id === source.id) {
-        return "A container cannot be placed beside one of its own descendants."
-      }
-    }
-    return ""
+    return placementValidator(root, source).error(targetId, side)
   } catch (error) {
     return error.message
   }

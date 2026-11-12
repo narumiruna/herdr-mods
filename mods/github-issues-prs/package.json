@@ -1,0 +1,19 @@
+{
+  "name": "herdr-github-issues-prs",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narumiruna/herdr-mods.git",
+    "directory": "mods/github-issues-prs"
+  },
+  "scripts": {
+    "start": "herdr-app do mod.open --name github-issues-prs",
+    "check:mod": "node scripts/check-mod.mjs",
+    "check:views": "node scripts/check-views.mjs",
+    "check:types": "tsc --project jsconfig.json",
+    "check": "biome ci .",
+    "test": "vitest run"
+  }
+}

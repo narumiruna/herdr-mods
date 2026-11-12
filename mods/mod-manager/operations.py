@@ -18,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import uuid
 
 try:
@@ -355,6 +356,7 @@ class Operations:
         self.work_name = None
         self.lock = None
         self.discovery_lock = None
+        self.download_deadline = None
 
     def close(self):
         for fd in (self.work, self.lock, self.discovery_lock, self.mods, self.state, self.data):
@@ -1160,7 +1162,11 @@ class Operations:
         if extra_env:
             env.update(extra_env)
         command = [executable, "--no-optional-locks", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "-c", "http.followRedirects=false", "-c", "core.attributesFile=/dev/null", "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false", "-c", "core.fsync=committed", *arguments]
-        result = subprocess.run(command, preexec_fn=lambda: os.fchdir(cwd_fd), pass_fds=(cwd_fd,), env=env, input=input_data, stdin=subprocess.DEVNULL if input_data is None else None, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=False)
+        timeout = self._download_timeout() if self.download_deadline is not None else 120
+        try:
+            result = subprocess.run(command, preexec_fn=lambda: os.fchdir(cwd_fd), pass_fds=(cwd_fd,), env=env, input=input_data, stdin=subprocess.DEVNULL if input_data is None else None, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            fail("Repository staging timed out; installed files were not changed by this download. Retry when the source is available" if self.download_deadline is not None else "Git verification timed out; refresh Installed and preserve any recovery journals before retrying")
         if result.returncode:
             fail("git failed: " + result.stderr.decode("utf-8", "replace")[-2000:].strip())
         return result.stdout
@@ -1176,6 +1182,24 @@ class Operations:
         os.mkdir(self.work_name, 0o700, dir_fd=self.state)
         self.work = self.fs.open_dir(self.state, self.work_name)
 
+    def _download_timeout(self):
+        remaining = self.download_deadline - time.monotonic()
+        if remaining <= 0:
+            fail("Repository staging timed out; installed files were not changed by this download. Retry when the source is available")
+        return min(120, remaining)
+
+    @contextlib.contextmanager
+    def _download(self, repository):
+        # Bound the whole Git staging phase, not each of thousands of commands.
+        # This deadline never interrupts live publication or verified rollback.
+        self.download_deadline = time.monotonic() + 150
+        try:
+            with close_fd(self._fetch(repository)) as repo:
+                yield repo
+                self._download_timeout()
+        finally:
+            self.download_deadline = None
+
     def _fetch(self, repository):
         self._workspace()
         self._clone(repository, self.work)
@@ -1188,18 +1212,20 @@ class Operations:
             fail("Repository HEAD is not a SHA-1 commit")
         tree = {}
         total = 0
-        for raw in self._git(["ls-tree", "-r", "-z", "--full-tree", commit], repo).split(b"\0"):
+        for raw in self._git(["ls-tree", "-r", "-l", "-z", "--full-tree", commit], repo).split(b"\0"):
             if not raw:
                 continue
             header, raw_path = raw.split(b"\t", 1)
-            mode, kind, blob = header.decode("ascii").split(" ")
+            mode, kind, blob, raw_size = header.decode("ascii").split()
             path = raw_path.decode("utf-8")
             parts(path)
             if mode not in {"100644", "100755"} or kind != "blob":
                 fail(f"Unsupported repository tree mode {mode}: {path}; symlinks and gitlinks are forbidden")
             if len(tree) >= 10000:
                 fail("Repository contains too many files")
-            size = int(self._git(["cat-file", "-s", blob], repo))
+            if not raw_size.isascii() or not raw_size.isdigit():
+                fail("Invalid repository blob size")
+            size = int(raw_size)
             total += size
             if size > LIMIT or total > 128 * 1024 * 1024:
                 fail("Repository content exceeds the safe staging limit")
@@ -1613,7 +1639,7 @@ class Operations:
         original = parse_json(encode(self.registry), "registry copy")
         transaction = False
         try:
-            with close_fd(self._fetch(repository)) as repo:
+            with self._download(repository) as repo:
                 commit, tree = self._tree(repo)
                 if "expectedCommit" in request and commit != request["expectedCommit"].lower():
                     fail("Repository HEAD does not match expectedCommit; refresh source metadata")
@@ -1660,7 +1686,7 @@ class Operations:
     def _check_update(self, request):
         record = self._eligible(request, destructive=False)
         try:
-            with close_fd(self._fetch(record["repository"])) as repo:
+            with self._download(record["repository"]) as repo:
                 commit, tree = self._tree(repo, self._source_ref(record))
                 self._packages(repo, tree, record["recipePath"], [record["id"]])
                 self._fast_forward(repo, record["commit"], commit)
@@ -1965,7 +1991,7 @@ class Operations:
             fail("Update preparation requires expectedCommit, displayed path and identityToken")
         record = self._eligible(request, destructive=False)
         try:
-            with close_fd(self._fetch(record["repository"])) as repo:
+            with self._download(record["repository"]) as repo:
                 commit, tree = self._tree(repo, self._source_ref(record))
                 if "targetCommit" in request and commit != request["targetCommit"].lower():
                     fail("Repository HEAD does not match targetCommit; check updates again")
@@ -1992,6 +2018,9 @@ class Operations:
             manifest = encode(stage)
             info = self.fs.atomic(self.work, "prepared.json", manifest, expected=None)
             receipt = {"version": 1, "token": token, "workspaceInode": stage["workspaceInode"], "manifestSha256": digest(manifest), "manifestInode": identity(info)}
+            # Publication can succeed before a later fsync or eligibility check
+            # fails. Keep the pinned workspace whenever its receipt may exist.
+            self.retain_work = True
             self.fs.atomic(self.state, "stage-" + token + ".json", encode(receipt), expected=None)
             self._eligible(request, destructive=False)
             self._compare_registry()
@@ -1999,7 +2028,6 @@ class Operations:
             # A closed view can leave this private workspace outside mods.
             # Inspect prepared.json before manual cleanup; never delete unknown
             # workspaces or a workspace referenced by transaction.json.
-            self.retain_work = True
             return {"ok": True, "stageToken": token, "id": name, "ids": [name], "commit": commit, "expectedCommit": record["commit"]}
         finally:
             self._cleanup_work()

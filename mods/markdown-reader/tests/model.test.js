@@ -292,6 +292,62 @@ describe("reader session lifecycle", () => {
 })
 
 describe("stale asynchronous results", () => {
+  it("does not create an obsolete request after slow cancellation", async () => {
+    const { io, session } = setup()
+    const rendered = deferred()
+    io.render.mockReturnValueOnce(rendered.promise)
+    const first = session.refresh({})
+    await vi.waitFor(() => expect(io.render).toHaveBeenCalledOnce())
+    const cancellation = deferred()
+    io.cancel.mockReturnValueOnce(cancellation.promise)
+    const obsolete = session.refresh({})
+    expect(await session.refresh({})).toBe(true)
+    cancellation.resolve()
+    expect(await obsolete).toBe(false)
+    expect(io.request).toHaveBeenCalledTimes(2)
+    rendered.resolve(manifest())
+    await first
+    await session.close()
+  })
+  it("does not create a request when closed during slow cancellation", async () => {
+    const { io, session } = setup()
+    const rendered = deferred()
+    io.render.mockReturnValueOnce(rendered.promise)
+    const first = session.refresh({})
+    await vi.waitFor(() => expect(io.render).toHaveBeenCalledOnce())
+    const cancellation = deferred()
+    io.cancel.mockReturnValueOnce(cancellation.promise)
+    const next = session.refresh({})
+    await session.close()
+    cancellation.resolve()
+    expect(await next).toBe(false)
+    expect(session.busy).toBe(false)
+    expect(io.request).toHaveBeenCalledOnce()
+    rendered.resolve(manifest())
+    await first
+  })
+  it.each(["close", "replacement"])(
+    "waits for in-flight lease renewal before %s releases the lease",
+    async (operation) => {
+      const { io, session } = setup()
+      await session.refresh({})
+      const previous = session.current
+      const renewal = deferred()
+      io.renew.mockReturnValueOnce(renewal.promise)
+      const heartbeat = session.heartbeat()
+      await session.heartbeat()
+      expect(io.renew).toHaveBeenCalledOnce()
+      io.render.mockResolvedValueOnce(manifest("reader-job-0002", { signature: "replacement" }))
+      const work = operation === "close" ? session.close() : session.refresh({})
+      await vi.waitFor(() => expect(session.current).not.toBe(previous))
+      expect(io.release).not.toHaveBeenCalled()
+      renewal.resolve()
+      await heartbeat
+      await work
+      expect(io.release).toHaveBeenCalledExactlyOnceWith(previous)
+      await session.close()
+    },
+  )
   it("does not cancel the displayed current job while releasing an older lease", async () => {
     const { io, session } = setup()
     await session.refresh({})

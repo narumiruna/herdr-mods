@@ -169,6 +169,7 @@ function fixture() {
     galleryWarnings: [],
     warnings: [],
     migration: undefined,
+    readOnlyReason: undefined,
     galleryGate: null,
     discoveryGate: null,
     operationGate: null,
@@ -205,7 +206,12 @@ function fixture() {
     discover: vi.fn(async () => {
       if (state.discoveryGate) await state.discoveryGate.promise
       if (state.discoveryError) throw new Error(state.discoveryError)
-      return copy({ mods: state.records, warnings: state.warnings, migration: state.migration })
+      return copy({
+        mods: state.records,
+        warnings: state.warnings,
+        migration: state.migration,
+        readOnlyReason: state.readOnlyReason,
+      })
     }),
     operate: vi.fn(async (request) => {
       expect(taskScope.getStore()).toBe("unowned")
@@ -628,7 +634,7 @@ describe("live manager view with fixture I/O", () => {
     )
   })
 
-  test("keeps nonfatal source warnings in the session without displaying them", async () => {
+  test("shows source warnings on request without hiding the library", async () => {
     const backend = fixture()
     backend.state.galleryWarnings = [
       "example/skipped:RECIPE.md skipped: RECIPE.md exceeds 64 KB or has an unknown size.",
@@ -640,9 +646,45 @@ describe("live manager view with fixture I/O", () => {
     expect(view.session.warnings).toEqual(warnings)
     for (const section of ["gallery", "installed", "github"]) {
       click(view, `nav-${section}`, cx)
-      const rendered = contents(view.render())
-      for (const warning of warnings) expect(rendered).not.toContain(warning)
+      expect(find(view, "toggle-warnings")).toBeDefined()
+      if (!view.showWarnings) click(view, "toggle-warnings", cx)
+      for (const warning of warnings) expect(contents(view.render())).toContain(warning)
+      click(view, "toggle-warnings", cx)
+      for (const warning of warnings) expect(contents(view.render())).not.toContain(warning)
     }
+  })
+
+  test("bounds warning rendering and reveals more warnings on request", async () => {
+    const backend = fixture()
+    backend.state.warnings = Array.from({ length: 45 }, (_, i) => `Warning number ${i}.`)
+    const { view, cx, flush } = setup({ backend })
+    await flush()
+    click(view, "toggle-warnings", cx)
+    expect(contents(view.render())).toContain("Warning number 19.")
+    expect(contents(view.render())).not.toContain("Warning number 20.")
+    click(view, "more-warnings", cx)
+    expect(contents(view.render())).toContain("Warning number 39.")
+    expect(contents(view.render())).not.toContain("Warning number 40.")
+  })
+
+  test("read-only fallback disables all file actions and provides an Installed retry on every page", async () => {
+    const backend = fixture()
+    backend.state.records = []
+    backend.state.readOnlyReason = "Missing cached Python. Install it separately."
+    const { view, cx, flush, io } = setup({ backend })
+    await flush()
+    expect(contents(find(view, "read-only-status"))).toContain("Missing cached Python")
+    expect(find(view, `action-install-${galleryId("terminal-tools")}`).attributes.disabled).toBe(
+      true,
+    )
+    click(view, "nav-github", cx)
+    expect(find(view, "install-repository").attributes.disabled).toBe(true)
+    backend.state.readOnlyReason = undefined
+    click(view, "retry-backend", cx)
+    await flush()
+    expect(find(view, "read-only-status")).toBeUndefined()
+    expect(find(view, "install-repository").attributes.disabled).toBe(false)
+    expect(io.operate).not.toHaveBeenCalled()
   })
 
   test("installs through a rendered card and updates shared Installed membership only after readback", async () => {
@@ -705,6 +747,73 @@ describe("live manager view with fixture I/O", () => {
     expect(view.notice).toContain("Verified update")
     click(view, "nav-gallery", cx)
     expect(find(view, `action-update-${id}`)).toBeUndefined()
+  })
+
+  test("redraws update progress before completion and stops safely after the current repository", async () => {
+    const { view, cx, asyncCx, flush, state, io } = setup()
+    await flush()
+    click(view, "nav-installed", cx)
+    state.operationGate = deferred()
+    const before = asyncCx.notify.mock.calls.length
+    click(view, "check-updates", cx)
+    await settleUntil(() => io.operate.mock.calls.length === 1)
+    await settleUntil(() => asyncCx.notify.mock.calls.length > before)
+    expect(contents(view.render())).toContain("0 of 2 checked")
+    click(view, "stop-update-checks", cx)
+    expect(find(view, "stop-update-checks").attributes.disabled).toBe(true)
+    expect(contents(view.render())).toContain("Stopping…")
+    expect(view.session.pending).not.toBeNull()
+    state.operationGate.resolve()
+    await flush()
+    expect(io.operate).toHaveBeenCalledTimes(1)
+    expect(view.notice).toContain("stopped. 1 of 2 mods checked")
+    expect(find(view, "stop-update-checks")).toBeUndefined()
+  })
+
+  test("an old Stop checks handler cannot cancel a new batch", async () => {
+    const { view, cx, flush, state, io } = setup()
+    await flush()
+    click(view, "nav-installed", cx)
+    state.operationGate = deferred()
+    click(view, "check-updates", cx)
+    await settleUntil(() => io.operate.mock.calls.length === 1)
+    const oldStop = find(view, "stop-update-checks").click
+    state.operationGate.resolve()
+    await flush()
+    state.operationGate = deferred()
+    click(view, "check-updates", cx)
+    await settleUntil(() => io.operate.mock.calls.length === 3)
+    oldStop({}, cx)
+    expect(view.session.updateCheck.cancelRequested).toBe(false)
+    state.operationGate.resolve()
+    await flush()
+    expect(io.operate).toHaveBeenCalledTimes(4)
+  })
+
+  test("closing during update checks stops the batch without notifying a closed view", async () => {
+    const { view, cx, asyncCx, flush, state, io } = setup()
+    await flush()
+    state.operationGate = deferred()
+    click(view, "nav-installed", cx)
+    click(view, "check-updates", cx)
+    await settleUntil(() => io.operate.mock.calls.length === 1)
+    click(view, "close-manager", cx)
+    const before = asyncCx.notify.mock.calls.length
+    state.operationGate.resolve()
+    await flush()
+    expect(io.operate).toHaveBeenCalledTimes(1)
+    expect(asyncCx.notify).toHaveBeenCalledTimes(before)
+    expect(view.session.pending).toBeNull()
+  })
+
+  test("closing a queued update check prevents its first repository request", async () => {
+    const { view, cx, flush, io } = setup()
+    await flush()
+    click(view, "nav-installed", cx)
+    click(view, "check-updates", cx)
+    click(view, "close-manager", cx)
+    await flush()
+    expect(io.operate).not.toHaveBeenCalled()
   })
 
   test("confirms verified absolute path, blocks stale background actions, cancels without mutation and uninstalls", async () => {
@@ -1122,6 +1231,63 @@ describe("live manager view with fixture I/O", () => {
     expect(second.view.session.mod(galleryId("terminal-tools")).state).toBe("installed")
   })
 
+  test("Source opens only the chosen card's pinned directory without installing", async () => {
+    const backend = fixture()
+    backend.entries[2].path = "Mods/Terminal"
+    const { view, cx, flush, io } = setup({ backend })
+    await flush()
+    native.openUrl.mockClear()
+    const id = "mods:example/terminal-tools/Mods/Terminal/terminal-tools"
+    click(view, `source-${id}`, cx)
+    expect(native.openUrl).toHaveBeenCalledExactlyOnceWith(
+      `https://github.com/example/terminal-tools/tree/${INITIAL}/Mods/Terminal`,
+    )
+    expect(io.operate).not.toHaveBeenCalled()
+    expect(view.session.mod(id).state).toBe("available")
+    click(view, `source-${galleryId("focus-mode")}`, cx)
+    expect(native.openUrl).toHaveBeenLastCalledWith(
+      `https://github.com/example/focus-mode/tree/${INITIAL}`,
+    )
+    click(view, "nav-installed", cx)
+    expect(find(view, "source-local:local-tool")).toBeUndefined()
+    expect(io.operate).not.toHaveBeenCalled()
+  })
+
+  test("Update source opens the checked candidate B before Update replaces installed A", async () => {
+    const { view, cx, flush, io } = setup()
+    await flush()
+    click(view, "nav-installed", cx)
+    click(view, "check-updates", cx)
+    await flush()
+    const id = galleryId("focus-mode")
+    expect(view.session.mod(id).commit).toBe(INITIAL)
+    expect(view.session.mod(id).updateCommit).toBe(UPDATED)
+    expect(contents(find(view, `source-${id}`))).toContain("Update source")
+    expect(find(view, `source-${id}`).attributes.tooltip).toContain("not the installed revision")
+    native.openUrl.mockClear()
+    const calls = io.operate.mock.calls.length
+    click(view, `source-${id}`, cx)
+    expect(native.openUrl).toHaveBeenCalledExactlyOnceWith(
+      `https://github.com/example/focus-mode/tree/${UPDATED}`,
+    )
+    expect(io.operate).toHaveBeenCalledTimes(calls)
+    expect(view.session.mod(id).commit).toBe(INITIAL)
+  })
+
+  test("Source browser failure displays the exact pinned URL for manual review", async () => {
+    const { view, cx, flush, io } = setup()
+    await flush()
+    native.openUrl.mockImplementationOnce(() => {
+      throw new Error("No browser")
+    })
+    click(view, `source-${galleryId("terminal-tools")}`, cx)
+    expect(view.noticeError).toBe(true)
+    expect(view.notice).toContain(
+      `Source URL: https://github.com/example/terminal-tools/tree/${INITIAL}`,
+    )
+    expect(io.operate).not.toHaveBeenCalled()
+  })
+
   test("browser failure is caught and leaves a printed Gallery URL", async () => {
     const { view, cx, flush } = setup()
     await flush()
@@ -1134,16 +1300,17 @@ describe("live manager view with fixture I/O", () => {
     expect(view.notice).toContain("Could not open the browser")
   })
 
-  test("both install routes omit trust warnings and keep docking policy visible", async () => {
+  test("both install routes show account-access risks before installing and keep docking policy visible", async () => {
     const { view, cx, flush, io } = setup()
     await flush()
     const card = contents(find(view, `mod-${galleryId("terminal-tools")}`))
-    expect(card).not.toContain("Community mods run code")
-    expect(card).not.toContain("may load immediately")
+    expect(contents(view.render())).toContain(
+      "Mods run with your account access and can load immediately",
+    )
     expect(card).toContain("omitted, none, left, right, top and bottom")
     expect(card).toContain("may dock immediately")
     click(view, "nav-github", cx)
-    expect(contents(view.render())).not.toContain("Community mods run code")
+    expect(contents(view.render())).toContain("Review the source before installing")
     expect(contents(view.render())).toContain("may dock immediately")
     expect(io.operate).not.toHaveBeenCalled()
   })

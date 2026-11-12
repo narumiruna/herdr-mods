@@ -63,6 +63,14 @@ The [review ledger](review-feedback.md) records every feedback item and its scop
 
 After these changes, all 369 reader tests and all 7 real Chromium tests passed. Repository native mod/view checks and type checks passed. The revised evidence script completed all 10 isolated modes on Herdr 0.1.15/macOS. Both status samples per mode had no runtime errors. All captures were inspected. Final cleanup reported no owned processes. These captures still do not test live watch events or pointer/keyboard interaction.
 
+## Reader usability and lifecycle revision
+
+The current revision adds a native explicit-path Open form, scoped reopen/refresh/watch handling, initial missing-document recovery, and missing local-link recovery. No workspace root is inferred, no remote identity falls back to a local file, and no source document is written.
+
+Unchanged code editor states survive image and width refreshes. Replacement editors are prepared without waiting for old-lease cleanup. Lease release waits for in-flight renewal, and failed helper batches remove partial leases even if renderer cleanup fails. Link-token allocation is linear rather than repeatedly counting all prior links.
+
+Current local checks: 391 reader tests, 7 real Chromium tests, isolated native mod/description checks (nine states), and type checks passed. Regression coverage includes disposable entry-check cleanup and error cards without an inactive Source/Render toggle. Tests cover Open submission/rejection, stale old-root events, first-read retry, missing links and symlinks, code-state reuse, slow cancellation, renewal/release ordering, and partial helper failure. Input-handler mocks and native description checks do not prove pointer/key operation. The coordinated native evidence run completed all 11 modes, including the new `empty` Open form, on Herdr 0.1.15/macOS. Both status samples per mode had no runtime errors; all captures were inspected, and cleanup reported no owned groups. Evidence is outside Git at `/tmp/herdr-md-native-XWTg5J/`. Full captures contain the private source-path header and must not be shared unchanged. The bundled preview remains the inspected graphic-card crop. Manual Open submission/cancellation, selection/copy/scroll/watch acceptance remains open.
+
 ## Inline mathematics: unavailable
 
 The native feasibility fixture tested:

@@ -3,12 +3,15 @@ import { div, svg, View } from "gpui-kit"
 import { exec, focused, panes, props, spaces, theme, window } from "herdr"
 import {
   age,
+  checkedItem,
+  checkedList,
   createGitHub,
   detailArgs,
   LIMIT,
   listArgs,
   repositoryFromRemote,
   repositoryName,
+  safeFailure,
   stateLabel,
   withDeadline,
 } from "./github.js"
@@ -18,14 +21,17 @@ const workspaceId = () => spaces().find((space) => space.active)?.id ?? null
 
 export default class GitHubIssuesPRs extends View {
   init(initialProps, cx) {
-    if ((initialProps ?? props())?.tabs === true) {
+    const options = initialProps ?? props()
+    this.closed = false
+    if (options?.tabs === true) {
       this.tabBar = new TabBar()
       return
     }
     this.platform = window()?.platform || ""
     this.clients = new Map()
     this.repository = ""
-    this.pinned = Boolean(props()?.repo)
+    this.pinned = Boolean(options?.repo)
+    this.pendingCommands = new Set()
     this.panelHandle = cx.focus_handle()
     this.tabHandles = { issue: cx.focus_handle(), pr: cx.focus_handle() }
     this.lastTerminals = new Map()
@@ -45,20 +51,23 @@ export default class GitHubIssuesPRs extends View {
     this.detail = null
     this.detailPending = false
     this.error = ""
+    this.errorRecovery = ""
     this.notice = ""
     this.detailError = ""
+    this.detailRecovery = ""
     this.loading = false
     this.phase = ""
     this.request = 0
     this.detailRequest = 0
     this.searchInput = InputState.new({ placeholder: "Search…" })
     this.searchInput.on("submit", (_event, cx) => this.submitSearch(cx))
+    this.searchInput.on("change", (_event, cx) => cx.notify())
     this.pinnedMachine = this.pinned ? this.location().on : null
     this.queryMachine = this.cliMachine()
     this.client = this.clientFor(this.queryMachine)
     if (this.pinned) {
       try {
-        this.repository = repositoryName(props().repo)
+        this.repository = repositoryName(options.repo)
       } catch (error) {
         this.error = error.message
         this.loadedContext = this.context()
@@ -66,9 +75,25 @@ export default class GitHubIssuesPRs extends View {
       }
     }
     this.refresh(cx)
-    cx.timer.every(120000, (cx) => {
-      if (!this.loading) this.refresh(cx, false)
+    this.refreshTimer = cx.timer.every(120000, (cx) => {
+      if (!this.closed && !this.loading) this.refresh(cx, false)
     })
+  }
+
+  close() {
+    if (this.closed) return
+    this.closed = true
+    if (this.tabBar) return
+    this.request++
+    this.detailRequest++
+    this.cancelFollow()
+    this.refreshTimer?.cancel()
+    for (const cancel of this.pendingCommands) cancel()
+    this.searchInput.release()
+    this.panelHandle.release()
+    for (const handle of Object.values(this.tabHandles)) handle.release()
+    this.clients.clear()
+    this.lastTerminals.clear()
   }
 
   location() {
@@ -116,6 +141,7 @@ export default class GitHubIssuesPRs extends View {
   }
 
   follow(cx) {
+    if (this.closed) return
     const context = this.context()
     if (context === this.loadedContext) {
       this.cancelFollow()
@@ -147,6 +173,7 @@ export default class GitHubIssuesPRs extends View {
     this.detail = null
     this.detailPending = false
     this.detailError = ""
+    this.detailRecovery = ""
     this.resultKey = null
   }
 
@@ -194,6 +221,7 @@ export default class GitHubIssuesPRs extends View {
     this.selected = null
     this.detail = null
     this.detailError = ""
+    this.detailRecovery = ""
     cx.notify()
   }
 
@@ -202,8 +230,12 @@ export default class GitHubIssuesPRs extends View {
     return withDeadline(
       cx.timer,
       options.timeout + 2000,
-      () => exec(command, args, options),
+      () => {
+        if (this.closed) throw new Error("Request cancelled.")
+        return exec(command, args, options)
+      },
       `${command} timed out on ${target}. Check the connection and select Refresh.`,
+      this.pendingCommands,
     )
   }
 
@@ -222,6 +254,7 @@ export default class GitHubIssuesPRs extends View {
   }
 
   refresh(cx, clear = true, follow = false) {
+    if (this.closed) return
     this.cancelFollow()
     const machine = this.cliMachine()
     if (machine !== this.queryMachine) {
@@ -253,9 +286,10 @@ export default class GitHubIssuesPRs extends View {
         "…"
       : `Reading origin on ${place.on || "this machine"}…`
     this.error = ""
+    this.errorRecovery = ""
     this.notice = ""
     if (clear) this.clearData()
-    const current = () => request === this.request && context === this.context()
+    const current = () => !this.closed && request === this.request && context === this.context()
     cx.spawn(async (cx) => {
       try {
         if (!current()) return
@@ -318,13 +352,16 @@ export default class GitHubIssuesPRs extends View {
           machine,
         )
         if (!current()) return
-        if (!Array.isArray(items)) throw new Error("GitHub CLI returned an invalid list.")
-        this.items = items
+        this.items = checkedList(items)
         this.resultKey = key
         this.resultAt = Date.now()
         const now = new Date()
         this.updated = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
         if (this.selected && !items.some((item) => item.number === this.selected.number)) {
+          this.detailRequest++
+          this.detailPending = false
+          this.detailError = ""
+          this.detailRecovery = ""
           this.selected = null
           this.detail = null
         } else if (this.selected && detailRequest === this.detailRequest) {
@@ -340,10 +377,12 @@ export default class GitHubIssuesPRs extends View {
             this.clearData()
             if (!pinned) this.repository = ""
           }
-          this.error = String(error.message || error)
+          const failure = safeFailure(error)
+          this.error = failure.message
+          this.errorRecovery = failure.recovery
         }
       } finally {
-        if (request === this.request) {
+        if (!this.closed && request === this.request) {
           this.loading = false
           if (context !== this.context()) this.loadedContext = null
           cx.notify()
@@ -353,6 +392,7 @@ export default class GitHubIssuesPRs extends View {
   }
 
   pick(item, cx, background = false) {
+    if (this.closed) return
     const request = ++this.detailRequest
     const context = this.context()
     const repository = this.repository
@@ -362,20 +402,26 @@ export default class GitHubIssuesPRs extends View {
     this.detailPending = true
     if (!background) this.detail = null
     this.detailError = ""
+    this.detailRecovery = ""
+    const current = () =>
+      !this.closed && request === this.detailRequest && context === this.context()
     cx.spawn(async (cx) => {
       try {
         const detail = await this.read(
           detailArgs(repository, kind, item.number),
           cx,
-          () => request === this.detailRequest && context === this.context(),
+          current,
           machine,
         )
-        if (request === this.detailRequest && context === this.context()) this.detail = detail
+        if (current()) this.detail = checkedItem(detail, item.number)
       } catch (error) {
-        if (request === this.detailRequest && context === this.context())
-          this.detailError = String(error.message || error)
+        if (current()) {
+          const failure = safeFailure(error)
+          this.detailError = failure.message
+          this.detailRecovery = failure.recovery
+        }
       } finally {
-        if (request === this.detailRequest) {
+        if (!this.closed && request === this.detailRequest) {
           this.detailPending = false
           cx.notify()
         }
@@ -542,7 +588,11 @@ export default class GitHubIssuesPRs extends View {
             .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
             .on_click((_event, cx) => this.selectKind(kind, cx))
             .on_key_down((event, cx) => {
-              if (!["left", "right", "home", "end"].includes(event.key)) return
+              if (
+                Object.values(event.modifiers ?? {}).some(Boolean) ||
+                !["left", "right", "home", "end"].includes(event.key)
+              )
+                return
               const next =
                 event.key === "home"
                   ? "issue"
@@ -605,6 +655,17 @@ export default class GitHubIssuesPRs extends View {
                   .accessibility_label(`Search ${noun}`),
               ),
           )
+          .when(Boolean(this.search || this.searchInput.value()), (element) =>
+            element.child(
+              this.iconButton(
+                "github-reset-search",
+                "win-close",
+                "Clear search",
+                (cx) => this.clearSearch(cx),
+                t,
+              ),
+            ),
+          )
           .child(
             this.iconButton(
               "github-find",
@@ -614,6 +675,17 @@ export default class GitHubIssuesPRs extends View {
               t,
             ),
           ),
+      )
+      .when(this.searchInput.value().trim() !== this.search, (element) =>
+        element.child(
+          div()
+            .id("github-search-draft")
+            .text_size(11)
+            .text_color(t.muted)
+            .truncate()
+            .tooltip(`Applied search: ${this.search || "all items"}`)
+            .child(`Showing: ${this.search || "all items"}. Press Enter to apply search.`),
+        ),
       )
       .child(
         h_flex()
@@ -727,9 +799,22 @@ export default class GitHubIssuesPRs extends View {
       .child(Scrollbar.vertical("github-list").absolute().inset_0())
   }
 
+  recoveryView(id, recovery, t) {
+    return div()
+      .id(id)
+      .w_full()
+      .whitespace_normal()
+      .text_size(11)
+      .text_color(t.muted)
+      .child(recovery)
+  }
+
   errorView(t, compact = false) {
     const title = `Could not load ${this.typeLabel().toLowerCase()}`
     const message = this.error.split("\n")[0]
+    const recovery = this.errorRecovery
+    const recoveryView = () =>
+      this.recoveryView(compact ? "github-recovery-compact" : "github-recovery-help", recovery, t)
     if (compact)
       return h_flex()
         .flex_none()
@@ -748,7 +833,8 @@ export default class GitHubIssuesPRs extends View {
             .child(div().font_medium().text_size(12).child(title))
             .child(
               div().truncate().text_size(11).text_color(t.muted).tooltip(this.error).child(message),
-            ),
+            )
+            .when(Boolean(recovery), (element) => element.child(recoveryView())),
         )
         .child(this.button("github-retry", "Retry", false, (cx) => this.refresh(cx, false), t))
     return v_flex()
@@ -780,6 +866,7 @@ export default class GitHubIssuesPRs extends View {
           .tooltip(this.error)
           .child(message),
       )
+      .when(Boolean(recovery), (element) => element.child(recoveryView().max_w(340)))
       .child(
         this.button("github-retry", "Retry", false, (cx) => this.refresh(cx, false), t)
           .mt(6)
@@ -996,6 +1083,11 @@ export default class GitHubIssuesPRs extends View {
                         .tooltip(this.detailError)
                         .child(this.detailError.split("\n")[0]),
                     )
+                    .when(Boolean(this.detailRecovery), (element) =>
+                      element.child(
+                        this.recoveryView("github-detail-recovery", this.detailRecovery, t),
+                      ),
+                    )
                     .child(
                       this.button(
                         "github-detail-retry",
@@ -1082,7 +1174,7 @@ export default class GitHubIssuesPRs extends View {
   render(cx) {
     if (this.tabBar) return this.tabBar.render()
     this.follow(cx)
-    const t = theme()
+    const t = /** @type {Record<string, import("gpui-kit").Color>} */ (theme())
     return v_flex()
       .id("github")
       .size_full()

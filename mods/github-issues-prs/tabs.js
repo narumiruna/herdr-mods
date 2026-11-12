@@ -1,4 +1,4 @@
-import { h_flex } from "gpui-base"
+import { Button, h_flex } from "gpui-base"
 import { div, image, svg } from "gpui-kit"
 import { layout, openOverlay, panes, run, settings, shared, spaces, theme, window } from "herdr"
 
@@ -15,10 +15,11 @@ function find(node, id) {
 export class TabBar {
   constructor() {
     this.pressed = null
-    this.panels = {}
+    this.panels = Object.create(null)
     try {
       const panels = JSON.parse(localStorage.getItem("panels") ?? "{}")
-      if (panels && typeof panels === "object" && !Array.isArray(panels)) this.panels = panels
+      if (panels && typeof panels === "object" && !Array.isArray(panels))
+        Object.assign(this.panels, panels)
     } catch {
       // Ignore invalid saved preferences so the tab bar can still start.
     }
@@ -33,7 +34,7 @@ export class TabBar {
       const first = this.space === undefined
       this.space = space.id
       this.pending = null
-      if (!(first && !(space.id in this.panels))) {
+      if (!(first && !Object.hasOwn(this.panels, space.id))) {
         const stored = this.panels[space.id] ?? null
         const want = enabled.includes(stored) ? stored : null
         if (want !== now) {
@@ -53,17 +54,23 @@ export class TabBar {
     }
     if (this.panels[space.id] === now) return
     this.panels[space.id] = now
-    localStorage.setItem("panels", JSON.stringify(this.panels))
+    try {
+      localStorage.setItem("panels", JSON.stringify(this.panels))
+    } catch {
+      // A storage failure must not stop terminal tabs. Keep this session's choice.
+    }
   }
 
   render() {
-    const t = theme()
+    const t = /** @type {Record<string, import("gpui-kit").Color>} */ (theme())
     const space = spaces().find((p) => p.active)
     const shown = space?.tabs ?? []
     const stop = (_e, cx) => cx.stop_propagation()
     const button = (id, label, action) =>
-      div()
-        .id(id)
+      Button.new(id)
+        .tab_stop(true)
+        .accessibility_label(id === "tab-new" ? "New tab" : id.replaceAll("-", " "))
+        .tooltip(id === "tab-new" ? "New tab" : id.replaceAll("-", " "))
         .size(26)
         .flex_none()
         .flex()
@@ -72,16 +79,27 @@ export class TabBar {
         .rounded(6)
         .text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .focus((s) => s.bg(t.hover).text_color(t.foreground))
         .on_mouse_down("left", stop)
         .on_click(action)
         .child(label)
-    const item = (c, i) => {
+    const item = (c) => {
       const program =
         panes().find((p) => p.tab === c.id && p.program?.agent)?.program ??
         panes().find((p) => p.tab === c.id)?.program
       const name = /^tb\d+$/.test(c.name) ? (program?.name ?? "Terminal") : c.name
       return h_flex()
         .id(`tab-${c.id}`)
+        .role("tab")
+        .selected(Boolean(c.active))
+        .accessibility_label(name)
+        .tab_stop(true)
+        .on_key_down((event, cx) => {
+          if (Object.values(event.modifiers ?? {}).some(Boolean)) return
+          if (event.key !== "enter" && event.key !== "space") return
+          run("tab.select", { id: c.id })
+          cx.stop_propagation()
+        })
         .h(29)
         .px(10)
         .gap(7)
@@ -94,17 +112,23 @@ export class TabBar {
         .bg(c.active ? t.raised : t.chrome)
         .text_color(c.active ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover))
+        .focus((s) => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => {
           cx.stop_propagation()
-          this.pressed = i
+          this.pressed = { id: c.id, space: space.id }
           if (e.click_count === 2) run("tab.rename", { id: c.id })
         })
         .on_mouse_up("left", () => {
           const from = this.pressed
           this.pressed = null
-          if (from !== null && from !== i)
+          if (
+            from &&
+            from.space === space.id &&
+            from.id !== c.id &&
+            shown.some((tab) => tab.id === from.id)
+          )
             run("tab.move", {
-              id: shown[from].id,
+              id: from.id,
               index: space.tabs.findIndex((x) => x.id === c.id) + 1,
             })
           else run("tab.select", { id: c.id })
@@ -133,7 +157,7 @@ export class TabBar {
         )
         .when(c.status === "working", (el) =>
           el.child(
-            svg("mods/workspace-chrome/spinner.svg")
+            svg("mods/github-issues-prs/icons/refresh.svg")
               .size(12)
               .flex_none()
               .text_color(t.working)
@@ -145,38 +169,47 @@ export class TabBar {
         )
         .when(c.active, (el) =>
           el.child(
-            div()
-              .id(`close-${c.id}`)
+            Button.new(`close-${c.id}`)
+              .tab_stop(true)
+              .accessibility_label(`Close ${name}`)
+              .tooltip(`Close ${name}`)
               .text_color(t.dim)
               .on_mouse_down("left", stop)
               .on_click((_e, cx) => {
                 cx.stop_propagation()
                 run("tab.close", { id: c.id })
               })
-              .child(svg("mods/pane/close.svg").size(12)),
+              .child(svg("mods/github-issues-prs/icons/win-close.svg").size(12)),
           ),
         )
     }
-    const root = layout()
+    const root = /** @type {{traffic_lights?: number[]}} */ (layout())
     const sidebar = find(root, "sidebar")
     const w = window()
+    const zoom = Number(settings().zoom) || 1
     // Old saved rails and a dragged-narrow sidebar can be smaller than the window buttons.
     const lightsPadding =
       w?.platform === "macos" && w.titlebar === "none" && !w.fullscreen && root?.traffic_lights
         ? Math.max(
             10,
-            (root.traffic_lights[0] + 64) / settings().zoom -
-              (sidebar?.hidden ? 0 : (sidebar?.size?.px ?? 0)),
+            (root.traffic_lights[0] + 64) / zoom - (sidebar?.hidden ? 0 : (sidebar?.size?.px ?? 0)),
           )
         : 10
     const panel = find(root, "panel")
     const body = find(root, "panel-body")
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "github"]
+    const preference = shared("workspace.panels")
+    const enabled = [
+      ...(Array.isArray(preference) ? preference : ["files", "changes"]),
+      "github",
+    ].filter((id) => body?.children?.some((child) => child.id === id))
     this.syncPanel(space, panel, body, enabled)
     const panelButton = (id, label, icon) => {
       const on = panel && !panel.hidden && body?.active === id
-      return h_flex()
-        .id(`panel-${id}`)
+      return Button.new(`panel-${id}`)
+        .tab_stop(true)
+        .accessibility_label(label)
+        .selected(Boolean(on))
+        .flex()
         .h(26)
         .px(8)
         .gap(5)
@@ -187,6 +220,7 @@ export class TabBar {
         .bg(on ? t.selected : t.chrome)
         .text_color(on ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover))
+        .focus((s) => s.bg(t.hover))
         .on_mouse_down("left", stop)
         .on_click(() => {
           if (on) run("layout.hide", { id: "panel" })
@@ -211,12 +245,14 @@ export class TabBar {
       .on_mouse_up("left", () => {
         this.pressed = null
       })
-      .on_scroll_wheel((e) => {
-        if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next")
-      })
       .child(
         h_flex()
           .id("tab-scroll")
+          .role("tab_list")
+          .accessibility_label("Workspace tabs")
+          .on_scroll_wheel((e) => {
+            if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next")
+          })
           .flex_1()
           .min_w(0)
           .h_full()
@@ -231,13 +267,15 @@ export class TabBar {
         ),
       )
       .when(enabled.includes("files"), (el) =>
-        el.child(panelButton("files", "Files", "mods/files/file.svg")),
+        el.child(panelButton("files", "Files", "mods/github-issues-prs/icons/files.svg")),
       )
       .when(enabled.includes("changes"), (el) =>
-        el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")),
+        el.child(panelButton("changes", "Changes", "mods/github-issues-prs/icons/changes.svg")),
       )
-      .child(
-        panelButton("github", "GitHub Issues & PRs", "mods/github-issues-prs/icons/github.svg"),
+      .when(enabled.includes("github"), (el) =>
+        el.child(
+          panelButton("github", "GitHub Issues & PRs", "mods/github-issues-prs/icons/github.svg"),
+        ),
       )
       .when(w?.buttons, (el) =>
         el
@@ -266,7 +304,7 @@ export class TabBar {
               "close-window",
               w.platform === "windows"
                 ? svg("mods/github-issues-prs/icons/win-close.svg").size(16)
-                : svg("mods/pane/close.svg").size(13),
+                : svg("mods/github-issues-prs/icons/win-close.svg").size(13),
               () => run("window.close"),
             ),
           ),

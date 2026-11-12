@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const ui = vi.hoisted(() => {
   const nodes = new Map()
   const states = []
+  const inputs = []
   const state = { rendering: false }
   const element = () => {
     const node = { items: [], handlers: {}, props: {}, used: false }
@@ -31,7 +32,7 @@ const ui = vi.hoisted(() => {
     })
     return proxy
   }
-  return { nodes, states, state, element }
+  return { nodes, states, inputs, state, element }
 })
 vi.mock("gpui-kit", () => ({
   View: class {},
@@ -48,6 +49,27 @@ vi.mock("gpui-base", () => ({
       return state
     },
   },
+  InputState: {
+    new: (options) => {
+      if (ui.state.rendering) throw new Error("InputState.new during render")
+      let value = options.value
+      const input = {
+        value: () => value,
+        set_value: (next) => {
+          value = next
+        },
+        handlers: {},
+        on: (event, handler) => {
+          input.handlers[event] = handler
+        },
+        focus: vi.fn(),
+        release: vi.fn(),
+      }
+      ui.inputs.push(input)
+      return input
+    },
+  },
+  Input: { new: (state) => ui.element().input(state) },
   Editor: { new: (state) => ui.element().editor(state) },
   TextView: { html: (id, html) => ui.element().id(id).html(html) },
   ScrollHandle: { new: () => ({ release: vi.fn(), scroll_to_item: vi.fn() }) },
@@ -175,6 +197,7 @@ beforeEach(() => {
   watchFolder.mockReset().mockImplementation(() => new Promise(() => {}))
   ui.nodes.clear()
   ui.states.length = 0
+  ui.inputs.length = 0
   ui.state.rendering = false
   theme.mockReturnValue({
     foreground: "#222222",
@@ -205,6 +228,22 @@ describe("native reader lifecycle", () => {
     expect(view.raw).toBe(true)
     expect(ui.states.at(-1).options.value).toContain("# Notes")
   })
+  it("keeps error source visible without a nonfunctional Source/Render toggle", async () => {
+    const { view, cx } = await ready()
+    render(view, cx)
+    expect(ui.nodes.has("source-e1")).toBe(false)
+    expect(view.editors.get("e1").options.value).toBe("invalid")
+    click("copy-e1", cx)
+    expect(cx.write_to_clipboard).toHaveBeenCalledWith("invalid")
+    click("source-g1", cx)
+    render(view, cx)
+    expect(ui.nodes.get("source-g1").items).toContain("Render")
+    click("source-g1", cx)
+    render(view, cx)
+    expect(ui.nodes.get("source-g1").items).toContain("Source")
+    expect(ui.nodes.has("source-e1")).toBe(false)
+  })
+
   it("copies source only after an explicit click", async () => {
     const { view, cx } = await ready()
     render(view, cx)
@@ -271,9 +310,134 @@ describe("native reader lifecycle", () => {
   })
   it("renders a useful no-props entry without invoking helpers", async () => {
     const { view, cx, io } = await ready({})
-    expect(view.error).toMatch(/explicit file/)
+    expect(view.error).toBe("")
     expect(io.request).not.toHaveBeenCalled()
     expect(() => render(view, cx)).not.toThrow()
+    expect(ui.nodes.has("reader-file-input")).toBe(true)
+    expect(ui.nodes.has("reader-root-input")).toBe(true)
+    expect(view.rootInput.focus).toHaveBeenCalledOnce()
+    view.rootInput.set_value("/workspace")
+    view.fileInput.set_value("/workspace/notes.md")
+    click("reader-open-submit", cx)
+    await cx.tasks.at(-1)
+    expect(view.opening).toBe(false)
+    expect(view.session.manifest.file).toBe("/workspace/notes.md")
+    await view.close()
+    expect(ui.inputs.every((input) => input.release.mock.calls.length === 1)).toBe(true)
+  })
+  it("validates explicit paths on submit and never expands the root", async () => {
+    const { view, cx, io } = await ready({})
+    view.rootInput.set_value("/workspace")
+    view.fileInput.set_value("/outside/notes.md")
+    view.fileInput.handlers.submit({}, cx)
+    expect(view.error).toMatch(/inside the workspace/)
+    expect(view.opening).toBe(true)
+    expect(io.request).not.toHaveBeenCalled()
+    await view.close()
+  })
+  it("does not offer a local open fallback for a remote identity", async () => {
+    const { view, cx, io } = await ready({
+      file: "/workspace/notes.md",
+      root: "/workspace",
+      on: "remote",
+    })
+    render(view, cx)
+    expect(ui.nodes.has("reader-open-submit")).toBe(false)
+    view.open(cx)
+    expect(io.request).not.toHaveBeenCalled()
+    await view.close()
+  })
+  it("prepares replacement content without waiting for old lease cleanup", async () => {
+    const { view, cx, io, data } = await ready()
+    let finish
+    io.release.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    io.render.mockResolvedValueOnce({
+      ...data,
+      signature: "new-code",
+      blocks: [{ id: "new-code", type: "code", source: "replacement" }],
+    })
+    view.refresh(cx)
+    const work = cx.tasks.at(-1)
+    try {
+      await vi.waitFor(() => expect(view.editors.has("new-code")).toBe(true))
+      expect(() => render(view, cx)).not.toThrow()
+    } finally {
+      finish?.()
+      await work
+      await view.close()
+    }
+  })
+  it("retains unchanged code editor states and releases changed or removed states", async () => {
+    const { view, cx, io, data } = await ready()
+    const code = view.editors.get("code1")
+    const error = view.editors.get("e1")
+    io.render.mockResolvedValueOnce({ ...data, signature: "image-change" })
+    view.width = 640
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    expect(view.editors.get("code1")).toBe(code)
+    expect(code.release).not.toHaveBeenCalled()
+    io.render.mockResolvedValueOnce({
+      ...data,
+      signature: "code-change",
+      blocks: [{ id: "code1", type: "code", source: "changed" }],
+    })
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    expect(code.release).toHaveBeenCalledOnce()
+    expect(error.release).toHaveBeenCalledOnce()
+    expect(view.editors.get("code1").options.value).toBe("changed")
+    await view.close()
+  })
+  it("ignores old view completions and watcher events after opening another workspace", async () => {
+    let finish
+    let report
+    watchFolder.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          report = resolve
+        }),
+    )
+    const { view, cx, io, data } = await ready()
+    const oldSession = view.session
+    io.render.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    view.refresh(cx)
+    const old = cx.tasks.at(-1)
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"))
+    view.rootInput.set_value("/other")
+    view.fileInput.set_value("/other/new.md")
+    io.render.mockResolvedValueOnce({
+      ...data,
+      root: "/other",
+      file: "/other/new.md",
+      dependencies: ["/other/new.md"],
+      links: {},
+      signature: "new-file",
+    })
+    view.open(cx)
+    await cx.tasks.at(-1)
+    expect(oldSession.closed).toBe(true)
+    expect(view.session.manifest.file).toBe("/other/new.md")
+    const prepare = vi.spyOn(view, "prepareEditors")
+    finish({ ...data, signature: "late-old-result" })
+    await old
+    report(["/workspace/notes.md"])
+    await Promise.resolve()
+    expect(prepare).not.toHaveBeenCalled()
+    expect(cx.timers).toHaveLength(0)
+    expect(view.watching).toBe(true)
+    expect(watchFolder).toHaveBeenCalledWith("/other")
+    await view.close()
   })
   it("routes local links and fragments, never opens unknown links", async () => {
     const { view, cx, io } = await ready()
@@ -370,6 +534,41 @@ describe("native reader lifecycle", () => {
     expect(cx.timers.length).toBe(refresh ? 1 : 0)
     await view.close()
   })
+  it("watches a missing first-open file and retries it on creation", async () => {
+    let report
+    watchFolder.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          report = resolve
+        }),
+    )
+    const { view, cx, io } = await ready(undefined, (io) =>
+      io.render.mockRejectedValueOnce(new Error("File not found")),
+    )
+    expect(view.session.manifest).toBeNull()
+    expect(watchFolder).toHaveBeenCalledWith("/workspace")
+    report(["/workspace/notes.md"])
+    await Promise.resolve()
+    cx.timers.at(-1).fire()
+    await cx.tasks.at(-1)
+    expect(io.render).toHaveBeenCalledTimes(2)
+    expect(view.session.manifest.file).toBe("/workspace/notes.md")
+    await view.close()
+  })
+  it("periodically retries an initial read failure and unresolved local links on macOS", async () => {
+    const { view, cx, io, data } = await ready(undefined, (io) =>
+      io.render.mockRejectedValueOnce(new Error("Missing root")),
+    )
+    const tick = cx.timer.every.mock.calls[0][1]
+    tick(cx)
+    expect(cx.timers).toHaveLength(1)
+    io.render.mockResolvedValueOnce({ ...data, unresolvedLinks: true })
+    cx.timers[0].fire()
+    await cx.tasks.at(-1)
+    tick(cx)
+    expect(cx.timers).toHaveLength(2)
+    await view.close()
+  })
   it("polls Linux ignored dependencies even when watchFolder succeeds", async () => {
     window.mockReturnValue({ platform: "linux" })
     const { view, cx, data, io } = await ready({
@@ -462,6 +661,13 @@ describe("native reader lifecycle", () => {
     view.link("https://herdr-markdown.invalid/link/2", cx)
     await cx.tasks.at(-1)
     expect(io.openExternal).toHaveBeenCalledWith("https://example.com/")
+  })
+  it("dismisses only its own overlay with Escape instead of moving another pane", async () => {
+    const { view, cx } = await ready({ overlay: "reader-overlay" })
+    render(view, cx).handlers.on_key_down({ key: "escape" })
+    expect(closeOverlay).toHaveBeenCalledExactlyOnceWith("reader-overlay")
+    expect(run).not.toHaveBeenCalled()
+    await view.close()
   })
   it("closes only its own overlay when given an overlay prop", async () => {
     const { view, cx } = await ready({

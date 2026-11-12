@@ -78,17 +78,89 @@ export function age(date, now = Date.now()) {
         : `${Math.floor(minutes / 1440)}d`
 }
 
-// Host exec timeouts do not bound a transport promise that never settles.
-export async function withDeadline(timer, ms, start, message) {
+const ERROR_LIMIT = 1600
+
+// CLI and host diagnostics can contain credentials. Apply this to git errors too.
+export function safeDiagnostic(message) {
+  return String(message)
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, "[redacted]")
+    .replace(
+      /\b(?:authorization|(?:github|gh)_token|(?:access[_ -]?)?token)\b[^\r\n]*/gi,
+      "[redacted credentials]",
+    )
+    .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, "$1[redacted]@")
+    .slice(0, ERROR_LIMIT)
+}
+
+// Only locally generated recovery is eligible for the visible help area.
+class RequestError extends Error {
+  constructor(message, recovery) {
+    super(`${safeDiagnostic(message).slice(0, ERROR_LIMIT - recovery.length - 1)}\n${recovery}`)
+    this.recovery = recovery
+  }
+}
+
+export function safeFailure(error) {
+  return error instanceof RequestError
+    ? { message: error.message, recovery: error.recovery }
+    : { message: safeDiagnostic(error?.message || error), recovery: "" }
+}
+
+// Reject malformed CLI data before it reaches native rendering or URL dispatch.
+export function checkedItem(value, number = null) {
+  const valid =
+    value &&
+    !Array.isArray(value) &&
+    Number.isSafeInteger(value.number) &&
+    value.number > 0 &&
+    (number === null || value.number === number) &&
+    typeof value.title === "string" &&
+    ["OPEN", "CLOSED", "MERGED"].includes(value.state) &&
+    typeof value.url === "string" &&
+    /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/(?:issues|pull)\/[1-9]\d*$/i.test(
+      value.url,
+    ) &&
+    value.url.endsWith(`/${value.number}`) &&
+    (value.body == null || typeof value.body === "string") &&
+    (value.updatedAt == null || typeof value.updatedAt === "string") &&
+    (value.author == null || typeof value.author.login === "string") &&
+    (value.labels == null ||
+      (Array.isArray(value.labels) &&
+        value.labels.every((label) => label && typeof label.name === "string"))) &&
+    ["headRefName", "baseRefName", "reviewDecision"].every(
+      (field) => value[field] == null || typeof value[field] === "string",
+    )
+  if (!valid) throw new Error("GitHub CLI returned invalid item data. Update gh and retry.")
+  return value
+}
+
+export function checkedList(value) {
+  if (!Array.isArray(value) || value.length > LIMIT)
+    throw new Error("GitHub CLI returned an invalid list. Update gh and retry.")
+  const numbers = new Set()
+  for (const item of value) {
+    checkedItem(item)
+    if (numbers.has(item.number)) throw new Error("GitHub CLI returned duplicate items. Retry.")
+    numbers.add(item.number)
+  }
+  return value
+}
+
+// A host deadline bounds child execution; this also bounds unsettled transport promises.
+export async function withDeadline(timer, ms, start, message, cancellations = null) {
   let watchdog
+  let cancel
   try {
     return await Promise.race([
       new Promise((_resolve, reject) => {
+        cancel = () => reject(new Error("Request cancelled."))
+        cancellations?.add(cancel)
         watchdog = timer.after(ms, () => reject(new Error(message)))
       }),
       Promise.resolve().then(start),
     ])
   } finally {
+    cancellations?.delete(cancel)
     watchdog?.cancel()
   }
 }
@@ -103,22 +175,19 @@ export function createGitHub(exec, platform, machine = null) {
       "The GitHub CLI machine must be null or a nonblank name without control characters.",
     )
   }
-  const location = machine === null ? "this machine" : `machine ${JSON.stringify(machine)}`
+  // Bound the displayed name, not the machine used for command routing.
+  const location =
+    machine === null
+      ? "this machine"
+      : `machine ${JSON.stringify(safeDiagnostic(machine).slice(0, 160))}`
   let runner
   let discovery = 0
 
   function requestError(message, transport = "gh") {
-    // CLI and host diagnostics can contain credentials. Do not show token values.
-    const safe = String(message)
-      .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, "[redacted]")
-      .replace(
-        /\b(?:authorization|(?:github|gh)_token|(?:access[_ -]?)?token)\b[^\r\n]*/gi,
-        "[redacted credentials]",
-      )
-      .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, "$1[redacted]@")
     const login = transport === "WSL gh" ? "wsl.exe --exec gh auth login" : "gh auth login"
-    return new Error(
-      `${safe.slice(0, 1600)}\nGitHub CLI: ${transport} on ${location}.\nFor authentication, run: ${login} on ${location}.`,
+    return new RequestError(
+      message,
+      `GitHub CLI: ${transport} on ${location}.\nFor authentication, run: ${login} on ${location}.`,
     )
   }
 

@@ -1,7 +1,7 @@
 import { Button, h_flex, Input, InputState, Scrollbar, v_flex } from "gpui-base"
 import { div, svg, View } from "gpui-kit"
 import { closeOverlay, props, theme } from "herdr"
-import { actionsFor, GALLERY_URL, ManagerSession } from "./manager.js"
+import { actionsFor, GALLERY_URL, ManagerSession, sourceURL } from "./manager.js"
 import { createIO } from "./runtime.js"
 import { renderSidebarFooter } from "./sidebar.js"
 
@@ -38,6 +38,8 @@ const PROGRESS_LABELS = {
   "check-update": "Checking for updates…",
   migrate: "Migrating ownership…",
 }
+const TRUST_WARNING =
+  "Mods run with your account access and can load immediately. Review the source before installing."
 const PLACEMENT_POLICY =
   "Placement: omitted, none, left, right, top and bottom are accepted. A mod may dock immediately. The manager does not edit layouts or keybindings."
 const SOURCE_LABELS = {
@@ -92,6 +94,8 @@ export default class ModManager extends View {
   loadStarted = false
   operationQueued = false
   queuedProgress = "Working…"
+  showWarnings = false
+  warningsShown = 20
   /** @type {Record<LibrarySection, import("gpui-base").InputState>} */
   searches
   /** @type {import("gpui-base").InputState} */
@@ -135,6 +139,7 @@ export default class ModManager extends View {
   close() {
     // A committed backend transaction must finish or reconcile on the next open.
     this.closed = true
+    this.session?.cancelUpdateCheck()
   }
 
   /** @param {Context} cx @param {boolean} [initial] @param {LibrarySection} [section] */
@@ -210,7 +215,7 @@ export default class ModManager extends View {
     this.noticeError = true
   }
 
-  /** @param {() => Promise<{message?: string}>} start @param {Context} cx */
+  /** @param {(onChange: () => void) => Promise<{message?: string}>} start @param {Context} cx */
   perform(start, cx, confirming = false, progress = "Working…") {
     if (this.closed || (this.confirming() && !confirming)) return
     if (
@@ -232,16 +237,18 @@ export default class ModManager extends View {
     // Reserve the view gate now, but start host work only inside the unowned task.
     this.operationQueued = true
     this.queuedProgress = progress
-    this.notice = `${progress} Do not edit these mods or quit Herdr until the operation finishes.`
+    this.notice =
+      progress === PROGRESS_LABELS["check-update"]
+        ? "Checking does not change installed files. Stop checks waits for the current repository."
+        : `${progress} Closing this dialog does not cancel the operation. Do not edit these mods or quit Herdr until it finishes.`
     this.noticeError = false
-    let finish = () => {}
-    const completed = new Promise((resolve) => {
-      finish = () => resolve(undefined)
-    })
+    // Signal an owned redraw task; an unowned task must never use a view context.
+    let wake = () => {}
+    let completed = false
     cx.spawn(
       async () => {
         try {
-          const result = await start()
+          const result = await start(() => wake())
           this.notice =
             result.message || "File operation verified. Runtime reload is not confirmed."
           this.noticeError = false
@@ -249,13 +256,19 @@ export default class ModManager extends View {
           this.reportError(error)
         } finally {
           this.operationQueued = false
-          finish()
+          completed = true
+          wake()
         }
       },
       { owner: null },
     )
     cx.spawn(async (cx) => {
-      await completed
+      while (!completed && !this.closed) {
+        await new Promise((resolve) => {
+          wake = () => resolve(undefined)
+        })
+        if (!this.closed) cx.notify()
+      }
       if (!this.closed) cx.notify()
     })
     cx.notify()
@@ -285,10 +298,10 @@ export default class ModManager extends View {
   checkUpdates(cx) {
     if (this.closed || this.confirming() || this.busy()) return
     this.perform(
-      async () => {
-        await this.session.checkUpdates()
-        return { message: "Update check complete. See each mod for results." }
-      },
+      async (onChange) =>
+        this.closed
+          ? { message: "Update check stopped before it started." }
+          : this.session.checkUpdates(onChange),
       cx,
       false,
       PROGRESS_LABELS["check-update"],
@@ -300,7 +313,11 @@ export default class ModManager extends View {
   }
 
   mutationBlocked() {
-    return Boolean(this.session.migration?.required || this.session.migration?.blocked)
+    return Boolean(
+      this.session.readOnlyReason ||
+        this.session.migration?.required ||
+        this.session.migration?.blocked,
+    )
   }
 
   busy() {
@@ -383,6 +400,7 @@ export default class ModManager extends View {
         : "")
     const locked = Boolean(this.busy() || this.confirming() || this.mutationBlocked() || reason)
     const updateError = this.session.updateErrors[mod.id]
+    const source = sourceURL(mod)
     return v_flex()
       .id(`mod-${mod.id}`)
       .w_full()
@@ -459,6 +477,21 @@ export default class ModManager extends View {
                     element.child(badge("Update available", t.accent)),
                   ),
               ),
+          )
+          .when(Boolean(source), (element) =>
+            element.child(
+              this.button(
+                `source-${mod.id}`,
+                mod.updateCommit ? "Update source" : "Source",
+                "github",
+                (cx) => this.openLink(source, mod.updateCommit ? "Update source" : "Source", cx),
+                this.confirming(),
+              ).tooltip(
+                mod.updateCommit
+                  ? "Review the checked update revision, not the installed revision, before updating."
+                  : "Review the recorded GitHub source before installing or updating.",
+              ),
+            ),
           )
           .children(
             actionsFor(mod).map((action) =>
@@ -541,7 +574,11 @@ export default class ModManager extends View {
                 ),
           ),
       )
-      .when(gallery, (element) => element.child(text(GALLERY_URL, 10, t.dim).flex_none()))
+      .when(gallery, (element) =>
+        element
+          .child(text(GALLERY_URL, 10, t.dim).flex_none())
+          .child(text(TRUST_WARNING, 11, t.blocked).flex_none()),
+      )
       .when(!gallery, (element) =>
         element.child(
           this.button(
@@ -655,7 +692,8 @@ export default class ModManager extends View {
           .gap(7)
           .flex_none()
           .child(text("From GitHub", 23).font_semibold())
-          .child(text("Install a mod from a public GitHub repository.", 12, t.muted)),
+          .child(text("Install a mod from a public GitHub repository.", 12, t.muted))
+          .child(text(TRUST_WARNING, 11, t.blocked)),
       )
       .child(
         scrollArea(
@@ -757,16 +795,87 @@ export default class ModManager extends View {
 
   /** @param {Context} cx */
   openGallery(cx) {
+    this.openLink(GALLERY_URL, "Gallery", cx)
+  }
+
+  /** @param {string} url @param {string} label @param {Context} cx */
+  openLink(url, label, cx) {
     if (this.closed || this.confirming()) return
     try {
-      cx.open_url(GALLERY_URL)
+      cx.open_url(url)
       this.noticeError = false
-      this.notice = "Gallery link sent to your browser."
+      this.notice = `${label} link sent to your browser.`
     } catch {
       this.noticeError = true
-      this.notice = `Could not open the browser. Use the Gallery URL: ${GALLERY_URL}`
+      this.notice = `Could not open the browser. Use the ${label} URL: ${url}`
     }
     cx.notify()
+  }
+
+  warningStatus() {
+    const t = colors()
+    const warnings = this.session.warnings
+    return v_flex()
+      .id("inventory-warnings")
+      .gap(6)
+      .flex_none()
+      .child(
+        this.button(
+          "toggle-warnings",
+          `${this.showWarnings ? "Hide" : "Show"} warnings (${warnings.length})`,
+          "shield",
+          (cx) => {
+            this.showWarnings = !this.showWarnings
+            this.warningsShown = 20
+            cx.notify()
+          },
+        ),
+      )
+      .when(this.showWarnings, (element) =>
+        element.child(
+          v_flex()
+            .h(112)
+            .child(
+              scrollArea(
+                "warning-details",
+                v_flex()
+                  .gap(6)
+                  .children(
+                    warnings
+                      .slice(0, this.warningsShown)
+                      .map((warning) => text(warning, 11, t.blocked)),
+                  )
+                  .when(warnings.length > this.warningsShown, (list) =>
+                    list.child(
+                      this.button("more-warnings", "Show more warnings", "plus", (cx) => {
+                        this.warningsShown += 20
+                        cx.notify()
+                      }),
+                    ),
+                  ),
+              ),
+            ),
+        ),
+      )
+  }
+
+  readOnlyStatus() {
+    const t = colors()
+    return v_flex()
+      .id("read-only-status")
+      .gap(6)
+      .flex_none()
+      .child(text("Read-only inventory. File actions are unavailable.", 12, t.blocked))
+      .child(text(this.session.readOnlyReason, 11, t.muted))
+      .child(
+        this.button(
+          "retry-backend",
+          "Retry local backend",
+          "arrow",
+          (cx) => this.load(cx, false, "installed"),
+          this.busy() || this.confirming(),
+        ),
+      )
   }
 
   migrationStatus() {
@@ -1041,6 +1150,37 @@ export default class ModManager extends View {
                     .flex_none(),
                 ),
               )
+              .when(Boolean(this.session.updateCheck), (element) => {
+                const check = this.session.updateCheck
+                return element.child(
+                  h_flex()
+                    .gap(10)
+                    .items_center()
+                    .flex_none()
+                    .child(
+                      text(
+                        `${check.completed} of ${check.total} checked${check.name ? ` · ${check.name}` : ""}`,
+                        11,
+                        t.muted,
+                      )
+                        .flex_1()
+                        .truncate(),
+                    )
+                    .child(
+                      this.button(
+                        "stop-update-checks",
+                        check.cancelRequested ? "Stopping…" : "Stop checks",
+                        "close",
+                        (cx) => {
+                          if (this.session.updateCheck !== check) return
+                          this.session.cancelUpdateCheck()
+                          cx.notify()
+                        },
+                        check.cancelRequested,
+                      ),
+                    ),
+                )
+              })
               .when(Boolean(this.notice), (element) =>
                 element.child(
                   text(this.notice, 11, this.noticeError ? t.blocked : t.accent)
@@ -1069,7 +1209,16 @@ export default class ModManager extends View {
                     .flex_none(),
                 ),
               )
-              .when(this.mutationBlocked(), (element) => element.child(this.migrationStatus()))
+              .when(Boolean(this.session.readOnlyReason), (element) =>
+                element.child(this.readOnlyStatus()),
+              )
+              .when(Boolean(this.session.warnings.length), (element) =>
+                element.child(this.warningStatus()),
+              )
+              .when(
+                Boolean(this.session.migration?.required || this.session.migration?.blocked),
+                (element) => element.child(this.migrationStatus()),
+              )
               .child(
                 this.session.confirmation
                   ? this.confirmation()

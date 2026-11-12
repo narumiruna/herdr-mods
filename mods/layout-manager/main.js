@@ -30,7 +30,7 @@ import {
   validName,
 } from "./model.js"
 import { discoverMods, includeMissing, overlaySpec, readSnapshot, saveSnapshot } from "./runtime.js"
-import { ordinaryNodes, placementError, placeNode } from "./tree.js"
+import { ordinaryNodes, placementError, placementValidator, placeNode } from "./tree.js"
 
 const SIDES = ["left", "right", "top", "bottom"]
 const sideTitle = (side) => side[0].toUpperCase() + side.slice(1)
@@ -80,7 +80,12 @@ export default class LayoutManager extends View {
     this.request = 0
     this.limit = 100
     this.drafts = new Map()
+    this.layoutDrafts = new Map()
+    this.draftLayout = null
+    this.propertiesBase = "{}"
+    this.confirmClose = false
     this.needsRefresh = false
+    this.undo = null
     /** @type {{kind: string, name?: string, id?: string, origin: {x: number, y: number}, active: boolean} | null} */
     this.drag = null
     this.dropTarget = null
@@ -95,6 +100,12 @@ export default class LayoutManager extends View {
       cx.notify()
     })
     this.properties = TextareaState.new({ value: "{}", rows: 6 })
+    this.properties.on("change", (_event, cx) => {
+      if (this.closed) return
+      this.keepDraft()
+      this.confirmClose = false
+      cx.notify()
+    })
     this.cloneName = InputState.new({ placeholder: "Personal layout name" })
     this.refresh(cx)
   }
@@ -106,6 +117,7 @@ export default class LayoutManager extends View {
     this.nodeSource = null
     this.nodeTarget = null
     this.closed = true
+    this.undo = null
     this.search?.release()
     this.properties?.release()
     this.cloneName?.release()
@@ -113,8 +125,10 @@ export default class LayoutManager extends View {
   }
 
   refresh(cx) {
-    if (this.busy) return
+    if (this.busy || this.closed) return
+    this.keepDraft()
     this.cancelDrag(cx)
+    this.undo = null
     const name = this.io.currentName()
     if (name !== this.loadedName) {
       this.nodeSource = null
@@ -146,7 +160,9 @@ export default class LayoutManager extends View {
         ),
       ].join("\n")
       this.loading = false
-      this.drafts = new Map()
+      this.keepDraft()
+      this.drafts = this.layoutDrafts.get(name) ?? new Map()
+      this.layoutDrafts.set(name, this.drafts)
       const selected = this.mods.some((mod) => mod.name === this.selected)
         ? this.selected
         : this.mods[0]?.name
@@ -158,12 +174,39 @@ export default class LayoutManager extends View {
     cx.notify()
   }
 
+  keepDraft() {
+    if (!this.selected || this.draftLayout === null) return
+    const drafts = this.layoutDrafts.get(this.draftLayout)
+    const text = this.properties.value()
+    if (text === this.propertiesBase) drafts?.delete(this.selected)
+    else drafts?.set(this.selected, text)
+  }
+
+  hasDrafts() {
+    return (
+      (Boolean(this.selected) && this.properties.value() !== this.propertiesBase) ||
+      [...this.layoutDrafts.values()].some((drafts) => drafts.size > 0)
+    )
+  }
+
+  requestClose(cx) {
+    if (this.busy || this.closed) return
+    this.keepDraft()
+    if (!this.hasDrafts()) return closeOverlay(this.entry.overlay)
+    this.cancelDrag(cx)
+    this.confirmClose = true
+    cx.notify()
+  }
+
   selectMod(name, cx, reset = false) {
-    if (this.busy) return
-    if (this.selected && !reset) this.drafts.set(this.selected, this.properties.value())
+    if (this.busy || this.closed || (this.loading && !reset)) return
+    if (!reset) this.keepDraft()
     this.selected = name ?? null
+    this.draftLayout = this.loadedName
     const slot = this.snapshot?.slots.find((item) => item.name === name)
-    this.properties.set_value(this.drafts.get(name) ?? JSON.stringify(slot?.props ?? {}, null, 2))
+    this.propertiesBase = JSON.stringify(slot?.props ?? {}, null, 2)
+    this.properties.set_value(this.drafts.get(name) ?? this.propertiesBase)
+    this.confirmClose = false
     cx.notify()
   }
 
@@ -209,7 +252,8 @@ export default class LayoutManager extends View {
       cx.notify()
       return
     }
-    this.drafts.set(mod.name, JSON.stringify(properties, null, 2))
+    const draftText = this.properties.value()
+    this.keepDraft()
     this.saveChange(
       cx,
       (tree) =>
@@ -220,6 +264,7 @@ export default class LayoutManager extends View {
         ? `Removed ${mod.title} from ${snapshot.name}. Mod files were not changed.`
         : `Saved ${mod.title} in ${snapshot.name}.`,
       remove ? null : mod.name,
+      remove ? null : { name: mod.name, text: draftText },
     )
   }
 
@@ -234,20 +279,48 @@ export default class LayoutManager extends View {
     )
   }
 
+  canUndo() {
+    return Boolean(
+      this.canEdit() &&
+        this.undo?.after === this.snapshot &&
+        this.io.currentName() === this.snapshot.name,
+    )
+  }
+
+  undoLastChange(cx) {
+    if (!this.canUndo()) return
+    const before = this.undo.before
+    this.keepDraft()
+    this.saveChange(cx, () => before.tree, "Undid last layout change.", null, null, true)
+  }
+
   /** Save one guarded layout change; reveal only when the action must show a mod. */
-  saveChange(cx, transform, notice, reveal = null) {
+  saveChange(cx, transform, notice, reveal = null, savedDraft = null, undoing = false) {
     if (!this.canEdit()) return
     const snapshot = this.snapshot
     this.cancelDrag(cx)
     this.busy = true
+    this.confirmClose = false
     this.error = ""
     this.notice = ""
     cx.notify()
     cx.spawn(async (cx) => {
       try {
+        if (this.closed) return
         const next = await saveSnapshot(this.io, snapshot, transform)
         if (this.closed) return
         this.snapshot = next
+        if (next !== snapshot) this.undo = undoing ? null : { before: snapshot, after: next }
+        if (undoing) {
+          this.reveal = null
+          const slot = next.slots.find((item) => item.name === this.selected)
+          this.propertiesBase = JSON.stringify(slot?.props ?? {}, null, 2)
+          this.properties.set_value(this.drafts.get(this.selected) ?? this.propertiesBase)
+        }
+        if (savedDraft && this.selected === savedDraft.name) {
+          this.propertiesBase = savedDraft.text
+          this.keepDraft()
+        }
         this.mods = includeMissing(
           this.mods.filter((item) => !item.missing),
           next,
@@ -329,7 +402,10 @@ export default class LayoutManager extends View {
     const draft =
       source.name === this.selected
         ? this.properties.value()
-        : (this.drafts.get(source.name) ?? "{}")
+        : (this.drafts.get(source.name) ??
+          JSON.stringify(
+            this.snapshot?.slots.find((slot) => slot.name === source.name)?.props ?? {},
+          ))
     return { kind: "new", name: source.name, props: parseProps(draft) }
   }
 
@@ -768,7 +844,7 @@ export default class LayoutManager extends View {
       )
       .when(children.length > 0, (element) =>
         element.child(
-          (node.type === "row" ? h_flex() : v_flex())
+          (node.type === "row" ? h_flex().items_start() : v_flex())
             .flex_none()
             .gap(6)
             .children(children.map((child) => this.previewNode(child, depth + 1, sizes))),
@@ -858,11 +934,9 @@ export default class LayoutManager extends View {
         // Invalid new-view drafts have no eligible targets.
       }
     }
+    const validator = dragged ? placementValidator(this.snapshot.tree, dragged) : null
     this.renderTargets = new Map(
-      entries.map(({ node }) => [
-        node.id,
-        dragged && !placementError(this.snapshot.tree, dragged, node.id, "left"),
-      ]),
+      entries.map(({ node }) => [node.id, Boolean(validator && !validator.error(node.id, "left"))]),
     )
     const source = this.nodeSource
     const text =
@@ -874,7 +948,7 @@ export default class LayoutManager extends View {
       .child(label("Layout tree", 15).font_semibold())
       .child(
         label(
-          "Drag an existing node to move it. Inventory grips add a new view. Drop beside any node.",
+          "Move: select a node ID, choose Target, then a side to save. Or drag its grip. Add new view creates another instance.",
           11,
           t.muted,
         ),
@@ -934,8 +1008,7 @@ export default class LayoutManager extends View {
                 sideTitle(side),
                 (cx) => this.placeOrdinary(cx, this.nodeSource, this.nodeTarget, side),
                 {
-                  disabled:
-                    !this.canEdit() || Boolean(this.ordinaryError(source, this.nodeTarget, side)),
+                  disabled: !this.canEdit() || Boolean(problem),
                 },
               )
                 .accessibility_label(`Place ${text} ${side} of ${this.nodeTarget ?? "destination"}`)
@@ -1104,7 +1177,7 @@ export default class LayoutManager extends View {
 
   editor() {
     if (!this.snapshot) return div()
-    return v_flex().flex_none().gap(20).child(this.treeEditor()).child(this.legacyEditor())
+    return v_flex().flex_none().gap(20).child(this.treeEditor())
   }
 
   legacyEditor() {
@@ -1241,7 +1314,21 @@ export default class LayoutManager extends View {
                     .gap(5)
                     .items_center()
                     .child(this.dragHandle(`drag-new-mod-${mod.name}`, "new", mod.name, "⠿"))
-                    .child(label(mod.title, 12).truncate()),
+                    .child(
+                      this.button(
+                        `select-mod-${mod.name}`,
+                        mod.title,
+                        (cx) => this.selectMod(mod.name, cx),
+                        { disabled: this.loading || this.busy },
+                      )
+                        .h(28)
+                        .px(4)
+                        .flex_1()
+                        .min_w(0)
+                        .truncate()
+                        .accessibility_label(`Select mod ${mod.title}`)
+                        .tooltip(mod.name),
+                    ),
                 )
                 .child(
                   label(
@@ -1274,6 +1361,7 @@ export default class LayoutManager extends View {
 
   detail() {
     const t = colors()
+    if (this.loading) return label("Reading installed mods…", 13, t.muted)
     const mod = this.mods.find((item) => item.name === this.selected)
     if (!mod)
       return label(
@@ -1324,6 +1412,13 @@ export default class LayoutManager extends View {
         ),
       )
       .child(label("Props · JSON object", 12).font_medium())
+      .child(
+        label(
+          "Props drafts stay in this dialog across Refresh and layout changes. They are not saved when the dialog closes.",
+          11,
+          t.muted,
+        ),
+      )
       .child(
         Textarea.new(this.properties)
           .h(132)
@@ -1451,15 +1546,52 @@ export default class LayoutManager extends View {
           .child(div().flex_1())
           .child(label(`Layout: ${current || "unavailable"}`, 12, t.muted))
           .child(
+            this.button("undo-layout-change", "Undo last change", (cx) => this.undoLastChange(cx), {
+              disabled: !this.canUndo(),
+            }),
+          )
+          .child(
             this.button("refresh", "Refresh", (cx) => this.refresh(cx), {
               disabled: this.loading || this.busy,
             }),
           )
           .when(Boolean(this.entry.overlay), (element) =>
             element.child(
-              this.button("close-layout-manager", "Close", () => closeOverlay(this.entry.overlay)),
+              this.button("close-layout-manager", "Close", (cx) => this.requestClose(cx), {
+                disabled: this.busy,
+              }),
             ),
           ),
+      )
+      .when(this.confirmClose, (element) =>
+        element.child(
+          v_flex()
+            .flex_none()
+            .p(12)
+            .gap(8)
+            .bg(t.chrome)
+            .child(
+              label("Unsaved props drafts will be lost when this dialog closes.", 12, t.blocked),
+            )
+            .child(
+              h_flex()
+                .gap(8)
+                .child(
+                  this.button("keep-editing", "Keep editing", (cx) => {
+                    this.confirmClose = false
+                    cx.notify()
+                  }),
+                )
+                .child(
+                  this.button(
+                    "discard-drafts-close",
+                    "Discard drafts and close",
+                    () => closeOverlay(this.entry.overlay),
+                    { danger: true },
+                  ),
+                ),
+            ),
+        ),
       )
       .child(
         h_flex()
@@ -1536,8 +1668,12 @@ export default class LayoutManager extends View {
                     ),
                 ),
               )
-              .child(this.editor())
-              .child(this.detail().flex_none()),
+              .when(!this.loading, (element) =>
+                element
+                  .child(this.editor())
+                  .child(this.detail().flex_none())
+                  .when(Boolean(this.snapshot), (item) => item.child(this.legacyEditor())),
+              ),
           ),
       )
       .child(

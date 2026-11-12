@@ -23,6 +23,9 @@ const cases = [
   "error",
   "empty",
   "many-mods",
+  "props-draft",
+  "close-drafts",
+  "undo-ready",
   "ordinary-deep",
   "ordinary-small",
   "ordinary-hidden",
@@ -87,6 +90,7 @@ export default class extends LayoutManager {
     this.loadedName = this.io.currentName()
     let tree = state.startsWith("managed") || state.startsWith("drag") || state === "missing" ? managed : original
     if (state.startsWith("managed-")) tree = moveDock(tree,state.slice("managed-".length))
+    if (state === "undo-ready") tree = placeNode(original,{kind:"new",name:"example"},"existing","bottom")
     if (state.startsWith("ordinary-")) tree = detailed
     if (state === "ordinary-root-wrapped") tree = placeNode(original,{kind:"new",name:"example",props:{root:true}},"original","top")
     if (state === "ordinary-legacy-coexistence") tree = placeNode(managed,{kind:"new",name:"example",props:{ordinary:true}},"existing","bottom")
@@ -96,12 +100,19 @@ export default class extends LayoutManager {
       {id:"empty-stack",type:"stack",children:[]}
     ]}
     this.snapshot = {name:this.loadedName,path:"/fixture/layouts/fixture.json",tree,raw:JSON.stringify(tree),slots:managedSlots(tree),shipped:state === "shipped"}
+    if (state === "undo-ready") this.undo = {before:{...this.snapshot,tree:original,raw:JSON.stringify(original),slots:[]},after:this.snapshot}
     this.mods = state === "missing" ? [{...example,available:false,missing:true,error:"Not installed. Reinstall the same folder name to reuse this panel and its props."}] : [example]
     if (state === "many-mods") this.mods = Array.from({length:140},(_,i)=>({...example,name:"example-"+i,title:"Example Mod "+i}))
     this.loading = state === "loading"
     if (state === "empty") this.mods = []
     if (state === "error") { this.error = "installed.json is invalid. Layout editing is blocked."; this.snapshot = null }
+    this.layoutDrafts.set(this.loadedName,this.drafts)
     this.selectMod(this.mods[0]?.name,cx,true)
+    if (state === "props-draft" || state === "close-drafts") {
+      this.properties.set_value('{"unsaved":"example"}')
+      this.keepDraft()
+      this.confirmClose = state === "close-drafts"
+    }
     this.reconcileNodes?.()
     if (state === "ordinary-deep") this.selectNodeSource("deep-leaf",cx)
     if (state === "ordinary-small") this.selectNodeSource("small",cx)

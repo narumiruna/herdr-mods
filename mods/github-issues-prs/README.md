@@ -2,6 +2,9 @@
 
 Read Issues and Pull Requests inside Herdr. The panel follows the focused
 terminal's GitHub `origin`. It supports github.com. This mod remains read-only.
+[RECIPE.md](RECIPE.md) is the rebuild brief. An inspected actual native
+`preview.png` is included. The bundle remains incomplete until the required
+disposable-profile interaction checks pass.
 
 ## Interface
 
@@ -13,15 +16,19 @@ terminal's GitHub `origin`. It supports github.com. This mod remains read-only.
   - Left/Right, Home, and End select tabs. Enter/Space activate buttons.
 - **Search:** enter a title or GitHub qualifiers, then press Enter or select
   the search icon. Examples: `label:bug`, `author:@me`, `assignee:@me`,
-  `review-requested:@me` for Pull Requests.
+  `review-requested:@me` for Pull Requests. A hint identifies the applied search
+  when the draft changes. Clear search resets both the draft and applied query.
 - **Status:** Open, Closed, or All. Closed Pull Requests include merged ones.
 - **List:** select a row to read its description. Titles wrap; metadata shows
   state, number, author, and update time.
 - **Detail:** the back button or Escape returns to the list. The external-link
   icon opens the item on GitHub. List search and filters are hidden while reading.
 - **Empty states:** a non-Git folder or non-GitHub origin shows a neutral
-  explanation, not a fatal error. Operational failures show Retry; hover the
-  error summary to see the full diagnostic.
+  explanation, not a fatal error. Operational failures show Retry. CLI list and
+  detail errors show generated machine, CLI, and login help as wrapped text.
+  Hover the summary to see the redacted diagnostic and help (at most 1,600 characters).
+  Help is not taken from CLI output. Recovery labels use at most 160 characters
+  of the redacted machine name before JSON quoting; command routing uses the full name.
 
 There is no repository input, Use button, or Auto button. A layout or pane
 may still pass `props: {"repo":"owner/repo"}` to pin a repository explicitly.
@@ -48,6 +55,11 @@ workspace changes do not change that repository or machine.
 - Each command has a native deadline even if its transport promise does not settle.
   - A timeout ends Loading and shows Retry.
   - A new request does not reuse unfinished CLI discovery.
+- Malformed CLI data produces a retry error instead of entering native rendering.
+  External item buttons accept only HTTPS github.com issue or PR URLs.
+- Closing a copy cancels its timers and command watchdogs, releases retained input
+  and focus handles, and ignores late results. This does not terminate a running
+  child command early; the host's command timeout still applies.
 
 The list contains at most 100 results. Descriptions are limited to 80,000
 characters. Comments, diffs, and CI checks are not shown.
@@ -108,7 +120,11 @@ GitHub block ID as `github`. Keep the layout's existing sizes, Files and Changes
 blocks, and window settings. The tab-bar button selects that block and shows the
 shared right panel; clicking it again closes the panel. Each space remembers its
 panel choice in local storage. The tab bar keeps terminal tab actions and window
-controls. It uses the shipped Files, Changes, pane, and workspace-chrome assets.
+controls. Panel buttons appear only when their target exists in `panel-body`.
+Controls are keyboard focusable. Vertical wheel navigation applies only over the
+tab strip, not panel or window buttons. All fixed icons are included in `icons/`;
+program icons still come from Herdr. The tab menu and new-tab popup use Herdr's
+shipped `menu` and `new-menu` mods.
 
 `main.js` selects the mode once when each copy starts. `tabs.js` contains the
 tab-bar controller, based on the shipped Tabs mod from Herdr App 0.1.14. This
@@ -132,13 +148,20 @@ herdr-app do tab.new --name "GitHub Issues & PRs" --mod github-issues-prs
 From the repository root:
 
 ```sh
-bun test mods/github-issues-prs/github.test.js
-herdr-app check mods/github-issues-prs
+npm run test --workspace herdr-github-issues-prs
+npm run check:mod --workspace herdr-github-issues-prs
+npm run check:types --workspace herdr-github-issues-prs
+npm run check --workspace herdr-github-issues-prs
 ```
 
-Tests cover both entry-point modes and the layout examples above. They do not
-need personal layouts or a separate tab-bar installation. Native validation does
-not prove live rendering or interaction. The profile owner must verify:
+Unit tests cover both entry-point modes, search drafts, malformed responses,
+request ordering, cleanup, and the layout examples above. `check:mod` uses a
+disposable profile, checks this mod, then checks nine native descriptions with
+fixture data and no GitHub access. It generates ignored SDK declarations needed
+by `check:types`; do not put these declarations or `node_modules/` in a bundle.
+These checks passed with Herdr App 0.1.15. Other versions and platforms remain
+unverified. Eager native checks do not prove painting or physical interaction.
+The profile owner must verify in a disposable profile:
 
 1. Both views load from one installation; the tab-bar copy makes no GitHub calls.
 2. GitHub, Files, and Changes switch the right panel, and each space remembers its
@@ -147,5 +170,8 @@ not prove live rendering or interaction. The profile owner must verify:
 4. The default panel follows local and remote repositories, searches and previews
    items, and handles failed commands without changing accounts.
 
-No live-profile migration or native interaction check has been performed for
-this consolidation.
+No live-profile migration, native interaction check, or authenticated GitHub
+request was performed. The existing preview shows the list, not the updated error
+states. Owner inspection of those states is still required before sharing.
+No `keys.json` is needed. Existing app shortcuts remain in place; modified arrow
+keys are not handled by the panel's type tabs.

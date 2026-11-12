@@ -13,7 +13,7 @@ import {
   STACK_ID,
   validateLayout,
 } from "./model.js"
-import { ordinaryNodes, placementError, placeNode } from "./tree.js"
+import { ordinaryNodes, placementError, placementValidator, placeNode } from "./tree.js"
 
 const block = (id, fields = {}) => ({ id, type: "block", content: { terminal: id }, ...fields })
 const container = (id, type, children, fields = {}) => ({ id, type, children, ...fields })
@@ -123,6 +123,43 @@ describe("ordinary structural traversal", () => {
     expect(() => ordinaryNodes(freeze(input))).toThrow(/structure changed.*custom/)
     const invalid = container("root", "row", [block("a"), block("a")])
     expect(() => ordinaryNodes(freeze(invalid))).toThrow(/Duplicate layout id/)
+  })
+})
+
+describe("render-scoped placement validation", () => {
+  it.each([existing("a"), existing("root"), fresh(), fresh("alpha", []), null])(
+    "matches fresh validation for every side and destination with %j",
+    (source) => {
+      const input = container("root", "column", [
+        container("a", "row", [block("leaf")]),
+        block("b"),
+      ])
+      const validator = placementValidator(freeze(input), source)
+      for (const id of [...validator.entries.map(({ node }) => node.id), "missing", ""]) {
+        for (const side of ["left", "right", "top", "bottom", "invalid"]) {
+          expect(validator.error(id, side)).toBe(placementError(input, source, id, side))
+        }
+      }
+    },
+  )
+
+  it("does not revisit layout nodes when checking all destinations and sides", () => {
+    let reads = 0
+    const children = Array.from({ length: 1000 }, (_, index) => ({
+      ...block(`node-${index}`),
+      get id() {
+        reads += 1
+        return `node-${index}`
+      },
+    }))
+    const validator = placementValidator(container("root", "row", children), existing("node-0"))
+    const initialReads = reads
+    for (let index = 1; index < children.length; index += 1) {
+      for (const side of ["left", "right", "top", "bottom"]) {
+        expect(validator.error(`node-${index}`, side)).toBe("")
+      }
+    }
+    expect(reads).toBe(initialReads)
   })
 })
 

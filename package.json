@@ -16,10 +16,12 @@
     "check:views": "npm run check:views --workspaces --if-present",
     "check:types": "npm run check:types --workspaces --if-present",
     "check": "biome ci .",
+    "check:bundles": "node scripts/check-bundles.mjs",
+    "evidence:previews": "node scripts/native-previews.mjs",
     "test": "npm run test:scripts && npm run test --workspaces --if-present",
-    "test:scripts": "node --test scripts/mod-links.test.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:operations": "npm run test:operations --workspaces --if-present",
-    "ci": "npm run check && npm test && npm run check:types",
+    "ci": "npm run check && npm run check:bundles && npm test && npm run check:types",
     "changeset": "changeset",
     "release": "changeset publish",
     "prepare": "husky"
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
     "@changesets/cli": "^3.0.3",
+    "acorn": "^8.19.0",
     "husky": "^9.1.7",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"

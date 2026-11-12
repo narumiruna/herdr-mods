@@ -267,6 +267,55 @@ it("validates local links canonically and exposes external URLs only through exp
   expect(htmlOf(result)).not.toContain('href="https://example.test')
 })
 
+describe("local link recovery", () => {
+  it("tracks a missing target before creation and enables the link after creation", async () => {
+    const target = join(root, "later/guide.md")
+    const missing = await build("[Guide](later/guide.md#topic)")
+    expect(missing.links).toEqual({})
+    expect(missing.dependencies).toEqual([file, target])
+    expect(missing.unresolvedLinks).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+    await mkdir(dirname(target))
+    await writeFile(target, "# Topic")
+    const created = await build("[Guide](later/guide.md#topic)")
+    expect(Object.values(created.links)).toEqual([
+      { kind: "local", root, file: target, fragment: "topic" },
+    ])
+    expect(created.unresolvedLinks).toBe(false)
+    // Link validation checks paths, not the linked document's contents.
+    expect(open).not.toHaveBeenCalled()
+  })
+  it("tracks lexical and canonical link paths without permitting a root escape", async () => {
+    const target = join(root, "guide.md")
+    await symlink(target, join(root, "alias.md"))
+    const missing = await build("[Guide](alias.md)")
+    expect(missing.unresolvedLinks).toBe(true)
+    expect(missing.dependencies).toEqual([file, join(root, "alias.md")])
+    await writeFile(target, "# Guide")
+    const ready = await build("[Guide](alias.md)")
+    expect(ready.dependencies).toEqual([file, join(root, "alias.md"), target])
+    expect(ready.unresolvedLinks).toBe(false)
+    await writeFile(join(base, "outside.md"), "private")
+    await rm(join(root, "alias.md"))
+    await symlink(join(base, "outside.md"), join(root, "alias.md"))
+    const escaped = await build("[Guide](alias.md) [Outside](../missing.md)")
+    expect(escaped.links).toEqual({})
+    expect(escaped.dependencies).toEqual([file, join(root, "alias.md")])
+    expect(escaped.unresolvedLinks).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+  it("assigns sequential navigation tokens across many links", async () => {
+    const result = await build(
+      Array.from({ length: 1000 }, (_, i) => `[${i}](https://example.test/${i})`).join(" "),
+    )
+    expect(Object.keys(result.links)).toHaveLength(1000)
+    expect(result.links["https://herdr-markdown.invalid/link/999"]).toEqual({
+      kind: "external",
+      url: "https://example.test/999",
+    })
+  })
+})
+
 describe("local raster images", () => {
   it("uses file signatures rather than extension and tracks image dependencies", async () => {
     const image = join(root, "picture.not-png")

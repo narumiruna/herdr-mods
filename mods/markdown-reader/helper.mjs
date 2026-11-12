@@ -53,7 +53,9 @@ export async function runRequest(
   const abort = new AbortController()
   let renderer
   let cancelled = false
+  let completed = false
   const cancel = () => {
+    if (cancelled) return
     cancelled = true
     abort.abort()
     void Promise.resolve(renderer?.close()).catch(() => {})
@@ -87,17 +89,27 @@ export async function runRequest(
     })
     if (cancelled) throw new Error("Reading cancelled or rendering timed out")
     await cache.lease(location.job, result.assets)
-    return { ...result, job: location.job, signature: digest(JSON.stringify(result)) }
+    const manifest = { ...result, job: location.job, signature: digest(JSON.stringify(result)) }
+    completed = true
+    return manifest
   } finally {
     clearTimeout(deadline)
     clearInterval(poll)
     process.removeListener("SIGTERM", onSignal)
     process.removeListener("SIGINT", onSignal)
-    await renderer?.close()
-    if (cancelled) {
-      await rm(join(dirname(location.directory), "leases", `${location.job}.json`), { force: true })
-      await rm(path, { force: true })
-      await rm(`${path}.cancel`, { force: true })
+    let closed = false
+    try {
+      await renderer?.close()
+      closed = true
+    } finally {
+      if (cancelled || !completed || !closed)
+        await rm(join(dirname(location.directory), "leases", `${location.job}.json`), {
+          force: true,
+        })
+      if (cancelled) {
+        await rm(path, { force: true })
+        await rm(`${path}.cancel`, { force: true })
+      }
     }
   }
 }

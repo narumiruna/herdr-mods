@@ -26,6 +26,18 @@ const cases = [
     'this.session.discoveryStatus = "error"; this.session.discoveryError = "Fixture inventory unavailable. File operations are blocked."',
   ],
   ["empty-search", 'this.queries.gallery = "no-such-fixture"'],
+  [
+    "read-only",
+    'this.session.readOnlyReason = "Fixture backend unavailable. Install cached Python separately, then retry."',
+  ],
+  [
+    "warnings",
+    'this.session.warnings = ["Fixture registry target is missing; recover ownership before reinstall."]; this.showWarnings = true',
+  ],
+  [
+    "update-checks",
+    'this.session.pending = {id: "updates", action: "check-update"}; this.session.updateCheck = {completed: 1, total: 3, name: "Fixture repository", cancelRequested: false}',
+  ],
   ["confirmation", 'this.session.requestUninstall("mods:example/focus-mode//focus-mode")'],
   [
     "pending",

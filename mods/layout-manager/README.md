@@ -7,7 +7,8 @@ Move existing blocks and containers in a personal Herdr layout without editing J
 - Move an existing block or a complete container subtree by node ID.
 - Choose **Left**, **Right**, **Top**, or **Bottom** of a specific destination.
 - Use the scrollable canvas or outline. Deep, small, hidden, and inactive stack children remain reachable; there is no depth cutoff.
-- Use native source, destination, and placement buttons with the keyboard.
+- Use native inventory, source, destination, and placement buttons with the keyboard.
+- Keep edited props drafts through Refresh and layout changes while the dialog is open.
 - Add another view of an installed mod with explicit JSON props.
 - Keep unavailable mods' saved nodes and props; moving a saved node does not need its mod to be installed.
 - Keep the legacy managed panel, tab ordering, props, overlay, show, and hide controls.
@@ -51,14 +52,14 @@ For keyboard placement:
 2. Activate **Target** on the destination row.
 3. Check the **Source** and **Destination** IDs, then activate a placement-side button below the canvas.
 
-**Cancel** or **Escape** clears the ordinary source. Escape, pointer exit, an outside press, release outside a target, a new background press, Refresh, layout changes, and close cancel a pointer gesture. Keyboard selection does not itself write. Refresh discards unsaved props drafts and clears selections that no longer exist; switching layouts clears pending placement.
+**Cancel** or **Escape** clears the ordinary source. Escape, pointer exit, an outside press, release outside a target, a new background press, Refresh, layout changes, and close cancel a pointer gesture. Keyboard selection does not itself write. Refresh keeps edited props drafts and clears selections that no longer exist; switching layouts clears pending placement. The previous editor is hidden during loading.
 
 ## Add a new mod view
 
-Search the inventory by title or folder name. Select a mod and edit **Props** if needed. Drag its inventory grip beside a destination node, or activate **Add new view**, choose **Target**, then activate a placement side.
+Search the inventory by title or folder name. Select its title button with the pointer or keyboard and edit **Props** if needed. Props appear after ordinary placement, before the legacy controls. Drag the inventory grip beside a destination node, or activate **Add new view**, choose **Target**, then activate a placement side.
 
 - **Add new view** always creates a new ordinary block with a collision-free ID, even if that mod already appears elsewhere.
-- The new block uses that mod's props draft, or `{}` by default. Invalid props and unavailable mods cannot be added.
+- The new block uses that mod's props in this order: its draft, its saved managed-panel props in the current layout, then `{}`. This order also applies if you select another inventory mod before placement; that other mod's draft is not used. Invalid source props and unavailable mods cannot be added.
 - Moving an existing node keeps its saved props and does not parse an unrelated draft.
 - Adding an ordinary view does not create or move the legacy managed dock.
 - To move one of several existing instances of the same mod, select its node ID in the canvas or outline instead of dragging from inventory.
@@ -103,7 +104,11 @@ Each changed placement writes only `layouts/<captured-name>.json`:
 
 A missing ordinary mod remains in the outline with its saved content. Missing managed mods also appear as **Unavailable** in inventory. Reinstalling the same folder name reuses saved references; development-link changes can require a full app restart.
 
-Inspect an unexpected owned-structure error instead of deleting foreign nodes to satisfy reserved IDs. Refresh after a stale write; it discards props drafts. There is no undo or backup store. For owner testing, keep the original JSON and use a disposable personal clone. Reverting code does not undo layout-file changes. If recovery is needed, use Herdr's `ctrl-alt-shift-escape` escape hatch, then restore only the disposable layout while Herdr is stopped. Hiding/removing a view does not prove that programs started by that mod stopped.
+Inspect an unexpected owned-structure error instead of deleting foreign nodes to satisfy reserved IDs. Refresh after a stale write; edited props text, including invalid JSON, stays separate for each layout and mod. Refresh reloads unedited saved props and does not apply drafts automatically.
+
+Props drafts stay in memory only. **Close** asks for **Keep editing** or **Discard drafts and close** when any layout has drafts. Close is disabled during a save. Host dismissal, mod disable, or app exit can still discard drafts; copy important text before these actions. An already-started write can finish after close; queued saves do not start after close.
+
+**Undo last change** in the fixed header reverses the most recent successful layout edit in this dialog. It uses the same current-layout, ownership, and expected-file-content checks as a normal save. It cannot overwrite an external edit. A no-op keeps the last undo step; a second changed save replaces it. Refresh, layout changes, or closing the dialog clear it. Undo restores layout content, not the original JSON formatting, and does not discard later props drafts. There is no redo, persistent history, or backup store. For owner testing, keep the original JSON and use a disposable personal clone. Reverting code does not undo layout-file changes. If recovery is needed, use Herdr's `ctrl-alt-shift-escape` escape hatch, then restore only the disposable layout while Herdr is stopped. Hiding/removing a view does not prove that programs started by that mod stopped.
 
 ```mermaid
 flowchart LR
@@ -128,13 +133,15 @@ npm test
 git diff --check
 ```
 
-Native checks generate ignored SDK declarations; run them before type checks. Both the base check and fixture checks use temporary `HERDR_APP_HOME` directories. They do not modify the live profile. Fixtures cover ordinary source/destination states, deep/small/hidden nodes, inactive stack children, four-side drops, root wrapping, empty containers, keyboard placement, new views, legacy coexistence, and existing recovery states.
+Native checks generate ignored SDK declarations; run them before type checks. Both the base check and fixture checks use temporary `HERDR_APP_HOME` directories. They do not modify the live profile. Fixtures cover ordinary source/destination states, deep/small/hidden nodes, inactive stack children, four-side drops, root wrapping, empty containers, keyboard placement, new views, draft/Close states, enabled Undo, legacy coexistence, and existing recovery states.
+
+Regression tests also cover draft recovery after stale saves, per-layout/mod draft isolation, late input during saves, unedited external-props reload, keyboard inventory selection, and render-scoped destination validation without revisiting layout nodes. Render eligibility is indexed once per source; release/save validation stays fresh. These are model and handler checks, not native response-time measurements.
 
 `herdr-app check` on Herdr 0.1.15 checks eager module and element descriptions. It does not parse the supplied layout tree, perform layout/paint, or dispatch physical events. A queued `openOverlay({layout})` even accepts an invalid node type in this checker; that is not parser acceptance evidence. Do not call these checks native rendering or visual verification.
 
 ## Unverified acceptance and owner handoff
 
-The owner approved implementation and PR delivery using documented contracts plus model/handler tests and isolated eager native checks. **The new editor has not been visually or physically verified.**
+Inspected native fixture captures show the editor's appearance in those states. They do not verify physical interaction, host layout geometry, live reload, or terminal/session continuity.
 
 The profile owner must load the updated mod with explicit approval and use a disposable personal clone to verify:
 
@@ -142,7 +149,8 @@ The profile owner must load the updated mod with explicit approval and use a dis
 - Same-/cross-axis sizing, constraint transfer, and unchanged internal divider behavior.
 - Dragging existing blocks and containers to internal targets, target priority/highlighting, scrolling, and access to deep, small, hidden, and inactive nodes.
 - Escape, outside release, pointer exit, refresh/layout changes, and close cancellation.
-- Tab/Enter/Space placement, focus visibility, accessibility labels, and screen-reader output.
+- Tab/Enter/Space inventory selection and placement, focus visibility, accessibility labels, and screen-reader output.
+- Props draft retention across Refresh/layout changes and the fixed-header Close discard warning.
 - Legacy dock operations, live reload without duplicate views, and terminal/session continuity.
 
-Model/handler tests and eager checks do not establish these results. Do not describe the editor as interaction-verified or publish it before owner acceptance is recorded. Do not automate the user's display or change the live development link/layout as part of repository checks. No package publication or preview image is included.
+Model/handler tests and eager checks do not establish these results. Do not describe the editor as interaction-verified or publish it before owner acceptance is recorded. Do not automate the user's display or change the live development link/layout as part of repository checks. An inspected native fixture preview is included; no package publication or native interaction acceptance is claimed.

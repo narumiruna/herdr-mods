@@ -3,6 +3,8 @@ import {
   Editor,
   EditorState,
   h_flex,
+  Input,
+  InputState,
   Scrollbar,
   ScrollHandle,
   TextView,
@@ -32,6 +34,7 @@ export default class MarkdownReader extends View {
     this.zoom = new Map()
     this.sources = new Set()
     this.editors = new Map()
+    this.editorSpecs = new Map()
     this.raw = false
     this.error = ""
     this.watching = false
@@ -40,18 +43,36 @@ export default class MarkdownReader extends View {
     this.refreshTask = null
     this.scroll = ScrollHandle.new()
     this.focus = cx.focus_handle()
+    this.fileInput = InputState.new({
+      placeholder: "/absolute/project/README.md",
+      value: typeof this.entry.file === "string" ? this.entry.file : "",
+    })
+    this.rootInput = InputState.new({
+      placeholder: "/absolute/project",
+      value: typeof this.entry.root === "string" ? this.entry.root : "",
+    })
+    this.fileInput.on("submit", (_event, cx) => this.open(cx))
+    this.rootInput.on("submit", (_event, cx) => this.open(cx))
     try {
       this.session = new ReaderSession(this.io, this.entry)
     } catch (error) {
-      this.error = message(error)
+      if (Object.keys(this.entry).some((key) => key !== "overlay")) this.error = message(error)
     }
+    this.opening = !this.session && this.entry.on == null
+    if (this.opening) this.rootInput.focus()
     if (this.session) this.refresh(cx)
     cx.timer.every(10000, (cx) => {
       if (this.closed || !this.session) return
       cx.spawn(async () => {
         await this.session.heartbeat()
       })
-      if ((this.fallback || this.session.manifest?.unresolvedImages) && !this.session.busy)
+      if (
+        (this.fallback ||
+          !this.session.manifest ||
+          this.session.manifest.unresolvedImages ||
+          this.session.manifest.unresolvedLinks) &&
+        !this.session.busy
+      )
         this.schedule(cx)
     })
     cx.spawn(async (cx) => {
@@ -62,6 +83,35 @@ export default class MarkdownReader extends View {
         else if (command === "refresh" && this.session) this.schedule(cx)
       }
     })
+  }
+
+  open(cx) {
+    if (this.closed || this.entry.on != null) return
+    let session
+    try {
+      session = new ReaderSession(this.io, {
+        file: this.fileInput.value(),
+        root: this.rootInput.value(),
+        on: null,
+      })
+    } catch (error) {
+      this.error = message(error)
+      cx.notify()
+      return
+    }
+    const previous = this.session
+    this.session = session
+    this.opening = false
+    this.error = ""
+    this.initialFragment = ""
+    this.raw = false
+    this.fallback = window()?.platform === "linux"
+    this.sources.clear()
+    this.zoom.clear()
+    this.clearEditors()
+    this.refreshTask?.cancel()
+    if (previous) cx.spawn(async () => previous.close())
+    this.refresh(cx)
   }
 
   renderOptions() {
@@ -76,6 +126,7 @@ export default class MarkdownReader extends View {
   }
 
   schedule(cx) {
+    if (this.closed || !this.session) return
     this.palette = JSON.stringify(this.renderOptions())
     this.refreshTask?.cancel()
     this.refreshTask = cx.timer.after(250, (cx) => this.refresh(cx))
@@ -83,14 +134,18 @@ export default class MarkdownReader extends View {
 
   refresh(cx) {
     if (!this.session || this.closed) return
-    this.palette = JSON.stringify(this.renderOptions())
+    const session = this.session
+    const options = this.renderOptions()
+    this.palette = JSON.stringify(options)
     cx.spawn(async (cx) => {
-      const changed = await this.session.refresh(this.renderOptions())
-      if (this.closed) return
-      if (this.session.manifest && (changed || this.editorPalette !== this.palette)) {
-        this.clearEditors()
-        this.prepareEditors(this.session.manifest)
-      }
+      if (this.closed || session !== this.session) return
+      const work = session.refresh(options)
+      this.watch(cx)
+      const serial = session.serial
+      const changed = await work
+      if (this.closed || session !== this.session || session.serial !== serial) return
+      if (session.manifest && (changed || this.editorPalette !== this.palette))
+        this.prepareEditors(session.manifest)
       if (changed) {
         this.watch(cx)
         if (this.initialFragment !== null) {
@@ -104,19 +159,21 @@ export default class MarkdownReader extends View {
   }
 
   watch(cx) {
-    if (this.watching || !this.session?.manifest) return
+    const session = this.session
+    if (!session || this.watchSession === session) return
+    this.watchSession = session
     this.watching = true
-    const root = this.session.manifest.root
+    const root = session.entry.root
     cx.spawn(async (cx) => {
       try {
-        while (!this.closed) {
+        while (!this.closed && this.session === session) {
           const paths = await watchFolder(root)
-          if (this.closed) return
-          const manifest = this.session.manifest
+          if (this.closed || this.session !== session) return
+          const dependencies = [session.entry.file, ...(session.manifest?.dependencies || [])]
           if (
             paths.includes(root) ||
             paths.some((path) =>
-              manifest.dependencies.some((file) => {
+              dependencies.some((file) => {
                 const changed = path.replace(/\\/g, "/").replace(/\/$/, "")
                 const dependency = file.replace(/\\/g, "/")
                 return dependency === changed || dependency.startsWith(`${changed}/`)
@@ -126,9 +183,15 @@ export default class MarkdownReader extends View {
             this.schedule(cx)
         }
       } catch {
-        this.watching = false
-        this.fallback = true
-        if (!this.closed) cx.notify()
+        if (!this.closed && this.session === session) {
+          this.fallback = true
+          cx.notify()
+        }
+      } finally {
+        if (this.watchSession === session) {
+          this.watchSession = null
+          this.watching = false
+        }
       }
     })
   }
@@ -136,6 +199,7 @@ export default class MarkdownReader extends View {
   clearEditors() {
     for (const state of this.editors.values()) state.release()
     this.editors.clear()
+    this.editorSpecs.clear()
   }
 
   async close() {
@@ -143,6 +207,8 @@ export default class MarkdownReader extends View {
     this.closed = true
     this.refreshTask?.cancel()
     this.clearEditors()
+    this.fileInput.release()
+    this.rootInput.release()
     this.scroll.release()
     this.focus.release()
     await this.session?.close()
@@ -168,19 +234,41 @@ export default class MarkdownReader extends View {
 
   prepareEditors(manifest) {
     this.editorPalette = this.palette
+    const active = new Set()
     const prepare = (block) => {
-      if (["code", "error"].includes(block.type) || this.sources.has(block.id))
+      if (["code", "error"].includes(block.type) || this.sources.has(block.id)) {
+        active.add(block.id)
         this.ensureEditor(block.id, block.source || "", block.language || "text")
+      }
       for (const child of block.children || []) prepare(child)
     }
     for (const block of manifest.blocks) prepare(block)
-    if (this.raw) this.ensureEditor("document-source", manifest.source, "markdown")
+    if (this.raw) {
+      active.add("document-source")
+      this.ensureEditor("document-source", manifest.source, "markdown")
+    }
+    for (const [id, state] of this.editors) {
+      if (active.has(id)) continue
+      state.release()
+      this.editors.delete(id)
+      this.editorSpecs.delete(id)
+    }
+    const ids = new Set()
+    const collect = (block) => {
+      ids.add(block.id)
+      for (const child of block.children || []) collect(child)
+    }
+    manifest.blocks.forEach(collect)
+    for (const id of this.sources) if (!ids.has(id)) this.sources.delete(id)
+    for (const id of this.zoom.keys()) if (!ids.has(id)) this.zoom.delete(id)
   }
 
   ensureEditor(id, source, language = "text") {
     let state = this.editors.get(id)
-    if (!state) {
-      const t = colors()
+    const t = colors()
+    const spec = JSON.stringify([source, language, t])
+    if (this.editorSpecs.get(id) !== spec) {
+      state?.release()
       state = EditorState.new({
         value: source,
         language,
@@ -197,6 +285,7 @@ export default class MarkdownReader extends View {
         },
       })
       this.editors.set(id, state)
+      this.editorSpecs.set(id, spec)
     }
     return state
   }
@@ -297,7 +386,7 @@ export default class MarkdownReader extends View {
           .child(block.language || block.kind || "Code"),
       )
       .child(this.button(`copy-${block.id}`, "Copy source", (cx) => cx.write_to_clipboard(source)))
-    if (block.type !== "code")
+    if (block.type === "graphic")
       toolbar.child(
         this.button(`source-${block.id}`, sourceView ? "Render" : "Source", (cx) => {
           if (sourceView) this.sources.delete(block.id)
@@ -381,7 +470,21 @@ export default class MarkdownReader extends View {
           .truncate()
           .font_semibold()
           .text_size(13)
-          .child(manifest?.file || this.entry.file || "Markdown Reader"),
+          .child(
+            manifest?.file || this.session?.entry.file || this.entry.file || "Markdown Reader",
+          ),
+      )
+      .child(
+        this.button(
+          "reader-open",
+          this.opening && this.session ? "Cancel" : "Open…",
+          (cx) => {
+            this.opening = !this.opening
+            if (this.opening) this.fileInput.focus()
+            cx.notify()
+          },
+          this.entry.on != null || (!this.session && this.opening),
+        ),
       )
       .child(
         this.button(
@@ -412,9 +515,10 @@ export default class MarkdownReader extends View {
       .bg(t.background)
       .text_color(t.foreground)
       .track_focus(this.focus)
-      .on_click(() => this.focus.focus())
       .on_key_down((event) => {
-        if (event.key === "escape") run("pane.go", { direction: "left" })
+        if (event.key !== "escape") return
+        if (this.entry.overlay) closeOverlay(this.entry.overlay)
+        else run("pane.go", { direction: "left" })
       })
       .on_size_change((size, cx) => {
         const width = Math.max(160, Math.min(2048, Math.floor((size.width - 48) / 80) * 80))
@@ -425,6 +529,27 @@ export default class MarkdownReader extends View {
       })
       .child(header)
     if (error) root.child(div().px(14).py(8).text_size(12).text_color(t.blocked).child(error))
+    if (this.opening)
+      return root.child(
+        v_flex()
+          .p(20)
+          .gap(10)
+          .w_full()
+          .child(div().text_size(16).font_semibold().child("Open local Markdown"))
+          .child(
+            div()
+              .text_size(12)
+              .text_color(t.muted)
+              .child(
+                "Choose an absolute file path and its workspace root. Only files and resources inside this root can be read.",
+              ),
+          )
+          .child(div().text_size(12).child("Workspace root"))
+          .child(Input.new(this.rootInput).id("reader-root-input").h(32).w_full())
+          .child(div().text_size(12).child("Markdown file (.md or .markdown)"))
+          .child(Input.new(this.fileInput).id("reader-file-input").h(32).w_full())
+          .child(this.button("reader-open-submit", "Open file", (cx) => this.open(cx))),
+      )
     if (!manifest)
       return root.child(
         div()
@@ -434,7 +559,9 @@ export default class MarkdownReader extends View {
           .child(
             this.session?.busy
               ? "Reading Markdown…"
-              : "Open a .md or .markdown file from your personal Files panel. Pass explicit file and root props; remote files are not supported.",
+              : this.session
+                ? "The file could not be read. Restore it and use Reload, or use Open… to choose another local file."
+                : "Remote files are not supported. No local file was read.",
           ),
       )
     for (const warning of manifest.warnings || [])

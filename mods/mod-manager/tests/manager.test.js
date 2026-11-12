@@ -6,6 +6,7 @@ import {
   INDEX_URL,
   ManagerSession,
   normalizeRepository,
+  sourceURL,
 } from "../manager.js"
 
 const A = "a".repeat(40)
@@ -506,6 +507,47 @@ describe("live Gallery metadata", () => {
   })
 })
 
+describe("recorded source links", () => {
+  test("pins valid repository, commit and case-sensitive recipe directory", () => {
+    expect(sourceURL({ repository: "Example/Focus", commit: A, recipePath: "Mods/Focus" })).toBe(
+      `https://github.com/example/focus/tree/${A}/Mods/Focus`,
+    )
+    expect(sourceURL({ repository: "example/focus", commit: A, recipePath: "" })).toBe(
+      `https://github.com/example/focus/tree/${A}`,
+    )
+    expect(sourceURL({ repository: "example/focus", commit: "", recipePath: "Mods/Focus" })).toBe(
+      "https://github.com/example/focus",
+    )
+  })
+
+  test("opens the checked update revision instead of the old installed commit", () => {
+    expect(
+      sourceURL({
+        repository: "example/focus",
+        commit: A,
+        updateCommit: B,
+        recipePath: "Mods/Focus",
+      }),
+    ).toBe(`https://github.com/example/focus/tree/${B}/Mods/Focus`)
+    expect(
+      sourceURL({
+        repository: "example/focus",
+        commit: A,
+        updateCommit: "invalid",
+        recipePath: "",
+      }),
+    ).toBe("")
+  })
+
+  test.each([
+    { repository: "user:password@github.com/owner/repo", commit: A, recipePath: "" },
+    { repository: "https://evil.invalid/x", commit: A, recipePath: "" },
+    { repository: "example/focus", commit: "HEAD?x=1", recipePath: "" },
+    { repository: "example/focus", commit: A, recipePath: "../outside" },
+    { repository: "", commit: A, recipePath: "" },
+  ])("does not expose an unsafe source URL: %j", (mod) => expect(sourceURL(mod)).toBe(""))
+})
+
 describe("strict GitHub URL normalization", () => {
   test.each([
     ["https://github.com/Owner/Repo", "owner/repo"],
@@ -681,6 +723,60 @@ describe("independent loading, retry and search", () => {
 })
 
 describe("verified discovery identity and protection", () => {
+  test("read-only fallback blocks all operations and a verified refresh restores them", async () => {
+    const { fixture, session } = await loaded()
+    fixture.io.discover.mockResolvedValueOnce({
+      mods: [],
+      warnings: ["Missing tools"],
+      readOnlyReason: "Missing tools",
+    })
+    await session.refreshInstalled()
+    expect(session.discoveryStatus).toBe("ready")
+    expect(session.readOnlyReason).toBe("Missing tools")
+    await expect(session.perform("install", focus(session).id)).rejects.toThrow(
+      /Read-only inventory/,
+    )
+    await expect(session.installRepository("https://github.com/other/repo")).rejects.toThrow(
+      /Missing tools/,
+    )
+    await expect(session.checkUpdates()).rejects.toThrow(/Missing tools/)
+    expect(() => session.requestMigration()).toThrow(/Missing tools/)
+    expect(fixture.io.operate).not.toHaveBeenCalled()
+    await session.refreshInstalled()
+    expect(session.readOnlyReason).toBe("")
+    await session.perform("install", focus(session).id)
+    expect(focus(session).state).toBe("installed")
+  })
+
+  test("fallback discovered at mutation-time blocks both writes and success readback", async () => {
+    const { fixture, session } = await loaded()
+    fixture.io.discover.mockResolvedValueOnce({
+      mods: [],
+      warnings: [],
+      readOnlyReason: "Backend timed out",
+    })
+    await expect(session.perform("install", focus(session).id)).rejects.toThrow(
+      /Read-only inventory/,
+    )
+    expect(fixture.io.operate).not.toHaveBeenCalled()
+    await session.refreshInstalled()
+    const real = fixture.io.operate.getMockImplementation()
+    fixture.io.operate.mockImplementation(async (request) => {
+      const result = await real(request)
+      fixture.io.discover.mockResolvedValue({
+        mods: fixture.mods,
+        warnings: [],
+        readOnlyReason: "Unverified readback",
+      })
+      return result
+    })
+    await expect(session.perform("install", focus(session).id)).rejects.toThrow(
+      /Unverified readback/,
+    )
+    expect(session.lastMessage).toBe("")
+    expect(session.readOnlyReason).toBe("Unverified readback")
+  })
+
   test("matches normalized repository and exact recipe/folder, never display title", async () => {
     const { session } = await loaded({ mods: [installed({ repository: "EXAMPLE/FOCUS" })] })
     expect(focus(session).state).toBe("installed")
@@ -1302,6 +1398,71 @@ describe("verified readback and visible failures", () => {
 })
 
 describe("explicit update checks", () => {
+  test("stops between repositories, retains completed candidates, and reports partial progress", async () => {
+    const { fixture, session } = await loaded({
+      mods: [
+        installed(),
+        installed({
+          id: "extra",
+          modName: "extra",
+          repository: "other/extra",
+          path: "/fixture/app/mods/extra",
+        }),
+      ],
+    })
+    const gate = deferred()
+    const real = fixture.io.operate.getMockImplementation()
+    fixture.remoteCommit = B
+    fixture.io.operate.mockImplementation(async (request) => {
+      await gate.promise
+      return real(request)
+    })
+    const changes = vi.fn()
+    const work = session.checkUpdates(changes)
+    await vi.waitFor(() => expect(fixture.io.operate).toHaveBeenCalledTimes(1))
+    expect(session.updateCheck).toMatchObject({ completed: 0, total: 2, name: "Focus Mode" })
+    session.cancelUpdateCheck()
+    expect(session.pending).not.toBeNull()
+    expect(session.updateCheck.cancelRequested).toBe(true)
+    gate.resolve()
+    expect((await work).message).toBe("Update check stopped. 1 of 2 mods checked; 0 failed.")
+    expect(fixture.io.operate).toHaveBeenCalledTimes(1)
+    expect(focus(session).updateCommit).toBe(B)
+    expect(changes).toHaveBeenCalled()
+    expect(session.pending).toBeNull()
+    expect(session.updateCheck).toBeNull()
+    fixture.io.operate.mockImplementation(real)
+    expect((await session.checkUpdates()).message).toContain("2 of 2")
+  })
+
+  test("a refreshed protection change stops subsequent stale checks", async () => {
+    const { fixture, session } = await loaded({
+      mods: [
+        installed(),
+        installed({
+          id: "extra",
+          modName: "extra",
+          repository: "other/extra",
+          path: "/fixture/app/mods/extra",
+        }),
+      ],
+    })
+    fixture.io.operate.mockImplementation(async () => {
+      fixture.mods[1].protectedReason = "New active dependency"
+      throw new Error("First check failed")
+    })
+    const result = await session.checkUpdates()
+    expect(result.message).toContain("stopped. 1 of 2 mods checked; 1 failed")
+    expect(result.message).toContain("Refresh Installed")
+    expect(fixture.io.operate).toHaveBeenCalledTimes(1)
+  })
+
+  test("reports zero eligible targets without claiming completed update checks", async () => {
+    const { fixture, session } = await loaded()
+    expect((await session.checkUpdates()).message).toBe("No eligible manager-owned mods to check.")
+    expect(fixture.io.operate).not.toHaveBeenCalled()
+  })
+
   test("does not check during load or infer an update from Gallery commit", async () => {
     const { fixture, session } = await loaded({
       mods: [installed()],

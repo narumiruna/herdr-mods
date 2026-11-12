@@ -75,6 +75,17 @@ async function runtimeContext(host) {
   }
 }
 
+/** @param {string} message @param {Request} request */
+function backendFailure(message, request) {
+  const uncertain = ["install", "update", "uninstall", "migrate"].includes(String(request.action))
+  return new Error(
+    message +
+      (uncertain
+        ? " Outcome is unverified. Refresh Installed before retrying. Preserve data/mod-manager/ journals and backups; do not delete locks or recovery data."
+        : ""),
+  )
+}
+
 /** @param {Host} host @param {Request} request */
 async function backend(host, request) {
   const root = host.root()
@@ -98,20 +109,25 @@ async function backend(host, request) {
       { timeout: 240_000 },
     )
   } catch {
-    throw new Error(
-      "Local file backend unavailable. File actions need uv, a cached Python and Git. No tools are installed automatically.",
+    throw backendFailure(
+      "Local file backend stopped or could not start. File actions need uv, a cached Python and Git. No tools are installed automatically.",
+      request,
     )
   }
   if (result.code !== 0) {
-    throw new Error(
+    throw backendFailure(
       `Local file backend failed: ${result.stderr.trim().slice(0, 600) || "check uv, cached Python and Git"}`,
+      request,
     )
   }
   let value
   try {
     value = JSON.parse(result.stdout)
   } catch {
-    throw new Error("Local file backend returned invalid data. No success was verified.")
+    throw backendFailure(
+      "Local file backend returned invalid data. No success was verified.",
+      request,
+    )
   }
   if (!object(value) || value.ok !== true) {
     throw new Error(
@@ -178,7 +194,7 @@ async function readonlyInventory(host, reason) {
         "Read-only inventory: ownership and safe local file operations are unavailable.",
     })
   }
-  return { mods, warnings }
+  return { mods, warnings, readOnlyReason: reason }
 }
 
 // No host calls occur at module evaluation. Mutations run inside unowned tasks.
