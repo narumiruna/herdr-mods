@@ -63,21 +63,38 @@ Stop Herdr before you change links. To link this checkout's mods and layouts int
 ./scripts/link.sh
 ```
 
+On Windows, use Windows PowerShell 5.1 or later. Preview the changes, then create the links:
+
+```powershell
+.\scripts\link.ps1 -WhatIf
+.\scripts\link.ps1
+```
+
+The PowerShell script uses junctions for mod directories and symbolic links for layout JSON files and SVG previews. It does not copy files.
+
+- File symbolic links require an Administrator session in Windows PowerShell 5.1, or Windows Developer Mode with a supported PowerShell version.
+- If script execution is blocked, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\link.ps1`. This applies only to that process; it does not change the execution policy stored on the system.
+- Use `-AppHome C:\Herdr-Test-Profile` to select a different profile.
+- `-WhatIf` does not create directories or links.
+- Conflicts and link errors are reported without stopping other entries. Any failure sets exit code 1.
+
+The PowerShell script only creates links. On macOS or Linux, use the shell script below for cleanup.
+
 Before removing links, select a layout that is not supplied by this checkout, then stop Herdr. To remove the links, run:
 
 ```sh
 ./scripts/unlink.sh
 ```
 
-The link script scans `mods/*/`, `layouts/*.json`, and `layouts/*.svg` on each run. It links mod directories into `mods/` and layout files and SVG previews into `layouts/`, using absolute source paths. It skips other files, layout subdirectories, and hidden entries such as `layouts/.state/`. Run it again after you add a mod or layout.
+The link scripts scan `mods/*/`, `layouts/*.json`, and `layouts/*.svg` on each run. They link mod directories into `mods/` and layout files and SVG previews into `layouts/`, using absolute source paths. They skip other files, layout subdirectories, and hidden entries such as `layouts/.state/`. Run a link script again after you add a mod or layout.
 
 Correct links are left unchanged. Conflicts are reported without overwriting files, directories, or other links. A conflict sets exit code 1; other mods and layouts are still processed.
 
-The unlink script removes only same-name links that point to this checkout's mod directories or supported layout paths, including broken links. Both scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real files and directories, and links to other locations.
+The unlink script removes only same-name links that point to this checkout's mod directories or supported layout paths, including broken links. The shell scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real files and directories, and links to other locations.
 
-Both scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
+All link scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
-Run `npm run test:scripts` to test both scripts with a temporary checkout and `HOME`. These tests do not change your Herdr profile.
+Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. On Windows, run `node --test scripts/links-powershell.test.mjs` to test the PowerShell script with temporary checkouts and profiles. The file-symbolic-link test is skipped if Windows PowerShell cannot create those links. These tests do not change your Herdr profile.
 
 ## Open Mod Manager
 
