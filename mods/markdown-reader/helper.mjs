@@ -1,6 +1,5 @@
 import { rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 import { AssetCache, digest, JOB_NAME } from "./cache.js"
 import { buildDocument } from "./document.js"
 import { boundedRead, loadDocument } from "./files.js"
@@ -127,7 +126,8 @@ async function main(args) {
   process.stdout.write(result)
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Node resolves junctions and symlinks before loading this entry module.
+if (import.meta.main) {
   main(process.argv.slice(2)).catch((error) => {
     process.stderr.write(`${String(error.message).slice(0, 2000)}\n`)
     process.exitCode = 1

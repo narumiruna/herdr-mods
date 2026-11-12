@@ -1,0 +1,19 @@
+{
+  "name": "herdr-better-files",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narumiruna/herdr-mods.git",
+    "directory": "mods/better-files"
+  },
+  "scripts": {
+    "check:mod": "node scripts/check-native.mjs",
+    "check:views": "node scripts/check-native.mjs --views",
+    "check:types": "tsc --project jsconfig.json",
+    "check": "biome ci .",
+    "test": "vitest run"
+  }
+}

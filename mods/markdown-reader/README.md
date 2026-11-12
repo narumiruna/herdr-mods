@@ -28,6 +28,8 @@ Browser setup downloads the build selected by the pinned Puppeteer version. It i
 
 Stop Herdr before running the repository's `scripts/link.sh`, which links local mods and layouts. Reopen it afterward. Do not edit shipped mods or layouts. The reader has `"place": "none"`; linking it alone does not change Files clicks.
 
+The Node helper uses `import.meta.main` for its CLI entry point. This supports both copied installations and directory junctions or symbolic links. A path comparison against `process.argv[1]` is not sufficient because Node resolves the module path before loading it.
+
 ## Open a document
 
 Open Markdown Reader from Herdr's mod menu. Enter the absolute workspace root and Markdown file paths, then select **Open file** or press Enter. No Files clone or shell command is needed for this first open. **Open…** selects another local file; **Cancel** keeps the current document. Neither path is inferred or saved between reader instances.

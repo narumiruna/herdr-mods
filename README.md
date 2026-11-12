@@ -12,6 +12,8 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
 - [`mods/markdown-reader/`](mods/markdown-reader/): native local Markdown reading, display math, official Mermaid SVG, static Vega-Lite, and personal Files integration preparation.
+- [`mods/better-files/`](mods/better-files/): a personal Files clone that embeds Markdown Reader in the same Files pane and keeps other file previews. Required companion checks and owner interaction checks remain incomplete.
+- [`docs/markdown-reader-examples.md`](docs/markdown-reader-examples.md): a visual render check for Better Files, with Mermaid, LaTeX, Python/Go/Rust code, and Vega-Lite examples.
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
@@ -33,7 +35,7 @@ git diff --check
 
 `check:mod` runs native checks and generates the ignored Herdr SDK declarations inside each mod. Run it before `check:types` or `ci`. Hosted Linux CI runs formatting and fixture tests without the local SDK.
 
-Root `check` checks the whole repository. Root `test` runs the isolated shared-script tests, then all four workspace suites. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
+Root `check` checks the whole repository. Root `test` runs the isolated shared-script tests, then all mod workspace suites. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
 
 ```sh
 npm test --workspace herdr-mod-manager
