@@ -4,7 +4,7 @@ A monorepo for Herdr App mods, managed with npm workspaces.
 
 ## Share Mod Manager
 
-The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. No layout or keybinding file is distributed. GitHub publication requires separate approval.
+The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. The mod bundle contains no layout or keybinding file. GitHub publication requires separate approval.
 
 ## Repository structure
 
@@ -12,6 +12,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
 - [`mods/markdown-reader/`](mods/markdown-reader/): native local Markdown reading, display math, official Mermaid SVG, static Vega-Lite, and personal Files integration preparation.
+- `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
@@ -54,23 +55,27 @@ npm run evidence:previews
 
 `evidence:previews` captures actual fixture views in disposable macOS Herdr profiles. Evidence and process-cleanup records stay outside the repository. Preview generation does not change the owner's profile, perform real GitHub requests, or test physical pointer and keyboard input. A passing structural check or screenshot is not sufficient to call a bundle ready to share.
 
-## Link local mods
+## Link local mods and layouts
 
-Stop Herdr before you change links. To link this checkout's mods in `~/.config/herdr-app/mods/`, run:
-
-```sh
-./scripts/link-mods.sh
-```
-
-To remove these links later, stop Herdr and run:
+Stop Herdr before you change links. To link this checkout's mods and layouts into `~/.config/herdr-app/`, run:
 
 ```sh
-./scripts/unlink-mods.sh
+./scripts/link.sh
 ```
 
-The link script scans `mods/*/` on each run and uses absolute source paths. Run it again after you add a mod. It skips correct links and reports conflicts without overwriting them. A conflict sets exit code 1; other mods are still processed.
+Before removing links, select a layout that is not supplied by this checkout, then stop Herdr. To remove the links, run:
 
-The unlink script removes only same-name links that point to this checkout's mod paths, including broken links. Both scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real directories, and links to other locations. Both scripts can run from any working directory and can be run more than once. Reopen Herdr after you change links.
+```sh
+./scripts/unlink.sh
+```
+
+The link script scans `mods/*/`, `layouts/*.json`, and `layouts/*.svg` on each run. It links mod directories into `mods/` and layout files and SVG previews into `layouts/`, using absolute source paths. It skips other files, layout subdirectories, and hidden entries such as `layouts/.state/`. Run it again after you add a mod or layout.
+
+Correct links are left unchanged. Conflicts are reported without overwriting files, directories, or other links. A conflict sets exit code 1; other mods and layouts are still processed.
+
+The unlink script removes only same-name links that point to this checkout's mod directories or supported layout paths, including broken links. Both scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real files and directories, and links to other locations.
+
+Both scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
 Run `npm run test:scripts` to test both scripts with a temporary checkout and `HOME`. These tests do not change your Herdr profile.
 

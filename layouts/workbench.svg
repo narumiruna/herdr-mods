@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <title>Workbench layout preview</title>
+  <rect width="320" height="200" rx="6" fill="#161a1d"/>
+  <path d="M72 0v200M0 190h320" stroke="#30363b"/>
+  <g font-family="sans-serif" fill="#a5adb5">
+    <text x="10" y="17" font-size="8" fill="#e1e5e9">Herdr</text>
+    <text x="10" y="35" font-size="6">Spaces</text>
+    <rect x="5" y="41" width="62" height="14" rx="4" fill="#2b343d"/>
+    <text x="11" y="50" font-size="6" fill="#e1e5e9">Project</text>
+    <text x="10" y="101" font-size="6">Agents</text>
+    <circle cx="12" cy="115" r="2" fill="#d2b165"/>
+    <text x="19" y="117" font-size="6">Working</text>
+    <path d="M0 145h72" stroke="#30363b"/>
+    <path d="m10 154 4-2 4 2-4 2zm0 3 4 2 4-2" fill="none" stroke="#a5adb5" stroke-width=".8"/>
+    <text x="23" y="158" font-size="7" fill="#e1e5e9">Mods</text>
+    <text x="10" y="171" font-size="7">Settings</text>
+    <text x="10" y="184" font-size="7">+ Add machine</text>
+    <rect x="79" y="5" width="38" height="14" rx="4" fill="#30383f"/>
+    <text x="87" y="15" font-size="7" fill="#e1e5e9">1</text>
+    <text x="126" y="15" font-size="8">+</text>
+    <rect x="78" y="24" width="236" height="161" rx="5" fill="#20262b" stroke="#526b80"/>
+    <text x="85" y="36" font-size="6">Terminal</text>
+    <text x="85" y="53" font-family="monospace" font-size="7" fill="#b0c4a0">$</text>
+    <rect x="94" y="47" width="4" height="7" fill="#a5adb5"/>
+    <text x="79" y="197" font-size="5">Project</text>
+  </g>
+</svg>
