@@ -11,7 +11,7 @@ Changes in this copy:
 - main.js captures each row's workspace root, space ID, and machine identity.
 - An unrelated space folder is replaced with the browsed folder as the reader root.
 - Markdown opens in a retained reader view inside the Files pane.
-- Back, replacement, and parent close clean up the reader before entity release.
+- Back, Escape, replacement, and parent close clean up the reader before entity release.
 - Other previews and directory navigation retain their original routes.
 - Icon paths use mods/better-files.
 - mod.json names the personal clone, enables focus, and records its source version.

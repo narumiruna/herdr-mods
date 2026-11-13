@@ -1,17 +1,23 @@
-import { run } from "herdr"
+import { closeOverlay, run } from "herdr"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { markdownEntry, markdownRoot } from "./markdown.js"
 
 const ui = vi.hoisted(() => {
   const ids = new Set()
+  const nodes = new Map()
   const text = []
   const element = () => {
     const node = new Proxy(
-      {},
+      { handlers: {} },
       {
-        get(_target, key) {
+        get(target, key) {
+          if (key in target) return target[key]
           return (...args) => {
-            if (key === "id") ids.add(args[0])
+            if (key === "id") {
+              ids.add(args[0])
+              nodes.set(args[0], node)
+            }
+            if (key.startsWith("on_")) target.handlers[key] = args.at(-1)
             if (key === "child" && typeof args[0] === "string") text.push(args[0])
             if (key === "when" && args[0]) args[1](node)
             return node
@@ -21,7 +27,7 @@ const ui = vi.hoisted(() => {
     )
     return node
   }
-  return { ids, text, element }
+  return { ids, nodes, text, element }
 })
 
 vi.mock("gpui-kit", () => ({ View: class {}, div: ui.element, image: ui.element }))
@@ -81,6 +87,7 @@ function noPicker() {
 beforeEach(() => {
   vi.clearAllMocks()
   ui.ids.clear()
+  ui.nodes.clear()
   ui.text.length = 0
 })
 
@@ -126,6 +133,52 @@ describe("direct embedded reader", () => {
     view.render(cx)
     expect(ui.text).toContain("Cannot open this Markdown file. Go back to Files and try again.")
     noPicker()
+  })
+})
+
+describe("reader Escape handling", () => {
+  function press(view, cx, key = "escape") {
+    view.render(cx)
+    ui.nodes.get("markdown-reader").handlers.on_key_down({ key }, cx)
+  }
+
+  it("uses the embedded Back action instead of pane navigation", () => {
+    const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
+    view.back = vi.fn()
+    press(view, cx)
+    expect(view.back).toHaveBeenCalledOnce()
+    expect(run).not.toHaveBeenCalled()
+    expect(closeOverlay).not.toHaveBeenCalled()
+  })
+
+  it("keeps the reader's default pane navigation when no Back override exists", () => {
+    const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
+    press(view, cx)
+    expect(run).toHaveBeenCalledExactlyOnceWith("pane.go", { direction: "left" })
+    expect(closeOverlay).not.toHaveBeenCalled()
+  })
+
+  it("closes an overlay before invoking Back", () => {
+    const { view, cx } = open({
+      file: "/project/README.md",
+      root: "/project",
+      on: null,
+      overlay: "reader-overlay",
+    })
+    view.back = vi.fn()
+    press(view, cx)
+    expect(closeOverlay).toHaveBeenCalledExactlyOnceWith("reader-overlay")
+    expect(view.back).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("ignores keys other than Escape", () => {
+    const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
+    view.back = vi.fn()
+    press(view, cx, "enter")
+    expect(view.back).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(closeOverlay).not.toHaveBeenCalled()
   })
 })
 

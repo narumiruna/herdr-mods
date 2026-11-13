@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { describe, expect, it, vi } from "vitest"
 import { createNodeRunner } from "./reader/node.js"
 
@@ -5,6 +6,123 @@ const missing = () => new Error("herdr.exec: cannot run node: program not found"
 const metadata = { path: "C:\\Tools\\node.exe", major: 26 }
 const found = () => ({ code: 0, stdout: JSON.stringify(metadata), stderr: "" })
 const rendered = { code: 0, stdout: '{"blocks":[]}', stderr: "" }
+
+describe.skipIf(process.platform !== "win32")("Windows Node probe behavior", () => {
+  it.each([
+    {
+      name: "uses only fnm 26 metadata when PATH has Node 22",
+      pathMajor: 22,
+      fnm: true,
+      selected: "fnm",
+      calls: ["node", "fnm"],
+    },
+    {
+      name: "prefers PATH Node 26 without invoking fnm",
+      pathMajor: 26,
+      fnm: true,
+      selected: "path",
+      calls: ["node"],
+    },
+    {
+      name: "fails without emitting old PATH metadata when fnm is missing",
+      pathMajor: 22,
+      fnm: false,
+      selected: null,
+      calls: ["node"],
+    },
+    {
+      name: "uses fnm 26 when PATH Node is missing",
+      pathMajor: null,
+      fnm: true,
+      selected: "fnm",
+      calls: ["fnm"],
+    },
+    {
+      name: "uses fnm 26 when the PATH candidate fails",
+      pathMajor: 22,
+      pathFails: true,
+      fnm: true,
+      selected: "fnm",
+      calls: ["node", "fnm"],
+    },
+  ])("$name", async ({ pathMajor, pathFails = false, fnm, selected, calls }) => {
+    const exec = vi
+      .fn()
+      .mockRejectedValueOnce(missing())
+      .mockResolvedValueOnce(found())
+      .mockResolvedValueOnce(rendered)
+    await createNodeRunner(exec, "windows")(["helper.mjs"], {})
+    const [program, args] = exec.mock.calls[1]
+    expect(program).toBe("powershell")
+    expect(args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"])
+
+    const pathMetadata = { path: "C:\\FixturePath\\node.exe", major: pathMajor }
+    const fnmMetadata = { path: "C:\\FixtureFnm\\node.exe", major: 26 }
+    // These sources are scriptblocks, not executable paths. The captured probe
+    // runs unchanged; only command discovery and candidate output are fixtures.
+    const setup = `
+$script:pathPresent = $${pathMajor !== null}
+$script:pathFails = $${pathFails}
+$script:fnmPresent = $${fnm}
+$script:pathMetadata = '${JSON.stringify(pathMetadata)}'
+$script:fnmMetadata = '${JSON.stringify(fnmMetadata)}'
+function Get-Command {
+  [CmdletBinding()]
+  param([Parameter(Position = 0)][string]$Name)
+  switch ($Name) {
+    'node.exe' {
+      if ($script:pathPresent) {
+        [PSCustomObject]@{ Source = {
+          [Console]::Error.WriteLine('fixture:node')
+          if ($args.Count -ne 2 -or $args[0] -ne '-p') { throw 'Unexpected node arguments' }
+          if ($script:pathFails) { $global:LASTEXITCODE = 1; return }
+          $global:LASTEXITCODE = 0
+          $script:pathMetadata
+        } }
+      }
+    }
+    'fnm.exe' {
+      if ($script:fnmPresent) {
+        [PSCustomObject]@{ Source = {
+          [Console]::Error.WriteLine('fixture:fnm')
+          # PowerShell consumes the -- separator when invoking a scriptblock.
+          if ($args.Count -ne 5 -or ($args[0..3] -join ' ') -ne 'exec --using=26 node -p') {
+            throw "Unexpected fnm arguments: $args"
+          }
+          $global:LASTEXITCODE = 0
+          $script:fnmMetadata
+        } }
+      }
+    }
+    default { throw "Unexpected command lookup: $Name" }
+  }
+}
+`
+    const result = spawnSync("powershell.exe", [...args.slice(0, 3), `${setup}\n${args[3]}`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10000,
+      windowsHide: true,
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.signal).toBeNull()
+    const output = result.stdout.trim()
+    expect(output, result.stderr).toBe(
+      selected ? JSON.stringify(selected === "path" ? pathMetadata : fnmMetadata) : "",
+    )
+    if (selected) {
+      expect(result.status).toBe(0)
+    } else {
+      expect(result.status).not.toBe(0)
+    }
+    expect(
+      result.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("fixture:"))
+        .map((line) => line.slice("fixture:".length)),
+    ).toEqual(calls)
+  })
+})
 
 describe("Node helper launcher", () => {
   it("keeps an available Node command and its argument array unchanged", async () => {

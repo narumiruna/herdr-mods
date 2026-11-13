@@ -1,6 +1,6 @@
 # Better Files
 
-A personal copy of Herdr App 0.1.15 Files. Click a local `.md` or `.markdown` file to read it **in the same Files pane**. Matching ignores letter case. The Back arrow returns to the file list. Markdown opens directly, with no file/root form or Open button. A failure shows an error, not a setup screen. No tab, split, overlay, or separate reader layout pane is created.
+A personal copy of Herdr App 0.1.15 Files. Click a local `.md` or `.markdown` file to read it **in the same Files pane**. Matching ignores letter case. The Back arrow or Escape returns to the file list. Markdown opens directly, with no file/root form or Open button. A failure shows an error, not a setup screen. No tab, split, overlay, or separate reader layout pane is created.
 
 Other files keep the original read-only text preview. Directory clicks still expand or collapse folders.
 
@@ -11,7 +11,7 @@ Other files keep the original read-only text preview. Directory clicks still exp
 - Herdr App 0.1.15. Other versions are unverified.
 - Install this mod as `<app-home>/mods/better-files`.
 - Install the required helper companion as `<app-home>/mods/markdown-reader`.
-- Markdown Reader requires Node.js 26, its npm dependencies, and explicit Puppeteer browser setup. If Windows Herdr cannot find `node`, Better Files finds the installed executable through the persistent Windows PATH or `fnm`. This does not change the system PATH or install Node. Run root `npm ci` and `npm run setup:browser --workspace herdr-markdown-reader` before reading documents.
+- Markdown Reader requires Node.js 26, its npm dependencies, and explicit Puppeteer browser setup. If Windows Herdr cannot find `node`, Better Files finds the installed executable through the persistent Windows PATH or `fnm`. A PATH installation below Node.js 26 does not block the `fnm` fallback. This does not change the system PATH or install Node. Run root `npm ci` and `npm run setup:browser --workspace herdr-markdown-reader` before reading documents.
 - Keep the bundled reader session and the installed reader helper from the same repository revision.
 
 Herdr does not permit source imports outside a mod root. The local `reader/` directory contains Markdown Reader's UI, session, and host I/O modules. The embedded UI removes manual file selection. Its session module stays synchronized with the companion. Host I/O adds Windows Node discovery but keeps the companion helper protocol. The UI uses the helper already installed under `mods/markdown-reader/`. It does not contain a second Node renderer or browser.
@@ -42,7 +42,7 @@ The separate Markdown Reader block was removed from Workbench. It is not needed 
 - Missing or invalid Markdown context produces a browser error. It does not use a local preview fallback.
 - The reader validates canonical paths and rejects outside-root files and resources, including escaping symlinks.
 - `cx.new` creates a retained reader view inside the current Files body.
-- Back, another file, or a workspace change closes the old reader session before its view handle is released. The application close hook also waits for pending reader cleanup.
+- Back, Escape, another file, or a workspace change closes the old reader session before its view handle is released. The application close hook also waits for pending reader cleanup.
 - Local Markdown links replace the document in this same reader view after the previous session closes. Fragment links scroll within the document. No reader tab is created.
 - Opening a document does not write layout state, shared state, keybindings, or source Markdown.
 
@@ -69,7 +69,7 @@ For a visual render check, click `docs/markdown-reader-examples.md` in this repo
 
 ## Verified checks
 
-- Better Files: 121 unit tests, type checks, the entry check, and all seven native fixtures passed on Herdr App 0.1.15/Windows.
+- Better Files: 132 unit tests, type checks, the entry check, and all seven native fixtures passed on Herdr App 0.1.15/Windows.
 - Markdown Reader: entry, nine native description fixtures, type checks, and seven real Chromium tests passed. The earlier full Windows unit run had 366 passes, 25 failures, and 3 unhandled test errors. Three additional helper CLI regression tests now pass.
 - Windows Node discovery, a real helper render, and cancellation passed with Node absent from the simulated app PATH. A separate live Herdr process then returned complete JSON through its actual exec bridge and an installed helper junction: 34,384 bytes and 201 blocks.
 - Scoped formatting checks pass. The installed Files runtime and icon hashes are unchanged.

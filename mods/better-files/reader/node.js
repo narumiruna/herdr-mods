@@ -8,8 +8,11 @@ if ($fnmDir) { $env:FNM_DIR = $fnmDir }
 $probe = 'JSON.stringify({path:process.execPath,major:parseInt(process.versions.node)})'
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 if ($node) {
-  & $node.Source -p $probe
-  exit $LASTEXITCODE
+  $candidate = & $node.Source -p $probe
+  if ($LASTEXITCODE -eq 0 -and ($candidate | ConvertFrom-Json).major -ge 26) {
+    $candidate
+    exit 0
+  }
 }
 $fnm = Get-Command fnm.exe -ErrorAction SilentlyContinue
 if ($fnm) {

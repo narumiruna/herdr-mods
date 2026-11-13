@@ -26,7 +26,7 @@ Build a native file browser with an embedded Markdown Reader preview. This recip
 - Mount the reader with `cx.new` as a retained child of the Files body. Pass `{ file, root, on }`; do not send `tab.new` or mutate a layout.
 - Follow local Markdown links in the same reader view. Close the previous session before reading the next document. Keep the workspace root and apply the linked fragment after rendering. Same-document fragments only scroll.
 - The reader must reject a remote location before local reads and canonicalize local files and resources within the workspace.
-- Back clears the preview and keeps the file list. Another file, a workspace change, or parent close must close the previous reader and then release its entity. Wait for pending cleanup in the parent close hook.
+- Back or Escape clears the preview and keeps the file list. Escape uses the Files view's retained async context, not the child event context. An old reader cannot dismiss its replacement. Another file, a workspace change, or parent close must close the previous reader and then release its entity. Wait for pending cleanup in the parent close hook.
 - Keep the original Editor preview for other files and `toggle` for directory clicks.
 - Do not write source documents, shared state, keybindings, or layout state when opening a file.
 
@@ -44,7 +44,7 @@ Build a native file browser with an embedded Markdown Reader preview. This recip
 ## Watch out
 
 - The browser starts local or remote `sh`/PowerShell and read-only Git commands. Authored document contents are not used as shell commands.
-- The reader starts a local Node helper and can use sandboxed Chromium for diagrams. If Windows Herdr cannot find `node`, discover an installed Node.js 26+ through the persistent Windows PATH or `fnm`, then cache its absolute executable path for rendering and cancellation. Do not install software or change persistent environment settings. Its existing resource, cache, timeout, and cancellation limits remain in effect.
+- The reader starts a local Node helper and can use sandboxed Chromium for diagrams. If Windows Herdr cannot find `node`, discover an installed Node.js 26+ through the persistent Windows PATH or `fnm`, then cache its absolute executable path for rendering and cancellation. Skip a PATH candidate below Node.js 26 and continue through `fnm`. Do not install software or change persistent environment settings. Its existing resource, cache, timeout, and cancellation limits remain in effect.
 - The reader writes request JSON with absolute document, workspace, and app-home paths under `<app-home>/data/markdown-reader/requests/`. It writes rendered assets, render metadata, and renewed asset leases under the same reader data directory. Normal cleanup removes request, cancellation, and lease files. Cached assets remain subject to expiry and the cache limit; do not publish this data directory.
 - Explicit clicks on HTTP(S) or mailto links launch the system handler. That handler can make network requests or start another application. Rendering uses no external chart data or remote document images.
 - The workspace must be owner-controlled. Canonical checks are not an OS sandbox against concurrent replacement of directories.
@@ -58,7 +58,7 @@ Build a native file browser with an embedded Markdown Reader preview. This recip
 
 - Routing and row-click tests cover case-insensitive extensions, Windows/POSIX paths, spaces/Unicode, captured context, remote identity, and invalid context.
 - Tests show the reader is mounted in the current Files body, with no `tab.new`, split, overlay, or layout mutation. Tests of the real embedded link handler cover local document replacement, fragments, close-time cleanup, scheduled refresh, cleanup failure, and explicit external links.
-- Back, replacement, workspace changes, and parent close clean up the reader before releasing its entity. Other files and folders keep their original behavior.
+- Back, Escape, replacement, workspace changes, and parent close clean up the reader before releasing its entity. Other files and folders keep their original behavior.
 - The matching entry check, all seven fixed-data native view checks, and type checks pass in disposable profiles.
 - The reader session matches the required companion source. A Node-launcher test verifies real rendering and cancellation when Node is absent from the app PATH. Direct-open and invalid-entry tests confirm that no setup form or Open button appears. Bundle and recipe checks pass for both mods.
 - The included private-content-free `preview.png` is a real native fixture capture and has been inspected. Do not treat it as physical click evidence.

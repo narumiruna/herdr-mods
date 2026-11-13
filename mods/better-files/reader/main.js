@@ -74,6 +74,10 @@ export default class MarkdownReader extends View {
     })
   }
 
+  back() {
+    run("pane.go", { direction: "left" })
+  }
+
   renderOptions() {
     const t = colors()
     return {
@@ -493,7 +497,7 @@ export default class MarkdownReader extends View {
       .on_key_down((event) => {
         if (event.key !== "escape") return
         if (this.entry.overlay) closeOverlay(this.entry.overlay)
-        else run("pane.go", { direction: "left" })
+        else this.back()
       })
       .on_size_change((size, cx) => {
         const width = Math.max(160, Math.min(2048, Math.floor((size.width - 48) / 80) * 80))

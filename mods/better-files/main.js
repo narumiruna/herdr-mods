@@ -330,10 +330,17 @@ export default class Files extends View {
       }
       this.show(null, cx)
       const reader = { entity: null, view: null }
+      const files = this
       class EmbeddedReader extends MarkdownReader {
         init(props, childCx) {
           reader.view = this
           super.init(props, childCx)
+        }
+
+        back() {
+          if (files.closed || files.reader !== reader) return
+          files.show(null, files.ownerCx)
+          files.ownerCx.notify()
         }
       }
       reader.entity = cx.new(EmbeddedReader, entry)

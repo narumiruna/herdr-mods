@@ -344,7 +344,7 @@ describe("embedded Reader lifecycle", () => {
     expect(cx.spawn).not.toHaveBeenCalled()
   })
 
-  it.each(["Back", "show(null, cx)"])(
+  it.each(["Back", "show(null, cx)", "Escape"])(
     "%s returns to the file tree and awaits child.close before releasing the entity",
     async (action) => {
       const { view, cx } = fixture()
@@ -354,6 +354,8 @@ describe("embedded Reader lifecycle", () => {
       if (action === "Back") {
         render(view, cx)
         ui.nodes.get("files-back").handlers.on_click({}, cx)
+      } else if (action === "Escape") {
+        reader.view.back()
       } else {
         view.show(null, cx)
       }
@@ -379,6 +381,21 @@ describe("embedded Reader lifecycle", () => {
       expect(cx.spawn).toHaveBeenCalledOnce()
     },
   )
+
+  it("does not let a stale reader's Back action close its replacement", async () => {
+    const { view, cx } = fixture()
+    view.openFile("first.md", cx, view.context)
+    const previous = view.reader
+    view.openFile("second.md", cx, view.context)
+    const replacement = view.reader
+    cx.notify.mockClear()
+    previous.view.back()
+    expect(view.reader).toBe(replacement)
+    expect(view.file).toBe("second.md")
+    expect(cx.notify).not.toHaveBeenCalled()
+    expect(cx.spawn).toHaveBeenCalledOnce()
+    await cx.spawn.mock.calls[0][0](cx)
+  })
 
   it.each(["replacement.md", "source.js"])(
     "replaces the Reader with %s without releasing it before child.close finishes",
