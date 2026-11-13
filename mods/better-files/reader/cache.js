@@ -31,6 +31,7 @@ export class AssetCache {
     this.home = resolve(appHome)
     this.directory = join(this.home, "data", "better-files")
     this.assets = join(this.directory, "assets")
+    this.accounting = join(this.directory, "asset-accounting.json")
     this.usedAssets = new Set()
   }
 
@@ -147,6 +148,72 @@ export class AssetCache {
     if (job) await this.lease(job, [...this.usedAssets])
   }
 
+  async assetStamp() {
+    const info = await lstat(this.assets, { bigint: true })
+    if (!info.isDirectory()) throw new Error("Invalid Markdown asset directory")
+    return [info.dev, info.ino, info.mtimeNs, info.ctimeNs].join(":")
+  }
+
+  async assetEntries(names) {
+    const entries = []
+    for (const name of names) {
+      const info = await lstat(join(this.assets, name))
+      if (!info.isFile()) throw new Error("Invalid entry in the Markdown asset cache")
+      entries.push({ name, size: info.size, time: info.mtimeMs })
+    }
+    return entries
+  }
+
+  async assetAccounting() {
+    // Enumerate names, not file stats: timestamps alone can miss same-tick mutations.
+    // Assets are immutable; every reuse still verifies the file type and content digest.
+    const stamp = await this.assetStamp()
+    const names = (await readdir(this.assets)).filter((name) => ASSET_NAME.test(name)).sort()
+    const membership = digest(JSON.stringify(names))
+    try {
+      const info = await lstat(this.accounting)
+      if (!info.isFile()) throw new Error("Invalid Markdown asset accounting")
+      const record = JSON.parse((await boundedRead(this.accounting, 4096, info)).toString("utf8"))
+      const { version, total, limit, assetLimit, stamp: recordedStamp } = record
+      if (
+        version === 1 &&
+        Number.isSafeInteger(total) &&
+        total >= 0 &&
+        limit === CACHE_LIMIT &&
+        assetLimit === ASSET_LIMIT &&
+        recordedStamp === stamp &&
+        record.membership === membership &&
+        record.checksum ===
+          digest(JSON.stringify([version, total, limit, assetLimit, recordedStamp, membership]))
+      )
+        return { total, names }
+    } catch (error) {
+      // Missing, interrupted, corrupt and unsafe records must never authorize an insert.
+      if (error.code && !["ENOENT", "ELOOP"].includes(error.code)) throw error
+    }
+    const entries = await this.assetEntries(names)
+    return { total: entries.reduce((sum, entry) => sum + entry.size, 0), names, entries }
+  }
+
+  async recordAssetSize(total, names) {
+    const stamp = await this.assetStamp()
+    const membership = digest(JSON.stringify([...names].sort()))
+    // The previous record was removed before mutation. A partial write is a cache miss.
+    await writeFile(
+      this.accounting,
+      JSON.stringify({
+        version: 1,
+        total,
+        limit: CACHE_LIMIT,
+        assetLimit: ASSET_LIMIT,
+        stamp,
+        membership,
+        checksum: digest(JSON.stringify([1, total, CACHE_LIMIT, ASSET_LIMIT, stamp, membership])),
+      }),
+      { mode: 0o600, flag: "wx" },
+    )
+  }
+
   async put(value, extension, job) {
     const bytes = Buffer.from(value)
     if (!bytes.length || bytes.length > ASSET_LIMIT)
@@ -167,31 +234,35 @@ export class AssetCache {
       } catch (error) {
         if (error.code !== "ENOENT") throw error
       }
-      const protectedNames = await this.protectedAssets()
-      const entries = []
-      for (const existing of await readdir(this.assets)) {
-        if (!ASSET_NAME.test(existing)) continue
-        const info = await lstat(join(this.assets, existing))
-        if (!info.isFile()) throw new Error("Invalid entry in the Markdown asset cache")
-        entries.push({ name: existing, size: info.size, time: info.mtimeMs })
+      const accounting = await this.assetAccounting()
+      let total = accounting.total
+      const names = new Set(accounting.names)
+      // Invalidate before the first mutation, including eviction. A crashed writer forces a scan.
+      await rm(this.accounting, { force: true })
+      if (total + bytes.length > CACHE_LIMIT) {
+        const protectedNames = await this.protectedAssets()
+        const entries = accounting.entries || (await this.assetEntries(accounting.names))
+        total = entries.reduce((sum, entry) => sum + entry.size, 0)
+        for (const entry of entries.sort((a, b) => a.time - b.time)) {
+          if (total + bytes.length <= CACHE_LIMIT) break
+          if (protectedNames.has(entry.name)) continue
+          await rm(join(this.assets, entry.name))
+          names.delete(entry.name)
+          total -= entry.size
+        }
+        if (total + bytes.length > CACHE_LIMIT)
+          throw new Error("Markdown cache is full of active assets; close another reader and retry")
       }
-      let total = entries.reduce((sum, entry) => sum + entry.size, 0)
-      for (const entry of entries.sort((a, b) => a.time - b.time)) {
-        if (total + bytes.length <= CACHE_LIMIT) break
-        if (protectedNames.has(entry.name)) continue
-        await rm(join(this.assets, entry.name))
-        total -= entry.size
-      }
-      if (total + bytes.length > CACHE_LIMIT)
-        throw new Error("Markdown cache is full of active assets; close another reader and retry")
       const temporary = join(this.assets, `.${randomUUID()}`)
       try {
         await writeFile(temporary, bytes, { mode: 0o600, flag: "wx" })
         await rename(temporary, target)
-        await this.protect(job, name)
       } finally {
         await rm(temporary, { force: true })
       }
+      names.add(name)
+      await this.recordAssetSize(total + bytes.length, names)
+      await this.protect(job, name)
     })
     return `data/better-files/assets/${name}`
   }

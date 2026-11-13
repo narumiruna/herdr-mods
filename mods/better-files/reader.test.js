@@ -19,6 +19,7 @@ const ui = vi.hoisted(() => {
             }
             if (key.startsWith("on_")) target.handlers[key] = args.at(-1)
             if (key === "child" && typeof args[0] === "string") text.push(args[0])
+            if (key === "children") for (const child of args[0]) if (child.retained) child.render()
             if (key === "when" && args[0]) args[1](node)
             return node
           }
@@ -58,6 +59,16 @@ import Reader from "./reader/main.js"
 function open(entry) {
   const view = new Reader()
   const cx = {
+    new: vi.fn((Type, props) => {
+      const child = new Type()
+      child.init(props)
+      return {
+        retained: true,
+        render: () => child.render(),
+        set_props: vi.fn((props) => child.update(props)),
+        release: vi.fn(),
+      }
+    }),
     focus_handle: () => ({ focus: vi.fn(), release: vi.fn() }),
     notify: vi.fn(),
     spawn: vi.fn(),
@@ -117,6 +128,7 @@ describe("direct embedded reader", () => {
       warnings: [],
       blocks: [{ id: "ready", type: "html", html: "<h1>Ready</h1>" }],
     }
+    view.prepareBlocks(view.session.manifest, cx)
     view.render(cx)
     expect(ui.text).toContain("<h1>Ready</h1>")
     noPicker()
@@ -341,6 +353,7 @@ describe("embedded document links", () => {
     view.io = io
     view.watch = vi.fn()
     view.prepareEditors = vi.fn()
+    view.prepareBlocks = vi.fn()
     view.refresh = Reader.prototype.refresh
     const manifest = (file, job) => ({
       version: 1,
@@ -362,6 +375,7 @@ describe("embedded document links", () => {
     oldRender.resolve(manifest(previous.entry.file, "old-render-job"))
     await oldWork
     expect(view.prepareEditors).not.toHaveBeenCalled()
+    expect(view.prepareBlocks).not.toHaveBeenCalled()
     expect(view.initialFragment).toBe("details")
     expect(view.scroll.scroll_to_item).not.toHaveBeenCalled()
     expect(io.request).toHaveBeenCalledOnce()
@@ -374,6 +388,7 @@ describe("embedded document links", () => {
     newRender.resolve(nextManifest)
     await newWork
     expect(view.prepareEditors).toHaveBeenCalledExactlyOnceWith(nextManifest)
+    expect(view.prepareBlocks).toHaveBeenCalledExactlyOnceWith(nextManifest, cx)
     expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(4)
     expect(view.initialFragment).toBeNull()
     expect(run).not.toHaveBeenCalled()

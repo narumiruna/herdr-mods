@@ -68,7 +68,10 @@ class FixtureReader extends Reader {
     if (state === "missing-entry" && (this.session || !this.error)) throw new Error("Missing entry must fail without an Open form")
     this.raw = state === "raw"
     if (state === "source") for (const block of manifest.blocks) this.sources.add(block.id)
-    if (this.session?.manifest) this.prepareEditors(this.session.manifest)
+    if (this.session?.manifest) {
+      this.prepareEditors(this.session.manifest)
+      this.prepareBlocks(this.session.manifest, cx)
+    }
   }
   refresh() {
     this.palette = JSON.stringify(this.renderOptions())

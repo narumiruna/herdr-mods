@@ -1,9 +1,7 @@
 import { rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { AssetCache, digest, JOB_NAME } from "./cache.js"
-import { buildDocument } from "./document.js"
 import { boundedRead, loadDocument } from "./files.js"
-import { Renderers } from "./renderers/index.js"
 
 export function requestLocation(path) {
   if (!isAbsolute(path) || !JOB_NAME.test(basename(path, ".json")) || !path.endsWith(".json"))
@@ -24,10 +22,13 @@ export async function cancelRequest(path) {
   await rm(join(dirname(directory), "leases", `${job}.json`), { force: true })
 }
 
-export async function runRequest(
-  path,
-  { rendererFactory = (options) => new Renderers(options) } = {},
-) {
+async function createRenderer(options) {
+  const { Renderers } = await import("./renderers/index.js")
+  options.signal.throwIfAborted()
+  return new Renderers(options)
+}
+
+export async function runRequest(path, { rendererFactory = createRenderer } = {}) {
   const location = requestLocation(path)
   const request = JSON.parse((await boundedRead(path, 32768)).toString("utf8"))
   if (resolve(request.appHome) !== location.home)
@@ -77,11 +78,25 @@ export async function runRequest(
     if (cancelled) throw new Error("Reading cancelled")
     const cache = await new AssetCache(location.home).init()
     const document = await loadDocument(request)
-    renderer = rendererFactory({ ...options, signal: abort.signal })
+    const { buildDocument } = await import("./document.js")
+    if (cancelled) throw new Error("Reading cancelled")
+    // Only a cache miss creates a renderer. Keep injected factories sync or async.
+    let loading
+    const lazyRenderer = {
+      async render(...args) {
+        if (cancelled) throw new Error("Reading cancelled")
+        loading ||= Promise.resolve(rendererFactory({ ...options, signal: abort.signal }))
+        renderer = await loading
+        if (cancelled) throw new Error("Reading cancelled")
+        const result = await renderer.render(...args)
+        if (cancelled) throw new Error("Reading cancelled")
+        return result
+      },
+    }
     const result = await buildDocument({
       ...document,
       cache,
-      renderers: renderer,
+      renderers: lazyRenderer,
       options,
       signal: abort.signal,
       job: location.job,

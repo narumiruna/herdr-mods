@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
-import puppeteer from "puppeteer"
 import { checkSource, dimensions, MAX_SVG_BYTES, sanitizeSvg } from "./svg.js"
 
 const require = createRequire(import.meta.url)
@@ -116,7 +115,11 @@ export function flattenSvg(svg, maxBytes = 2 * 1024 * 1024) {
 
 export class MermaidRenderer {
   constructor({
-    launch = (options) => puppeteer.launch(options),
+    launch = async (options) => {
+      const { default: puppeteer } = await import("puppeteer")
+      options.signal.throwIfAborted()
+      return puppeteer.launch(options)
+    },
     timeoutMs = 8000,
     closeTimeoutMs = 1000,
     kill = killOwnedBrowser,
@@ -126,6 +129,7 @@ export class MermaidRenderer {
     this.closeTimeoutMs = closeTimeoutMs
     this.kill = kill
     this.browser = null
+    this.page = null
     this.launching = null
     this.launchController = null
     this.closed = false
@@ -135,6 +139,7 @@ export class MermaidRenderer {
   }
 
   async getBrowser() {
+    await this.stopping
     if (this.closed) throw new Error("Renderers closed")
     if (this.browser) return this.browser
     if (!this.launching) {
@@ -197,6 +202,7 @@ export class MermaidRenderer {
     this.generation++
     const browser = this.browser
     this.browser = null
+    this.page = null
     this.launching = null
     // Puppeteer forwards this signal to its owned launch process. This also
     // cancels startup before a Browser handle is available.
@@ -211,6 +217,7 @@ export class MermaidRenderer {
 
   async render(source, options) {
     if (this.closed) throw new Error("Renderers closed")
+    if (this.cancel) throw new Error("Mermaid renderer is busy")
     validateMermaid(source)
     let page
     let active = true
@@ -225,22 +232,32 @@ export class MermaidRenderer {
     const job = (async () => {
       const browser = await this.getBrowser()
       if (this.closed) throw new Error("Renderers closed")
-      page = await browser.newPage()
       assertActive()
-      // Install interception BEFORE injecting the library or processing authored source.
-      await page.setRequestInterception(true)
-      page.on("request", (request) => {
-        void request.abort("blockedbyclient").catch(() => {})
-      })
-      await page.setBypassServiceWorker(true)
-      await page.setCacheEnabled(false)
+      page = this.page
+      if (!page) {
+        page = await browser.newPage()
+        assertActive()
+        // Install interception BEFORE injecting the library or processing authored source.
+        await page.setRequestInterception(true)
+        assertActive()
+        page.on("request", (request) => {
+          void request.abort("blockedbyclient").catch(() => {})
+        })
+        await page.setBypassServiceWorker(true)
+        assertActive()
+        await page.setCacheEnabled(false)
+        assertActive()
+        await page.setContent(
+          `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"></head><body><div id="host"></div></body></html>`,
+        )
+        assertActive()
+        const content = await loadBundle()
+        assertActive()
+        await page.addScriptTag({ content })
+        assertActive()
+        this.page = page
+      }
       await page.setViewport({ width: Math.ceil(options.width), height: 800, deviceScaleFactor: 1 })
-      await page.setContent(
-        `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"></head><body><div id="host"></div></body></html>`,
-      )
-      const content = await loadBundle()
-      assertActive()
-      await page.addScriptTag({ content })
       assertActive()
       await page.evaluate(
         async (text, theme, maxBytes) => {
@@ -248,8 +265,11 @@ export class MermaidRenderer {
           document.body.style.color = theme.foreground
           document.body.style.background = theme.background
           document.body.style.fontFamily = theme.fontFamily
-          const host = document.getElementById("host")
+          const host = document.createElement("div")
+          host.id = "host"
           host.style.width = `${theme.width}px`
+          document.body.replaceChildren(host)
+          // initialize replaces the site configuration; render clears each diagram's DB.
           globalThis.mermaid.initialize({
             startOnLoad: false,
             securityLevel: "strict",
@@ -304,8 +324,17 @@ export class MermaidRenderer {
       // The first evaluation inserts SVG. The second reads the actual computed styles.
       assertActive()
       const svg = await page.$eval("#host > svg", flattenSvg, MAX_SVG_BYTES)
+      assertActive()
       dimensions(svg.width, svg.height)
-      return sanitizeSvg(svg.svg, { ...options, width: svg.width, height: svg.height })
+      const result = sanitizeSvg(svg.svg, { ...options, width: svg.width, height: svg.height })
+      // Keep the trusted library and CSP, but no authored DOM or per-render configuration.
+      await page.evaluate(() => {
+        document.body.replaceChildren()
+        for (const style of document.head.querySelectorAll("style")) style.remove()
+        globalThis.mermaid.mermaidAPI.reset()
+      })
+      assertActive()
+      return result
     })()
     try {
       return await deadline(
@@ -321,13 +350,6 @@ export class MermaidRenderer {
     } finally {
       active = false
       if (this.cancel === cancelled) this.cancel = null
-      if (page && !page.isClosed()) {
-        try {
-          await deadline(page.close(), this.closeTimeoutMs, "Page close timeout")
-        } catch {
-          await this.reset()
-        }
-      }
     }
   }
 

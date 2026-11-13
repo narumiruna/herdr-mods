@@ -61,6 +61,90 @@ it("executes the helper through an installed junction and returns complete JSON"
   expect(await readFile(`${request}.cancel`, "utf8")).toBe("cancelled")
 })
 
+async function denyImports(args, specifiers) {
+  const loader = join(temporary, "deny-imports.mjs")
+  await writeFile(
+    loader,
+    `
+    import { registerHooks } from "node:module"
+    const blocked = ${JSON.stringify(specifiers)}
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      if (blocked.includes(specifier)) throw new Error("Unexpected import: " + specifier)
+      return nextResolve(specifier, context)
+    } })
+  `,
+  )
+  return cli(["--import", pathToFileURL(loader).href, ...args])
+}
+
+async function fixture(source) {
+  const root = join(temporary, "workspace")
+  const directory = join(profile, "data", "better-files", "requests")
+  await mkdir(root)
+  await mkdir(directory, { recursive: true })
+  const file = join(root, "document.md")
+  const request = join(directory, "lazy-import-check.json")
+  await writeFile(file, source)
+  await writeFile(request, JSON.stringify({ appHome: profile, root, file, on: null }))
+  return request
+}
+
+const rendererImports = ["./renderers/index.js", "./mermaid.js", "puppeteer"]
+
+it("imports and cancels through a junction without loading the parser or renderers", async () => {
+  const helper = join(installed, "reader", "helper.mjs")
+  const request = await fixture("# Plain")
+  const denied = ["./document.js", ...rendererImports]
+  const imported = await denyImports(
+    [
+      "--input-type=module",
+      "-e",
+      `await import(${JSON.stringify(pathToFileURL(helper).href)}); process.stdout.write("light")`,
+    ],
+    denied,
+  )
+  expect(imported.status, imported.stderr).toBe(0)
+  expect(imported.stdout).toBe("light")
+  const cancelled = await denyImports([helper, "--cancel", request], denied)
+  expect(cancelled.status, cancelled.stderr).toBe(0)
+  expect(await readFile(`${request}.cancel`, "utf8")).toBe("cancelled")
+  const stopped = await denyImports([helper, request], denied)
+  expect(stopped.status).toBe(1)
+  expect(stopped.stderr).toContain("Reading cancelled")
+  expect(stopped.stderr).not.toContain("Unexpected import")
+})
+
+it("loads no renderers for plain documents or all-cache documents", async () => {
+  const helper = join(installed, "reader", "helper.mjs")
+  const request = await fixture("# Plain\n\n```js\nconst x = 1\n```\n")
+  const plain = await denyImports([helper, request], rendererImports)
+  expect(plain.status, plain.stderr).toBe(0)
+  expect(JSON.parse(plain.stdout).blocks.some((block) => block.type === "error")).toBe(false)
+  const file = join(temporary, "workspace", "document.md")
+  await writeFile(file, "$$\nx^2\n$$\n")
+  // Math needs a worker, but never imports Mermaid or Puppeteer.
+  const cold = await denyImports([helper, request], ["./mermaid.js", "puppeteer"])
+  expect(cold.status, cold.stderr).toBe(0)
+  const rendered = JSON.parse(cold.stdout)
+  expect(rendered.blocks[0].type).toBe("graphic")
+  const warm = await denyImports([helper, request], rendererImports)
+  expect(warm.status, warm.stderr).toBe(0)
+  expect(JSON.parse(warm.stdout).blocks).toEqual(rendered.blocks)
+})
+
+it("does not import Mermaid or Puppeteer for an unused renderer batch", async () => {
+  const entry = pathToFileURL(join(installed, "reader", "renderers", "index.js")).href
+  const result = await denyImports(
+    [
+      "--input-type=module",
+      "-e",
+      `const { Renderers } = await import(${JSON.stringify(entry)}); await new Renderers().close()`,
+    ],
+    ["./mermaid.js", "puppeteer"],
+  )
+  expect(result.status, result.stderr).toBe(0)
+})
+
 it("reports invalid CLI arguments through an installed junction instead of silently exiting", () => {
   const result = cli([join(installed, "reader", "helper.mjs")])
   expect(result.status).toBe(1)

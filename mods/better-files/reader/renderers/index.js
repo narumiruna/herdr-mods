@@ -1,4 +1,3 @@
-import { MermaidRenderer } from "./mermaid.js"
 import { checkSource } from "./svg.js"
 import { WorkerRenderer } from "./worker-renderer.js"
 
@@ -39,7 +38,7 @@ export class Renderers {
   constructor(options = {}) {
     this.options = rendererOptions(options)
     this.worker = new WorkerRenderer()
-    this.mermaid = new MermaidRenderer()
+    this.mermaid = null
     this.tail = Promise.resolve()
     this.closed = false
     this.count = 0
@@ -62,9 +61,15 @@ export class Renderers {
     this.pending++
     const task = this.tail.then(async () => {
       if (this.closed) throw new Error("Renderers closed")
-      return kind === "mermaid"
-        ? this.mermaid.render(source, this.options)
-        : this.worker.render(kind, source, this.options, Boolean(display))
+      if (kind === "mermaid") {
+        if (!this.mermaid) {
+          const { MermaidRenderer } = await import("./mermaid.js")
+          if (this.closed) throw new Error("Renderers closed")
+          this.mermaid = new MermaidRenderer()
+        }
+        return this.mermaid.render(source, this.options)
+      }
+      return this.worker.render(kind, source, this.options, Boolean(display))
     })
     this.tail = task.catch(() => {})
     try {
@@ -78,7 +83,7 @@ export class Renderers {
     if (this.closing) return this.closing
     this.closed = true
     this.signal?.removeEventListener("abort", this.onAbort)
-    this.closing = Promise.all([this.worker.close(), this.mermaid.close()]).then(() => {})
+    this.closing = Promise.all([this.worker.close(), this.mermaid?.close()]).then(() => {})
     return this.closing
   }
 }
