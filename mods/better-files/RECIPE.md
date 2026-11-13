@@ -62,7 +62,7 @@ To rebuild from an empty folder:
 - Preserve limits: 1 MiB Markdown; 12,000 AST nodes; depth 40; 600 native blocks; 40 graphics; 4 MiB images/assets; 2 MiB generated SVG; 16 million pixels per graphic and 64 million per document. Work deadlines are 8 seconds per renderer, 70 seconds per helper batch, and 90 seconds per host command.
 - Cache: 64 MiB assets and 512 render metadata entries. Leases renew every 10 seconds and expire after 60 seconds; stale jobs/temporary assets are collected after two minutes. A cache full of active assets errors, rather than deleting displayed content.
 - Requests contain absolute private paths. Never publish generated data, installed dependencies/browser binaries, SDK declarations, credentials, or a profile. App quit has a 250 ms cleanup budget; forced termination relies on deadlines/expiry, not guaranteed immediate cleanup.
-- Only the owner may clear stale `data/markdown-reader/`, after closing old views/helper processes. The agent does not access or delete it. Never delete source Markdown. To disable Better Files, restore `content.mod: "files"`; close readers/helpers and stop the app before removing only its owned link/cache.
+- Only the owner may clear stale `data/markdown-reader/`, after closing old views/helper processes. The agent does not access or delete it. Never delete source Markdown. To disable Better Files, close readers/helpers and stop the app. Then restore `content.mod: "files"` and remove only its owned link/cache.
 
 ## Done when
 

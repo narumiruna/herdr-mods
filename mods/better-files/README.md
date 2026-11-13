@@ -88,7 +88,7 @@ Back, Escape, unmodified Backspace, another file, a workspace change, or parent 
 
 Opening documents never writes source Markdown, layout state, shared state, or keybindings. Requests contain absolute private paths; generated data must not be shared. Forced termination can leave temporary files until normal collection/expiry. App-quit cleanup has Herdr's 250 ms budget; it is not a crash-recovery guarantee.
 
-To disable, restore only the intended block's `content.mod` to `files`. Close readers/helpers and stop Herdr before removing the `better-files` link or its generated `data/better-files/` directory. Keep shipped Files, source documents, and unrelated state.
+To disable, close readers/helpers and stop Herdr. Then restore only the intended block's `content.mod` to `files`. Remove only the `better-files` link or its generated `data/better-files/` directory. Keep shipped Files, source documents, and unrelated state.
 
 ## Validation
 

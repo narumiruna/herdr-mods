@@ -42,7 +42,7 @@ Make `mods/better-files/` the only installable mod for the file browser and embe
 
 ## Rollback / Recovery
 
-No source document or installed profile is changed. The owner can restore the Files block to `content.mod: "files"`, stop Herdr, and remove only the Better Files installation link. To restore the former standalone reader, restore the previous reviewed source revision and its dependencies. Do not reuse new request/lease files with an old helper. The owner may remove old `data/markdown-reader/` only after all old reader views and processes are closed; migration does not delete it.
+No source document or installed profile is changed. The owner must close reader views and helpers, then stop Herdr. After Herdr stops, restore the Files block to `content.mod: "files"` and remove only the Better Files installation link. To restore the former standalone reader, restore the previous reviewed source revision and its dependencies. Do not reuse new request/lease files with an old helper. The owner may remove old `data/markdown-reader/` only after all old reader views and processes are closed; migration does not delete it.
 
 ## External Handoff
 

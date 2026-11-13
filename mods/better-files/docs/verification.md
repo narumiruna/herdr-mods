@@ -88,7 +88,7 @@ Responsible role: profile owner. Use a disposable profile first; only the owner 
 8. Close or replace a reader during slow work, change workspace, and quit normally. Verify owned helper/browser/worker cleanup and no late update. Source Markdown, unrelated layouts, shared state, keybindings, and normal app behavior must remain unchanged.
 9. Record app/Node/platform versions, actions, observed results, failures, and private evidence locations. Do not mark acceptance complete from mocks, native descriptions, or fixed-state captures.
 
-The owner may remove stale `<app-home>/data/markdown-reader/` only after closing old views/helper processes. The merged mod does not read, migrate, or delete it. Never remove source Markdown. To disable the new route, restore the intended block to `content.mod: "files"`; close readers/helpers and stop Herdr before removing only the owned Better Files link/cache.
+The owner may remove stale `<app-home>/data/markdown-reader/` only after closing old views/helper processes. The merged mod does not read, migrate, or delete it. Never remove source Markdown. To disable the new route, close readers/helpers and stop Herdr. Then restore the intended block to `content.mod: "files"` and remove only the owned Better Files link/cache.
 
 ## Retained support and security limits
 
