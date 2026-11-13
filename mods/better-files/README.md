@@ -1,87 +1,108 @@
 # Better Files
 
-A personal copy of Herdr App 0.1.15 Files. Click a local `.md` or `.markdown` file to read it **in the same Files pane**. Matching ignores letter case. The Back arrow or Escape returns to the file list. Markdown opens directly, with no file/root form or Open button. A failure shows an error, not a setup screen. No tab, split, overlay, or separate reader layout pane is created.
+Browse files and read local Markdown **in the same Files pane**. This mod derives from Herdr App 0.1.15 Files. Click `.md` or `.markdown` files, with any letter case, to open the embedded reader. The Back arrow, Escape, or unmodified Backspace returns to the file list. Other files keep the read-only text preview; folders still expand and collapse.
 
-Other files keep the original read-only text preview. Directory clicks still expand or collapse folders.
+**Sharing status: incomplete. External acceptance remains open.** Linux automated checks and Windows native checks pass; existing Windows repository/test limits and owner-operated physical acceptance remain. The preserved 600 × 525 `preview.png` is a genuine native Windows file-list fixture with safe sample data. It is not merged-reader or physical interaction proof.
 
-**Sharing status: incomplete.** Owner interaction checks and passing required companion checks are still needed. The included native preview uses safe sample file-list data; it does not prove physical clicks.
+## One installable mod
 
-## Requirements
+Install only `better-files`. Its `reader/` directory contains the embedded UI, model, host runtime, Node discovery, helper, parser, file/cache handling, and renderers. All runtime imports remain inside this mod root.
 
-- Herdr App 0.1.15. Other versions are unverified.
-- Install this mod as `<app-home>/mods/better-files`.
-- Install the required helper companion as `<app-home>/mods/markdown-reader`.
-- Markdown Reader requires Node.js 26, its npm dependencies, and explicit Puppeteer browser setup. If Windows Herdr cannot find `node`, Better Files finds the installed executable through the persistent Windows PATH or `fnm`. A PATH installation below Node.js 26 does not block the `fnm` fallback. This does not change the system PATH or install Node. Run root `npm ci` and `npm run setup:browser --workspace herdr-markdown-reader` before reading documents.
-- Keep the bundled reader session and the installed reader helper from the same repository revision.
+- Helper: `<app-home>/mods/better-files/reader/helper.mjs`.
+- Requests, assets, render metadata, and leases: `<app-home>/data/better-files/`.
+- No companion mod or separate reader pane is required.
+- The standalone Markdown Reader Open form, dialog/tab API, Files-clone preparation tool, and old repository mod root are retired.
+- There is no migration, fallback read, or automatic deletion of `<app-home>/data/markdown-reader/`. The merged runtime must not access it.
 
-Herdr does not permit source imports outside a mod root. The local `reader/` directory contains Markdown Reader's UI, session, and host I/O modules. The embedded UI removes manual file selection. Its session module stays synchronized with the companion. Host I/O adds Windows Node discovery but keeps the companion helper protocol. The UI uses the helper already installed under `mods/markdown-reader/`. It does not contain a second Node renderer or browser.
+## Requirements and setup
 
-## Install without replacing Files
+- Herdr App 0.1.15 on Windows passed the merged entry and 16 native fixture checks. Other app versions are unknown.
+- Node.js 26 or later and the pinned dependencies in `package.json`.
+- Puppeteer's browser, installed explicitly before document rendering. Keep Chromium's sandbox enabled.
+- System fonts suitable for the document's labels. Font and SVG appearance can differ by platform.
 
-Stop Herdr before creating links. The repository link script discovers `better-files` on its next run. On Windows, use `scripts/link.ps1`. Do not overwrite `<app-home>/mods/files`.
+From the repository root:
 
-In a personal layout, change only the intended Files block's `content.mod`:
-
-```json
-{
-  "id": "files",
-  "type": "block",
-  "content": { "mod": "better-files" }
-}
+```sh
+npm ci
+npm run setup:browser --workspace herdr-better-files
 ```
 
-Keep the existing node ID, sizes, props, and stack selection. Do not replace the complete layout or any keybindings. The source preparation does not install links or select a layout.
+For a standalone copy of this mod root, run inside that folder:
 
-The separate Markdown Reader block was removed from Workbench. It is not needed for this Files preview.
+```sh
+npm install --omit=dev
+npm run setup:browser
+```
 
-## File-open behavior
+Setup needs package/browser download access. Document opening does not install software or download a browser. Keep the package's KaTeX override and [dependency notices](DEPENDENCIES.md). No server, database, or Morsel service is required.
 
-- A row captures its file directory, workspace root, space ID, and machine identity when it is built. Later focus changes do not change the file or machine sent to the reader.
-- Use the space folder as the reader root only when it contains the browsed folder. Otherwise, use the browsed folder. An unrelated space folder must not block a clicked file. Canonical containment checks still apply.
-- Remote identity is preserved. Markdown Reader rejects remote files before local reads. There is no remote-to-local fallback.
-- Missing or invalid Markdown context produces a browser error. It does not use a local preview fallback.
-- The reader validates canonical paths and rejects outside-root files and resources, including escaping symlinks.
-- `cx.new` creates a retained reader view inside the current Files body.
-- Back, Escape, another file, or a workspace change closes the old reader session before its view handle is released. The application close hook also waits for pending reader cleanup.
-- Local Markdown links replace the document in this same reader view after the previous session closes. Fragment links scroll within the document. No reader tab is created.
-- Opening a document does not write layout state, shared state, keybindings, or source Markdown.
+If Windows Herdr cannot find `node` on its inherited PATH, the launcher checks persistent Windows PATH and then `fnm` for installed Node.js 26+. A persistent PATH candidate below 26 does not block the `fnm` fallback. The launcher caches the absolute executable for rendering/cancellation; it does not change persistent PATH or install Node.
 
-## Existing browser behavior
+## Owner installation and retirement
 
-The copied browser lists the focused pane folder, hides `.git`, and sorts directories before files. It limits each folder to 500 entries, the complete tree to 5,000 entries, and recursion depth to 40. It refreshes every 10 seconds and watches local folders.
+Only the profile owner performs these steps. Source preparation does not change the live profile.
 
-Directory listing starts `sh` or PowerShell. Git marks use read-only Git commands. Other file previews use `readTextFile`, reject NUL content, and display at most 400,000 text characters after the host read. The host read API can reject unavailable or excessive files. Source files are not written.
+1. Close old reader views and let their helper processes finish. Stop Herdr before changing installed links or layouts.
+2. Remove only the stale installed `<app-home>/mods/markdown-reader` link or owned copy. Do not follow a link and delete its target. Remove obsolete reader blocks/references from the owner's layouts.
+3. Copy or link this complete mod root to `<app-home>/mods/better-files`. Do not overwrite shipped `<app-home>/mods/files`.
+4. In the intended existing Files block, set `content.mod` to `better-files`. Keep its node ID, sizes, props, stack selection, other layout content, and keybindings. Restart Herdr and perform the [owner checks](docs/verification.md#owner-physical-acceptance).
 
-## Development
+No layout or keybinding file is distributed. No `keys.json` is required. Do not replace a whole profile to install this mod.
 
-Run from the repository root:
+The owner may remove stale `<app-home>/data/markdown-reader/` **only after closing old reader views and helper processes**. This is optional owner cleanup, not migration or agent work. Never delete source Markdown.
+
+## Behavior and support
+
+- Rows capture their directory, workspace root, space ID, and machine identity. Later focus changes cannot retarget a click. Use the space folder as root only if it contains the browsed directory; otherwise use that directory. The helper still enforces canonical containment.
+- Markdown opens directly through a retained `cx.new` child in the Files body. No Open/setup screen, tab, split, overlay, or layout mutation is used. Invalid context or load failure shows an error, not a local preview fallback.
+- Remote Markdown is rejected before local document reads. Remote identity is never replaced with local identity.
+- Local Markdown links replace the document in this same reader after the previous session closes. Fragments scroll within the document. HTTP(S)/mailto URLs launch the system handler only after an explicit user click.
+- Prose/GFM stays selectable native text. Tasks are read-only. Footnotes use compiled references and backlinks. Code and full-document Source use read-only native editors.
+- Display math uses MathJax SVG. **Inline math is unavailable** on the checked app: TeX source and a warning remain visible. This is not full LaTeX support.
+- Official Mermaid.js renders through local headless Chromium. Authored directives/frontmatter, external resources, and active diagram links are disabled. Unsupported sanitized SVG shows an error.
+- Vega-Lite is static SVG with bounded inline data, selected transforms, and layer/concat/facet/repeat compositions. No tooltips, parameter controls, animation, remote data, generators, lookup, regex/data-access expressions, or string-expanding addition. Limits are 5,000 rows, 16 leaf views, and 20,000 row-views.
+- Local PNG/JPEG/GIF/WebP images display as separate blocks, not inline rich-text images. Failed graphics show errors/source without hiding other blocks. Failed refresh keeps the last good document.
+
+The browser hides `.git`, sorts directories first, watches local folders, and refreshes every 10 seconds. Bounds are 500 entries per folder, 5,000 total, and depth 40. Listing runs `sh` or PowerShell, locally or on the captured machine. Git marks use read-only commands. Other previews use `readTextFile`, reject NUL content, and show at most 400,000 characters after the host read; host limits still apply.
+
+## Security, limits, and lifecycle
+
+No authored HTML, JavaScript, code fence, or document-controlled shell command runs. The helper receives argument arrays and a request file, not document source in shell commands. Mermaid requests are blocked before authored rendering; Vega's loader denies network/file resources. Math uses fixed TeX packages. Remote images, authored SVG, `file:` links, and data URLs are not loaded. Generated SVG is separately sanitized.
+
+Local files/resources must stay within the canonical workspace root, including symlink resolution. Reads check regular-file type, byte limits, UTF-8, and file identity. The workspace must be stable and owner-controlled: canonical checks are not an OS sandbox against a hostile concurrent directory writer.
+
+| Bound              | Limit                                                                     |
+| ------------------ | ------------------------------------------------------------------------- |
+| Markdown           | 1 MiB, UTF-8; no truncation                                               |
+| Document structure | 12,000 AST nodes; depth 40; 600 native blocks; 40 graphics                |
+| Images/assets      | 4 MiB each; local images at most 8,192 pixels per dimension               |
+| Native graphics    | 16 million pixels each; 64 million pixels per document                    |
+| Generated SVG      | 2 MiB; at most 16,384 pixels per dimension                                |
+| Work               | 8 seconds per renderer; 70-second helper deadline; 90-second host command |
+| Cache              | 64 MiB assets; 512 render metadata entries                                |
+
+The reader watches before its first read and debounces refresh by 250 ms. It retries every 10 seconds on Linux, after watch failure, before initial success, or while local images/links are unresolved. Missing links stay inactive until validated. Unchanged editor states and the outer scroll handle survive refreshes.
+
+Back, Escape, unmodified Backspace, another file, a workspace change, or parent close starts reader cleanup before releasing its retained entity. Local-link replacement waits for old-session cleanup. Obsolete work is cancelled and late results discarded. Workers and the per-batch Mermaid browser are closed. Leases renew every 10 seconds, expire after 60 seconds, and protect displayed assets. Lease release waits for in-flight renewal. Stale jobs/temporary assets are collected after two minutes; an active-full cache errors instead of deleting displayed assets.
+
+Opening documents never writes source Markdown, layout state, shared state, or keybindings. Requests contain absolute private paths; generated data must not be shared. Forced termination can leave temporary files until normal collection/expiry. App-quit cleanup has Herdr's 250 ms budget; it is not a crash-recovery guarantee.
+
+To disable, close readers/helpers and stop Herdr. Then restore only the intended block's `content.mod` to `files`. Remove only the `better-files` link or its generated `data/better-files/` directory. Keep shipped Files, source documents, and unrelated state.
+
+## Validation
+
+From the repository root, after setup:
 
 ```sh
 npm test --workspace herdr-better-files
-npm run check:mod --workspace herdr-better-files
+npm run test:browser --workspace herdr-better-files
 npm run check:types --workspace herdr-better-files
+npm run check:mod --workspace herdr-better-files
 npm run check:bundles
+git diff --check
 ```
 
-Native checks use temporary profiles. Fixed-data fixtures cover the file list, text preview, errors, embedded Markdown, remote rejection, and Back. They do not perform physical file clicks or modify the active profile.
+Native scripts use disposable profiles. The entry, seven Files fixtures, and nine embedded reader fixtures passed on Windows App 0.1.15. After the Backspace fix, the Linux merged suite has 507 passes and 5 Windows-only skips; the selected Windows suite has 331 passes. Chromium tests passed on both platforms. Full repository tests, types, formatting, and bundles passed in a disposable Linux LF snapshot. These checks do not establish physical interaction. Existing Windows full-suite and raw-checkout gate failures remain documented. The macOS-only capture script cannot capture Windows.
 
-For a visual render check, click `docs/markdown-reader-examples.md` in this repository through Better Files. It contains five Mermaid diagrams, four display equations, Python/Go/Rust code, and three Vega-Lite charts. Each section states the expected result. The helper rendered all twelve graphics without errors at 720 px in dark mode and 360 px in light mode. This does not replace the physical interaction checks below.
-
-## Verified checks
-
-- Better Files: 132 unit tests, type checks, the entry check, and all seven native fixtures passed on Herdr App 0.1.15/Windows.
-- Markdown Reader: entry, nine native description fixtures, type checks, and seven real Chromium tests passed. The earlier full Windows unit run had 366 passes, 25 failures, and 3 unhandled test errors. Three additional helper CLI regression tests now pass.
-- Windows Node discovery, a real helper render, and cancellation passed with Node absent from the simulated app PATH. A separate live Herdr process then returned complete JSON through its actual exec bridge and an installed helper junction: 34,384 bytes and 201 blocks.
-- Scoped formatting checks pass. The installed Files runtime and icon hashes are unchanged.
-
-## Remaining checks
-
-- The actual `preview.png` was captured and inspected in an isolated Herdr 0.1.15 Windows profile. It contains no private file paths. Physical click and document-navigation checks remain required.
-- The profile owner must verify local Markdown clicks, uppercase extensions, spaces/Unicode, Back, non-Markdown previews, folders, remote rejection, reader scroll/source controls, and unchanged normal app use.
-- The unchanged Markdown Reader test suite has Windows failures related to symlink privileges, POSIX permissions/constants, and native-evidence process/socket tests. These failures must be resolved or verified in a supported environment before sharing readiness is claimed.
-- The working tree has existing CRLF differences outside this mod. Full formatting and lint checks passed for all 148 checked files in a clean LF snapshot of the intended commit. No unrelated source files were rewritten.
-- The Windows repository bundle check also reports a pre-existing Mod Manager test-file classification error. Its native path separators need a separate checker fix, or the check must run on the supported Linux/macOS environment. No check is weakened here.
-
-To recover, restore the Files block's `content.mod` to `files`, close its preview, and stop Herdr before removing only the `better-files` link. Keep shipped Files, source documents, and unrelated layout state.
-
-See [RECIPE.md](RECIPE.md), [NOTICE](NOTICE), [LICENSE](LICENSE), [reader UI license](reader/LICENSE), and [icon notices](THIRD-PARTY-NOTICES).
+See [verification and owner handoff](docs/verification.md) for exact pre-merge baselines, post-merge results, remaining failed/unavailable checks, and physical acceptance. See [native fixture reproduction](docs/native-fixture.md), [RECIPE.md](RECIPE.md), [NOTICE](NOTICE), [Apache license](LICENSE), [MIT reader license](reader/LICENSE), and [icon notices](THIRD-PARTY-NOTICES).

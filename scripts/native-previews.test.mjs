@@ -30,7 +30,7 @@ for (const name of ["github-issues-prs", "layout-manager", "mod-manager"]) {
 
 test("offline shim retains the reviewed handshake and fail-closed protocol", async () => {
   const source = await readFile(
-    new URL("../mods/markdown-reader/scripts/native-evidence.mjs", import.meta.url),
+    new URL("../mods/better-files/scripts/native-evidence.mjs", import.meta.url),
     "utf8",
   )
   const program = offlineProgram(source)

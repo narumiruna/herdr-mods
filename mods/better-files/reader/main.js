@@ -495,7 +495,7 @@ export default class MarkdownReader extends View {
       .text_color(t.foreground)
       .track_focus(this.focus)
       .on_key_down((event) => {
-        if (event.key !== "escape") return
+        if (event.key !== "escape" && event.keystroke !== "backspace") return
         if (this.entry.overlay) closeOverlay(this.entry.overlay)
         else this.back()
       })

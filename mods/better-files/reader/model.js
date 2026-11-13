@@ -1,4 +1,4 @@
-const ASSET = /^data\/markdown-reader\/assets\/[a-f0-9]{64}\.(?:svg|png|jpg|gif|webp)$/
+const ASSET = /^data\/better-files\/assets\/[a-f0-9]{64}\.(?:svg|png|jpg|gif|webp)$/
 const JOB = /^[a-z0-9-]{8,100}$/
 
 function absolutePath(value) {
