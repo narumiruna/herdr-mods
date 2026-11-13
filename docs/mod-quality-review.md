@@ -2,6 +2,8 @@
 
 Review date: 2026-11-12. Checked host: Herdr App 0.1.15 on macOS. The later [PR #26 feedback ledger](reviews/pr-26-feedback.md) records new findings, fixes, validation, and unresolved acceptance limits.
 
+The scores and counts below describe the pre-merge implementations. Markdown Reader is now an internal part of Better Files, not a separate installable mod. Current paths, checks, and acceptance restrictions are in [Better Files verification](../mods/better-files/docs/verification.md). The older reader graphic-card preview is no longer bundled.
+
 ## Scope and scoring method
 
 The five areas and weights come from [RUBRIC.md](../RUBRIC.md): Practical Value /30, Intuitive UI/UX /25, Workflow Integration /20, Performance /15, and Reliability /10. The rubric has no detailed point scale. Scores below are independent reviewer judgments with explicit deductions, not a new official scale.
@@ -101,12 +103,12 @@ All captures use disposable profiles, public fixture data, an offline core, and 
 - Layout emitted duplicate system-font warnings. Its deep schematic is clipped inside a scrollable canvas; the screenshots do not establish physical scrolling or destination access.
 - The three-mod fixture denied six background `curl` calls for bundled update-notes media. No GitHub/account/file operation was performed. Command wrappers and the restricted environment are not an OS network sandbox.
 
-| Bundled preview                      | Dimensions  |
-| ------------------------------------ | ----------- |
-| `mods/github-issues-prs/preview.png` | 680 × 760   |
-| `mods/layout-manager/preview.png`    | 1200 × 950  |
-| `mods/markdown-reader/preview.png`   | 2200 × 1606 |
-| `mods/mod-manager/preview.png`       | 1100 × 850  |
+| Bundled preview                      | Dimensions |
+| ------------------------------------ | ---------- |
+| `mods/github-issues-prs/preview.png` | 680 × 760  |
+| `mods/layout-manager/preview.png`    | 1200 × 950 |
+| `mods/better-files/preview.png`      | 600 × 525  |
+| `mods/mod-manager/preview.png`       | 1100 × 850 |
 
 ## External acceptance and sharing restrictions
 
@@ -117,6 +119,6 @@ The profile owner or a tester with an isolated native input/display environment 
 1. **GitHub Issues & PRs:** keyboard search/clear/type tabs; result/detail/Back/Escape; tab-bar selection, rename, close, reorder, and per-space panel restoration; approved read-only authentication/remote-machine failure paths; unchanged terminal input and shortcuts.
 2. **Layout Manager:** real host parsing and divider geometry; physical drag/drop, keyboard placement, deep/hidden/inactive-node access, cancellation, props retention, Close discard, and guarded Undo; live reload without duplicate views or lost terminal sessions. Keep original disposable layout JSON for recovery.
 3. **Mod Manager:** native search/focus/scroll and selected Source/browser routing; progress/Stop checks; confirmation cancellation; reviewed disposable-mod install/update/uninstall; read-only retry, recovery warnings, close-during-transaction, and footer coexistence. Preserve recovery receipts and archives.
-4. **Markdown Reader:** actual Enter/Open/Cancel and reopen; links/fragments, text selection, clipboard, scrolling, zoom, real watch/recovery, and personal Files routing without changing normal terminal/Files use. Inline typeset math remains unsupported.
+4. **Better Files:** actual Markdown file clicks, Back/Escape, same-pane links/fragments, text selection, clipboard, scrolling, zoom, real watch/recovery, remote rejection, and unchanged terminal/Files use. The standalone reader Open/Cancel entry is retired. Inline typeset math remains unsupported.
 
-Prerequisites, expected results, and recovery procedures are retained in each mod's `RECIPE.md` and README, and in [reader verification](../mods/markdown-reader/docs/verification.md). Additional platforms remain unverified; no compatibility claim is added. These checks must not be run against the owner's live mods or account without separate approval. GitHub publication requires explicit approval even after acceptance.
+Prerequisites, expected results, and recovery procedures are retained in each mod's `RECIPE.md` and README, and in [reader verification](../mods/better-files/docs/verification.md). Additional platforms remain unverified; no compatibility claim is added. These checks must not be run against the owner's live mods or account without separate approval. GitHub publication requires explicit approval even after acceptance.

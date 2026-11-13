@@ -11,15 +11,14 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - [`mods/github-issues-prs/`](mods/github-issues-prs/): read-only GitHub issues and pull requests, repository context, and optional workspace tabs.
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
-- [`mods/markdown-reader/`](mods/markdown-reader/): native local Markdown reading, display math, official Mermaid SVG, static Vega-Lite, and personal Files integration preparation.
-- [`mods/better-files/`](mods/better-files/): a personal Files clone that embeds Markdown Reader in the same Files pane and keeps other file previews. Required companion checks and owner interaction checks remain incomplete.
+- [`mods/better-files/`](mods/better-files/): a personal Files clone with a bundled native Markdown reader, display math, official Mermaid SVG, and static Vega-Lite in the same Files pane. Other file previews remain unchanged. Owner interaction checks remain incomplete.
 - [`docs/markdown-reader-examples.md`](docs/markdown-reader-examples.md): a visual render check for Better Files, with Mermaid, LaTeX, Python/Go/Rust code, and Vega-Lite examples.
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
 - `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
 
-Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Markdown Reader needs installed Node dependencies and Puppeteer's browser.
+Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Better Files needs installed Node dependencies and Puppeteer's browser for Markdown rendering.
 
 ## Development
 
@@ -27,7 +26,7 @@ Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Run these com
 
 ```sh
 npm ci
-npm run setup:browser --workspace herdr-markdown-reader
+npm run setup:browser --workspace herdr-better-files
 npm run check:mod
 npm run ci
 git diff --check
@@ -123,20 +122,22 @@ npm run check:mod --workspace herdr-layout-manager
 npm start --workspace herdr-layout-manager
 ```
 
-## Markdown Reader
+## Better Files and Markdown
 
-[Markdown Reader](mods/markdown-reader/README.md) opens local Markdown in native panes. It supports native prose/code, MathJax display math, official Mermaid.js diagrams, and static Vega-Lite charts. Inline math remains TeX source on Herdr 0.1.15; it is not complete LaTeX support.
+[Better Files](mods/better-files/README.md) opens local `.md` and `.markdown` files in the same Files pane. It bundles the reader UI and Node helper, with native prose/code, MathJax display math, official Mermaid.js diagrams, and static Vega-Lite charts. Inline math remains TeX source on Herdr 0.1.15; it is not complete LaTeX support.
 
-Install dependencies and the pinned browser first. The [Files integration guide](mods/markdown-reader/docs/files-integration.md) prepares personal Files/layout clones outside the active profile. Linking the reader alone does not replace Files clicks. No shipped mod, live layout, or source document is changed automatically.
+Install dependencies and the pinned browser first. Install only `better-files`, then change the intended Files block's `content.mod` to `better-files` while Herdr is stopped. Keep other layout settings, shipped Files, and source documents unchanged. See the [installation and migration guide](mods/better-files/README.md).
+
+The standalone `markdown-reader` mod, its Open/dialog/tab entry points, and personal Files-clone preparation tool have been removed. Existing profile links and layouts need owner-managed cleanup. New reader data uses `data/better-files/`; old `data/markdown-reader/` is not reused, migrated, or automatically deleted.
 
 ```sh
-npm test --workspace herdr-markdown-reader
-npm run test:browser --workspace herdr-markdown-reader
-npm run check:mod --workspace herdr-markdown-reader
-npm run evidence:native --workspace herdr-markdown-reader
+npm test --workspace herdr-better-files
+npm run test:browser --workspace herdr-better-files
+npm run check:mod --workspace herdr-better-files
+npm run evidence:native --workspace herdr-better-files
 ```
 
-See [verification and external handoff](mods/markdown-reader/docs/verification.md) for native evidence, platform limits, the inline-asset API requirement, and live-profile checks.
+See [verification and external handoff](mods/better-files/docs/verification.md) for native evidence, platform limits, and required owner interaction checks.
 
 ## Self-update
 

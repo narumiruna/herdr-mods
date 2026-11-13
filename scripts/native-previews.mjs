@@ -3,12 +3,12 @@ import { createHash } from "node:crypto"
 import { cp, mkdir, mkdtemp, open, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { command, waitForStatus } from "../mods/markdown-reader/scripts/native-evidence.mjs"
+import { command, waitForStatus } from "../mods/better-files/scripts/native-evidence.mjs"
 
 // Run only with serialized native capture access and stable source files.
 // No preview is copied into a mod root automatically: inspect the PNG first.
 const repository = fileURLToPath(new URL("..", import.meta.url))
-const readerScript = "mods/markdown-reader/scripts/native-evidence.mjs"
+const readerScript = "mods/better-files/scripts/native-evidence.mjs"
 const specs = {
   "github-issues-prs": {
     files: ["main.js", "github.js", "tabs.js", "mod.json", "icons"],

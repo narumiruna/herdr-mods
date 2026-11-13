@@ -10,5 +10,13 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["main.js", "markdown.js", "reader/*.js", "gpui-kit.d.ts"]
+  "include": [
+    "main.js",
+    "markdown.js",
+    "reader/main.js",
+    "reader/model.js",
+    "reader/runtime.js",
+    "reader/node.js",
+    "gpui-kit.d.ts"
+  ]
 }

@@ -10,14 +10,19 @@ const profile = join(temporary, "profile")
 const fixture = join(profile, "mods", "better-files")
 const program = process.platform === "win32" ? "herdr-app.exe" : "herdr-app"
 
-function check(directory) {
-  const result = spawnSync(program, ["check", directory], {
+function run(program, args) {
+  const result = spawnSync(program, args, {
     stdio: "inherit",
     env: { ...process.env, HERDR_APP_HOME: profile },
     timeout: 300_000,
   })
   if (result.error) throw result.error
-  if (result.status !== 0) throw new Error("Native Better Files check failed")
+  if (result.status !== 0)
+    throw new Error(`Native Better Files check failed: ${program} ${args.join(" ")}`)
+}
+
+function check(directory) {
+  run(program, ["check", directory])
 }
 
 try {
@@ -76,6 +81,7 @@ export default class extends Files {
     this.ownerCx = cx
     this.reader = null
     this.closingReaders = new Set()
+    this.closed = false
     this.root = "/example"
     this.on = null
     this.context = { key: "fixture", cwd: this.root, root: this.root, on: null, space: "fixture" }
@@ -112,6 +118,7 @@ export default class extends Files {
     console.log(`Checking Better Files native fixture: ${state}`)
     check(fixture)
   }
+  run(process.execPath, [join(root, "scripts/check-reader-views.mjs")])
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

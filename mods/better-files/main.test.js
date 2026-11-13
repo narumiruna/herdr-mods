@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const ui = vi.hoisted(() => {
@@ -156,17 +155,6 @@ afterEach(() => {
   expect(exec).not.toHaveBeenCalled()
   expect(readTextFile).not.toHaveBeenCalled()
   expect(watchFolder).not.toHaveBeenCalled()
-})
-
-describe("bundled Reader source compatibility", () => {
-  it.each(["model.js", "LICENSE"])(
-    "keeps reader/%s identical to Markdown Reader after CRLF normalization",
-    (file) => {
-      const source = (path) =>
-        readFileSync(new URL(path, import.meta.url), "utf8").replace(/\r\n/g, "\n")
-      expect(source(`./reader/${file}`)).toBe(source(`../markdown-reader/${file}`))
-    },
-  )
 })
 
 describe("file row click routing", () => {
@@ -344,7 +332,7 @@ describe("embedded Reader lifecycle", () => {
     expect(cx.spawn).not.toHaveBeenCalled()
   })
 
-  it.each(["Back", "show(null, cx)", "Escape"])(
+  it.each(["Back", "show(null, cx)", "Escape", "Backspace"])(
     "%s returns to the file tree and awaits child.close before releasing the entity",
     async (action) => {
       const { view, cx } = fixture()
@@ -354,7 +342,7 @@ describe("embedded Reader lifecycle", () => {
       if (action === "Back") {
         render(view, cx)
         ui.nodes.get("files-back").handlers.on_click({}, cx)
-      } else if (action === "Escape") {
+      } else if (action === "Escape" || action === "Backspace") {
         reader.view.back()
       } else {
         view.show(null, cx)

@@ -7,8 +7,8 @@ import { createNodeRunner } from "./node.js"
 
 export function createIO() {
   const home = appHome()
-  const base = `${home}/data/markdown-reader`
-  const helper = `${home}/mods/markdown-reader/helper.mjs`
+  const base = `${home}/data/better-files`
+  const helper = `${home}/mods/better-files/reader/helper.mjs`
   const executeNode = createNodeRunner(exec, window()?.platform)
   return {
     async request(entry, options) {

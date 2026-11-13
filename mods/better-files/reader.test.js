@@ -136,29 +136,35 @@ describe("direct embedded reader", () => {
   })
 })
 
-describe("reader Escape handling", () => {
-  function press(view, cx, key = "escape") {
+describe("reader return keys", () => {
+  function press(view, cx, key = "escape", keystroke = key) {
     view.render(cx)
-    ui.nodes.get("markdown-reader").handlers.on_key_down({ key }, cx)
+    ui.nodes.get("markdown-reader").handlers.on_key_down({ key, keystroke }, cx)
   }
 
-  it("uses the embedded Back action instead of pane navigation", () => {
-    const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
-    view.back = vi.fn()
-    press(view, cx)
-    expect(view.back).toHaveBeenCalledOnce()
-    expect(run).not.toHaveBeenCalled()
-    expect(closeOverlay).not.toHaveBeenCalled()
-  })
+  it.each(["escape", "backspace"])(
+    "uses the embedded Back action for %s instead of pane navigation",
+    (key) => {
+      const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
+      view.back = vi.fn()
+      press(view, cx, key)
+      expect(view.back).toHaveBeenCalledOnce()
+      expect(run).not.toHaveBeenCalled()
+      expect(closeOverlay).not.toHaveBeenCalled()
+    },
+  )
 
-  it("keeps the reader's default pane navigation when no Back override exists", () => {
-    const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
-    press(view, cx)
-    expect(run).toHaveBeenCalledExactlyOnceWith("pane.go", { direction: "left" })
-    expect(closeOverlay).not.toHaveBeenCalled()
-  })
+  it.each(["escape", "backspace"])(
+    "keeps the default pane navigation for %s when no Back override exists",
+    (key) => {
+      const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
+      press(view, cx, key)
+      expect(run).toHaveBeenCalledExactlyOnceWith("pane.go", { direction: "left" })
+      expect(closeOverlay).not.toHaveBeenCalled()
+    },
+  )
 
-  it("closes an overlay before invoking Back", () => {
+  it.each(["escape", "backspace"])("closes an overlay before invoking Back for %s", (key) => {
     const { view, cx } = open({
       file: "/project/README.md",
       root: "/project",
@@ -166,16 +172,22 @@ describe("reader Escape handling", () => {
       overlay: "reader-overlay",
     })
     view.back = vi.fn()
-    press(view, cx)
+    press(view, cx, key)
     expect(closeOverlay).toHaveBeenCalledExactlyOnceWith("reader-overlay")
     expect(view.back).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("ignores keys other than Escape", () => {
+  it.each([
+    ["enter", "enter"],
+    ["backspace", "ctrl-backspace"],
+    ["backspace", "alt-backspace"],
+    ["backspace", "shift-backspace"],
+    ["backspace", "cmd-backspace"],
+  ])("does not navigate for %s with chord %s", (key, keystroke) => {
     const { view, cx } = open({ file: "/project/README.md", root: "/project", on: null })
     view.back = vi.fn()
-    press(view, cx, "enter")
+    press(view, cx, key, keystroke)
     expect(view.back).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
     expect(closeOverlay).not.toHaveBeenCalled()

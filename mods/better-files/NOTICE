@@ -11,7 +11,7 @@ Changes in this copy:
 - main.js captures each row's workspace root, space ID, and machine identity.
 - An unrelated space folder is replaced with the browsed folder as the reader root.
 - Markdown opens in a retained reader view inside the Files pane.
-- Back, Escape, replacement, and parent close clean up the reader before entity release.
+- Back, Escape, unmodified Backspace, replacement, and parent close clean up the reader before entity release.
 - Other previews and directory navigation retain their original routes.
 - Icon paths use mods/better-files.
 - mod.json names the personal clone, enables focus, and records its source version.
@@ -22,17 +22,26 @@ markdown.js, tests, native checks, and documentation are additions.
 The four copied icons add accessibility titles. Their geometry is unchanged.
 Their ISC and MIT notices are retained in THIRD-PARTY-NOTICES.
 
-reader/main.js, reader/model.js, and reader/runtime.js are local copies of the
-existing Markdown Reader UI. They use its installed Node helper. They retain
-their separate MIT license in reader/LICENSE. reader/main.js removes the file/root picker, its input state, and the Open
+reader/ contains the Markdown Reader UI, model, host runtime, Node launcher,
+helper, document parser, file/cache handling, and renderers. This reader source
+retains its separate MIT license in reader/LICENSE. DEPENDENCIES.md records
+runtime dependency licenses and pinned versions; Chromium has its own notices.
+No Morsel AGPL source is included.
+
+reader/main.js removes the file/root picker, its input state, and the Open
 control. Documents open from captured entry props or validated local links;
 failures show an error. Local links replace the session in the same view and
-wait for previous cleanup. The session source retains its content apart from
-line endings. Its parity
-tests protect helper compatibility. reader/runtime.js adds a Node launcher
-for a Windows app that cannot find node on its inherited PATH. reader/node.js
-finds an installed Node.js 26+ through persistent PATH or fnm. It changes no
-persistent environment setting and keeps helper arguments and request data.
+wait for previous cleanup. The standalone reader Open/dialog/tab API and
+Files-clone preparation tool are retired; better-files is the only mod root.
+
+reader/runtime.js invokes the local helper at
+<app-home>/mods/better-files/reader/helper.mjs. Requests, assets, render metadata,
+and leases use <app-home>/data/better-files/. The merged runtime does not read,
+migrate, or automatically delete data/markdown-reader/. Source Markdown is not
+written. reader/node.js finds installed Node.js 26+ through persistent Windows
+PATH or fnm when the app cannot find node on its inherited PATH. It changes no
+persistent environment setting. reader/helper.mjs retains import.meta.main for
+CLI entry through junctions and symbolic links.
 
 Original reader source SHA-256 values before line-ending normalization:
 main.js    25de138e34026ca020c691e4e73db98cb8fe0807138dd6a31e6ca19b88310eac
