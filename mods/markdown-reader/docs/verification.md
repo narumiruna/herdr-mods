@@ -117,6 +117,20 @@ Ubuntu CI installs an AppArmor rule for the exact pinned Chromium executable bec
 
 Native Windows/Linux appearance, forced app crashes, and manual clipboard/selection/scroll behavior are unverified. The Chromium sandbox is not disabled to make a platform pass. An environment that cannot launch sandboxed Chromium must report the failure rather than use weaker browser settings.
 
+## Helper entry through installed links
+
+The previous helper entry check compared `import.meta.url` with a URL made from `process.argv[1]`. An installed directory junction or symbolic link can make those paths differ. The helper then exited with code 0 without calling its main function or writing JSON.
+
+The helper now uses Node.js 26's `import.meta.main`. Three CLI tests cover a junction installation: complete large JSON output and cancellation, invalid arguments, and import without CLI side effects.
+
+A separate Herdr App 0.1.15 Windows process tested the actual `herdr.exec` bridge with a temporary profile, an offline core, and a helper installed through a junction. Better Files' Windows launcher resolved Node.js 26.11.1. The helper returned code 0, 34,384 bytes of valid JSON, and 201 blocks. Only the owned test process tree was stopped. The owner's active profile was not changed.
+
+This verifies the helper entry point and execution bridge. It does not establish physical click behavior, standalone reader PATH setup, or complete Windows compatibility. The earlier Windows full-suite failures remain open.
+
+```sh
+npm test --workspace herdr-markdown-reader -- tests/helper-cli.test.js
+```
+
 ## Recovery
 
 Return to the original layout to disable the personal Files click route. Close reader panes before removing its development link or clearing its cache. Remove only the reader's cache directory when clearing generated assets. No source document writes, data migration, package publication, tags, or release workflows are part of this change.
