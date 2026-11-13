@@ -40,7 +40,7 @@ try {
     `import Reader from "./reader-view.js"
 export default class extends Reader {
   createIO() { return { renew: async () => {}, cancel: async () => {}, release: async () => {} } }
-  refresh() {
+  refresh(cx) {
     this.palette = JSON.stringify(this.renderOptions())
     this.session.manifest = {
       file: "/example/README.md", root: "/example", source: "# Example",
@@ -48,6 +48,7 @@ export default class extends Reader {
       links: {}, anchors: {}, warnings: [], assets: []
     }
     this.prepareEditors(this.session.manifest)
+    this.prepareBlocks(this.session.manifest, cx)
   }
 }
 `,

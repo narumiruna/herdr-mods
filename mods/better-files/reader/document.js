@@ -66,6 +66,8 @@ export async function buildDocument({
   const warnings = new Set()
   const assets = new Set()
   const dependencies = new Set([file])
+  // Validate each lexical target once per build; refreshes must resolve paths again.
+  const linkLocations = new Map()
   let unresolvedImages = false
   let unresolvedLinks = false
   const links = {}
@@ -129,7 +131,6 @@ export async function buildDocument({
   async function saveAsset(value, extension) {
     const asset = await cache.put(value, extension, job)
     assets.add(asset)
-    if (job) await cache.lease(job, [...assets])
     return asset
   }
 
@@ -158,7 +159,6 @@ export async function buildDocument({
       await cache.remember(key, result)
     } else {
       assets.add(result.asset)
-      if (job) await cache.lease(job, [...assets])
     }
     admitGraphic(result)
     return {
@@ -212,7 +212,9 @@ export async function buildDocument({
       if (target.kind === "local") {
         try {
           if (within(root, target.file)) dependencies.add(target.file)
-          const location = await workspaceFile(root, target.file)
+          if (!linkLocations.has(target.file))
+            linkLocations.set(target.file, workspaceFile(root, target.file))
+          const location = await linkLocations.get(target.file)
           if (!/\.(?:md|markdown)$/i.test(location.file))
             throw new Error("Only Markdown file links can be opened")
           dependencies.add(location.file)

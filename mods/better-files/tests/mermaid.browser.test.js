@@ -29,6 +29,8 @@ function trackedLaunch() {
   const browsers = []
   const messages = []
   const labels = []
+  const pages = []
+  let bundles = 0
   const launch = async (settings) => {
     const browser = await puppeteer.launch(settings)
     browsers.push(browser)
@@ -36,30 +38,39 @@ function trackedLaunch() {
     browser.newPage = async () => {
       const page = await newPage()
       page.on("console", (message) => messages.push(message.text()))
-      const close = page.close.bind(page)
-      page.close = async () => {
-        if (!page.isClosed()) {
-          try {
-            labels.push(
-              ...(await page.evaluate(() =>
-                Array.from(document.querySelectorAll("svg text"), (node) => ({
-                  text: node.textContent,
-                  width: node.getBBox().width,
-                  height: node.getBBox().height,
-                })),
-              )),
-            )
-          } catch {
-            /* A timed-out page can already be closed by browser disposal. */
-          }
-        }
-        return close()
+      pages.push(page)
+      const addScriptTag = page.addScriptTag.bind(page)
+      page.addScriptTag = (...args) => {
+        bundles++
+        return addScriptTag(...args)
+      }
+      const extract = page.$eval.bind(page)
+      page.$eval = async (...args) => {
+        labels.push(
+          ...(await page.evaluate(() =>
+            Array.from(document.querySelectorAll("svg text"), (node) => ({
+              text: node.textContent,
+              width: node.getBBox().width,
+              height: node.getBBox().height,
+            })),
+          )),
+        )
+        return extract(...args)
       }
       return page
     }
     return browser
   }
-  return { launch, browsers, messages, labels }
+  return {
+    launch,
+    browsers,
+    messages,
+    labels,
+    pages,
+    get bundles() {
+      return bundles
+    },
+  }
 }
 
 function stopped(browser) {
@@ -86,8 +97,35 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
       expect(first.svg).toContain('stroke="rgb(171, 205, 239)"')
       expect(first.svg).toMatch(/marker-end="url\(#/)
       const warmStart = performance.now()
-      safe(await renderer.render("sequenceDiagram\nAlice->>Bob: 你好，世界", options))
+      const second = await renderer.render("sequenceDiagram\nAlice->>Bob: 你好，世界", options)
+      safe(second)
+      expect(second.svg).toContain("你好，世界")
+      expect(second.svg).not.toContain("中文标签")
       const warmMs = performance.now() - warmStart
+      const third = await renderer.render("flowchart TD\nA[Fresh] --> B[Clean]", {
+        ...options,
+        width: 600,
+        foreground: "#eeeeee",
+        background: "#111111",
+        dark: true,
+      })
+      safe(third)
+      expect(third.svg).toContain("Fresh")
+      expect(third.svg).not.toMatch(/中文标签|Alice|18, 52, 86|171, 205, 239/)
+      expect(third.svg).toContain("rgb(238, 238, 238)")
+      expect(tracked.pages).toHaveLength(1)
+      expect(tracked.bundles).toBe(1)
+      expect(
+        await tracked.pages[0].evaluate(() => ({
+          children: document.body.childElementCount,
+          styles: document.querySelectorAll("style").length,
+          policy: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
+        })),
+      ).toMatchObject({
+        children: 0,
+        styles: 0,
+        policy: expect.stringContaining("default-src 'none'"),
+      })
       expect(tracked.browsers).toHaveLength(1)
       expect(tracked.browsers[0].connected).toBe(true)
       const chinese = tracked.labels.find((label) => label.text.includes("中文标签"))
@@ -104,7 +142,8 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
   })
 
   it("renders representative class, state, gantt and pie diagrams", async () => {
-    const renderer = new MermaidRenderer()
+    const tracked = trackedLaunch()
+    const renderer = new MermaidRenderer({ launch: tracked.launch })
     try {
       for (const source of [
         "classDiagram\nAnimal <|-- Duck\nAnimal: +int age\nDuck: +quack()",
@@ -113,6 +152,8 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
         'pie title 统计\n"甲" : 30\n"乙" : 70',
       ])
         safe(await renderer.render(source, options))
+      expect(tracked.pages).toHaveLength(1)
+      expect(tracked.bundles).toBe(1)
     } finally {
       await renderer.close()
     }
@@ -139,9 +180,12 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
         pathToFileURL(file).href,
       ]
       for (const url of urls) {
+        safe(await renderer.render("flowchart TD\nA[Warm] --> B[Page]", options))
+        const page = tracked.pages.at(-1)
         await expect(
           renderer.render(`flowchart TD\nA@{ img: "${url}", label: "资源" } --> B[结束]`, options),
         ).rejects.toThrow()
+        expect(page.isClosed()).toBe(true)
       }
       expect(requests).toBe(0)
       expect(
@@ -188,6 +232,8 @@ describe("official bundled Mermaid in sandboxed Chromium", () => {
       await expect(renderer.render("flowchart TD\nA[unterminated", options)).rejects.toThrow()
       stopped(tracked.browsers[0])
       safe(await renderer.render("flowchart TD\nA-->B", options))
+      expect(tracked.pages).toHaveLength(2)
+      expect(tracked.bundles).toBe(2)
     } finally {
       await renderer.close()
     }

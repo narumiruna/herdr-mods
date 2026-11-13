@@ -64,6 +64,47 @@ git diff --check
 
 Dependency setup is root `npm ci` plus `npm run setup:browser --workspace herdr-better-files`, or standalone `npm install --omit=dev` plus `npm run setup:browser`. Node.js >=26 is required. Setup is explicit and is not performed by opening documents. Do not weaken Chromium's sandbox to make a check pass.
 
+## Markdown performance follow-up
+
+Checked on 2026-11-13 with Windows Node.js 26.6.0 and Chromium 157. Measurements use temporary profiles and files. The baseline is the reviewed code; the Mermaid and cancellation comparisons also used paired baseline/current copies. No dependency, browser, live profile, layout, keybinding, or source document was changed for setup.
+
+| Work                                                                           | Before                                                      | After                                                                                                        |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 5,000 tiny SVG assets, then 40 new inserts; initial assets total 418,890 bytes | 14,335 ms; 200,820 `lstat` calls                            | 739 ms; 5,160 `lstat` calls with no accounting record; the next 40 inserts took 365 ms and 160 `lstat` calls |
+| Six distinct two-node Mermaid flowcharts in one batch                          | Six pages and six bundle injections; warm blocks 736–806 ms | One page and one bundle injection; warm blocks 28–34 ms                                                      |
+| Fresh helper cancellation process                                              | 321–326 ms                                                  | 37–40 ms; no parser or renderer imports                                                                      |
+| 3,000 links to one local target; 53,999 source bytes                           | 953–987 ms; 6,000 `realpath` and 3,000 `lstat` calls        | 101–156 ms; two `realpath` and one `lstat` call                                                              |
+| Forty graphic cache hits, including the helper's final lease                   | 81 writes, 81 renames, 122 removals                         | 41 writes, 41 renames, 82 removals; no renderer calls                                                        |
+| Unchanged parent redraw with 600 HTML or code blocks                           | 600 `TextView.html` or `Editor.new` calls per redraw        | Zero block builders on ten redraws and a metadata-only refresh; mock counts, not native FPS                  |
+
+A separate eight-flowchart run used one browser, one page, and one bundle injection. The first block took 1,031 ms; the other blocks took 27–36 ms. Fresh plain-document helpers took 206–259 ms, and a 40-block fully cached Mermaid document took 308–327 ms. These are local measurements, not timing guarantees.
+
+### Automated checks
+
+The final source passed these checks. Linux uses a new disposable LF snapshot and existing separate Linux dependencies with the same normalized lockfile. No old snapshot was used as current-source evidence.
+
+- Root `npm run ci`: passed formatting/lint, all four bundle checks, 65 shared-script tests, Better Files 554 tests with five Windows-only skips, GitHub 122 tests, Layout Manager 597 tests, Mod Manager 387 JavaScript tests and 207 Python tests, and all four workspace type checks.
+- Real Chromium suite: seven tests passed on Windows and seven on Linux, with the sandbox retained. Coverage includes page/library reuse, sequential diagram families, HTTP/file denial, theme/configuration reset, failure recovery, cancellation, and timeouts.
+- Windows selected regressions: 349 tests passed across 11 files; the Better Files type check passed. This is not a full Windows-suite claim.
+- Herdr App 0.1.15 Windows: all 17 native entry/fixture checks passed in temporary profiles. Additional temporary HTML and code fixtures each passed with 600 retained blocks. These checks are not physical input or FPS measurements.
+- Independent read-only cache/document review: no actionable findings within the documented immutable-cache model; 155 targeted Linux tests passed.
+- Scoped diff review and `git -c core.whitespace=cr-at-eol diff --check`: passed without changing Git configuration. Runtime imports, assets, recipe links, licenses, and the inspected genuine 600 × 525 PNG remain valid. No generated SDK, dependency, private cache, image, or live profile was added to the change.
+
+Existing raw-checkout CRLF and Windows portability limits remain unwaived. The Windows cache suite has 52 passes and six environment failures: one POSIX-mode assertion and five `EPERM` file-symlink setup failures, including the new accounting-symlink test. All 58 cache tests pass on Linux without skipping these security cases. A clean full Windows gate needs the required symlink privileges and portable POSIX/process tests. Physical acceptance and updated merged appearance evidence remain external requirements; sharing is still incomplete.
+
+### Bounds and recovery
+
+- New assets still enumerate, sort, and hash filenames. Capacity accounting removes repeated full file-stat scans; it does not make inserts constant-time. Missing, corrupt, interrupted, or stale accounting forces a validated scan. Eviction still checks current leases and file sizes/ages under the cache lock.
+- Cached assets remain immutable in a stable owner-controlled directory. External in-place edits to unrelated files do not reliably change accounting metadata. Every asset reuse still checks type, size, and digest. This is not protection against hostile concurrent filesystem writers.
+- Mermaid keeps the trusted initialized page only after success. It clears authored DOM, generated styles, and render configuration. Failure, timeout, cancellation, or cleanup failure discards the owned browser. Request interception, CSP, sandbox, source limits, and SVG limits remain enforced.
+- Retained block views are not virtualization. Initial creation remains linear in the block count. Refresh updates changed content; local controls invalidate only the containing top-level block. Navigation and close release block entities before editor cleanup. Physical scrolling, selection, and FPS still require owner checks.
+- Local-link validation is shared only within one build. Later builds resolve paths again, including missing targets and changed symlinks. Cache operations protect assets before releasing the lock; document conversion does not repeat those lease writes.
+- To roll back, close readers and helpers before restoring the previous source version. No source-data migration is required. The old implementation ignores `asset-accounting.json`; the new implementation rebuilds missing or invalid accounting. Do not clear source documents or active assets to roll back.
+
+### Follow-up owner handoff
+
+Responsible role: profile owner. Prerequisite: the complete updated mod in a disposable matching Herdr App 0.1.15 profile. Recheck the [physical acceptance steps](#owner-physical-acceptance), with emphasis on long-document scrolling, selection/copy, links/fragments, Source/Read, graphic controls, theme/resize, and close during work. Expected result: unchanged interaction, no stale content, and no released-state errors. Native FPS, subjective appearance, and physical interaction remain unverified by automated checks. Keep sharing incomplete until required acceptance and appearance evidence pass. Publication requires separate explicit approval.
+
 ## Owner acceptance reports
 
 The owner confirmed that the Back arrow, Escape, scrolling, text selection, Source/Read, graphic zoom, and Copy source work. After the follow-up fix, the owner also reported that Backspace works. The owner also reported that the graphics example check looked correct. These are owner reports, not automated pointer/clipboard tests.

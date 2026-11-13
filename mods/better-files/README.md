@@ -60,7 +60,7 @@ The owner may remove stale `<app-home>/data/markdown-reader/` **only after closi
 - Local Markdown links replace the document in this same reader after the previous session closes. Fragments scroll within the document. HTTP(S)/mailto URLs launch the system handler only after an explicit user click.
 - Prose/GFM stays selectable native text. Tasks are read-only. Footnotes use compiled references and backlinks. Code and full-document Source use read-only native editors.
 - Display math uses MathJax SVG. **Inline math is unavailable** on the checked app: TeX source and a warning remain visible. This is not full LaTeX support.
-- Official Mermaid.js renders through local headless Chromium. Authored directives/frontmatter, external resources, and active diagram links are disabled. Unsupported sanitized SVG shows an error.
+- Official Mermaid.js renders through local headless Chromium. Successful blocks reuse one initialized page per batch; failure, timeout, or cancellation discards it. Authored directives/frontmatter, external resources, and active diagram links are disabled. Unsupported sanitized SVG shows an error.
 - Vega-Lite is static SVG with bounded inline data, selected transforms, and layer/concat/facet/repeat compositions. No tooltips, parameter controls, animation, remote data, generators, lookup, regex/data-access expressions, or string-expanding addition. Limits are 5,000 rows, 16 leaf views, and 20,000 row-views.
 - Local PNG/JPEG/GIF/WebP images display as separate blocks, not inline rich-text images. Failed graphics show errors/source without hiding other blocks. Failed refresh keeps the last good document.
 
@@ -82,7 +82,9 @@ Local files/resources must stay within the canonical workspace root, including s
 | Work               | 8 seconds per renderer; 70-second helper deadline; 90-second host command |
 | Cache              | 64 MiB assets; 512 render metadata entries                                |
 
-The reader watches before its first read and debounces refresh by 250 ms. It retries every 10 seconds on Linux, after watch failure, before initial success, or while local images/links are unresolved. Missing links stay inactive until validated. Unchanged editor states and the outer scroll handle survive refreshes.
+The reader watches before its first read and debounces refresh by 250 ms. It retries every 10 seconds on Linux, after watch failure, before initial success, or while local images/links are unresolved. Missing links stay inactive until validated. Each build validates a repeated local-link target once; the next build resolves it again. Unchanged editor states, retained block views, and the outer scroll handle survive refreshes. Header-only redraws do not rebuild unchanged block content.
+
+The helper loads renderer dependencies only for a graphic cache miss. Cancellation does not load the Markdown parser or renderers. Asset capacity accounting avoids repeated full file-stat scans while below the cache limit; each new asset still checks filename membership. Missing, stale, or corrupt accounting triggers a validated rebuild. Active leases remain protected during eviction.
 
 Back, Escape, unmodified Backspace, another file, a workspace change, or parent close starts reader cleanup before releasing its retained entity. Local-link replacement waits for old-session cleanup. Obsolete work is cancelled and late results discarded. Workers and the per-batch Mermaid browser are closed. Leases renew every 10 seconds, expire after 60 seconds, and protect displayed assets. Lease release waits for in-flight renewal. Stale jobs/temporary assets are collected after two minutes; an active-full cache errors instead of deleting displayed assets.
 
@@ -105,4 +107,6 @@ git diff --check
 
 Native scripts use disposable profiles. The entry, seven Files fixtures, and nine embedded reader fixtures passed on Windows App 0.1.15. After the Backspace fix, the Linux merged suite has 507 passes and 5 Windows-only skips; the selected Windows suite has 331 passes. Chromium tests passed on both platforms. Full repository tests, types, formatting, and bundles passed in a disposable Linux LF snapshot. These checks do not establish physical interaction. Existing Windows full-suite and raw-checkout gate failures remain documented. The macOS-only capture script cannot capture Windows.
 
-See [verification and owner handoff](docs/verification.md) for exact pre-merge baselines, post-merge results, remaining failed/unavailable checks, and physical acceptance. See [native fixture reproduction](docs/native-fixture.md), [RECIPE.md](RECIPE.md), [NOTICE](NOTICE), [Apache license](LICENSE), [MIT reader license](reader/LICENSE), and [icon notices](THIRD-PARTY-NOTICES).
+The Markdown performance follow-up passes current Linux CI with 554 Better Files tests and five platform skips, seven Chromium tests on each platform, and all 17 Windows native checks plus two 600-block stress fixtures. Physical acceptance remains open.
+
+See [verification and owner handoff](docs/verification.md) for exact pre-merge baselines, post-merge results, Markdown performance follow-up evidence, remaining failed/unavailable checks, and physical acceptance. See [native fixture reproduction](docs/native-fixture.md), [RECIPE.md](RECIPE.md), [NOTICE](NOTICE), [Apache license](LICENSE), [MIT reader license](reader/LICENSE), and [icon notices](THIRD-PARTY-NOTICES).

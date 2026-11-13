@@ -1,13 +1,18 @@
-import { mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { digest } from "../reader/cache.js"
+import { AssetCache, digest } from "../reader/cache.js"
 import { buildDocument } from "../reader/document.js"
 
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original()
-  return { ...actual, open: vi.fn(actual.open) }
+  return {
+    ...actual,
+    lstat: vi.fn(actual.lstat),
+    open: vi.fn(actual.open),
+    realpath: vi.fn(actual.realpath),
+  }
 })
 
 let base
@@ -48,7 +53,9 @@ beforeEach(async () => {
     lease: vi.fn(async () => {}),
   }
   renderers = { render: vi.fn(async () => ({ svg, width: 20, height: 10 })) }
+  vi.mocked(lstat).mockClear()
   vi.mocked(open).mockClear()
+  vi.mocked(realpath).mockClear()
 })
 afterEach(async () => {
   await rm(base, { recursive: true, force: true })
@@ -192,7 +199,7 @@ it("never calls a renderer or the render cache for ordinary code, including unkn
     expect(cache[method]).not.toHaveBeenCalled()
 })
 
-it("renders display math and static chart blocks, deduplicates assets, and leases them", async () => {
+it("renders display math and static chart blocks and delegates asset protection to the cache", async () => {
   const result = await build('$$\nx^2\n$$\n\n```vega-lite\n{"mark":"bar"}\n```\n')
   expect(
     flatten(result.blocks)
@@ -200,11 +207,12 @@ it("renders display math and static chart blocks, deduplicates assets, and lease
       .map((block) => block.kind),
   ).toEqual(["math", "vega-lite"])
   expect(result.assets).toHaveLength(1)
-  expect(cache.lease).toHaveBeenLastCalledWith(job, result.assets)
+  expect(cache.put).toHaveBeenCalledWith(svg, "svg", job)
+  expect(cache.lease).not.toHaveBeenCalled()
   expect(cache.remember).toHaveBeenCalledTimes(2)
 })
 
-it("uses cached render assets and establishes a new current job lease", async () => {
+it("passes the current job to cached asset protection without writing another lease", async () => {
   const source = "```mermaid\ngraph TD; A-->B\n```"
   const first = await build(source)
   renderers.render.mockClear()
@@ -214,7 +222,24 @@ it("uses cached render assets and establishes a new current job lease", async ()
   expect(next.assets).toEqual(first.assets)
   expect(renderers.render).not.toHaveBeenCalled()
   expect(cache.put).not.toHaveBeenCalled()
-  expect(cache.lease).toHaveBeenCalledExactlyOnceWith("another-job-1234", first.assets)
+  expect(cache.rendered).toHaveBeenLastCalledWith(expect.any(String), "another-job-1234")
+  expect(cache.lease).not.toHaveBeenCalled()
+})
+
+it("writes one protective lease per graphic before and after cache warmup", async () => {
+  const actualCache = await new AssetCache(join(base, "profile")).init()
+  const lease = vi.spyOn(actualCache, "lease")
+  const source = Array.from({ length: 40 }, (_, i) => `$$\nx_${i}\n$$`).join("\n\n")
+  const first = await build(source, { cache: actualCache })
+  expect(lease).toHaveBeenCalledTimes(40)
+  lease.mockClear()
+  renderers.render.mockClear()
+  const nextJob = "cached-document-1234"
+  const next = await build(source, { cache: actualCache, job: nextJob })
+  expect(next.assets).toEqual(first.assets)
+  expect(renderers.render).not.toHaveBeenCalled()
+  expect(lease).toHaveBeenCalledTimes(40)
+  for (const call of lease.mock.calls) expect(call).toEqual([nextJob, first.assets])
 })
 
 it("retains source and surrounding prose when an individual render block fails", async () => {
@@ -268,6 +293,37 @@ it("validates local links canonically and exposes external URLs only through exp
 })
 
 describe("local link recovery", () => {
+  it("validates repeated targets once per build and preserves each fragment", async () => {
+    const target = join(root, "guide.md")
+    await writeFile(target, "# Guide")
+    const source = Array.from({ length: 1000 }, (_, i) => `[${i}](guide.md#topic-${i})`).join(" ")
+    const result = await build(source)
+    expect(realpath).toHaveBeenCalledTimes(2)
+    expect(lstat).toHaveBeenCalledExactlyOnceWith(root)
+    expect(result.dependencies).toEqual([file, target])
+    expect(Object.values(result.links)).toHaveLength(1000)
+    expect(result.links["https://herdr-markdown.invalid/link/999"]).toEqual({
+      kind: "local",
+      root,
+      file: target,
+      fragment: "topic-999",
+    })
+
+    await rm(target)
+    vi.mocked(realpath).mockClear()
+    vi.mocked(lstat).mockClear()
+    const missing = await build(source)
+    expect(missing.links).toEqual({})
+    expect(missing.unresolvedLinks).toBe(true)
+    expect(realpath).toHaveBeenCalledTimes(2)
+    expect(lstat).toHaveBeenCalledExactlyOnceWith(root)
+
+    await writeFile(target, "# Restored")
+    const restored = await build(source)
+    expect(Object.values(restored.links)).toHaveLength(1000)
+    expect(restored.unresolvedLinks).toBe(false)
+  })
+
   it("tracks a missing target before creation and enables the link after creation", async () => {
     const target = join(root, "later/guide.md")
     const missing = await build("[Guide](later/guide.md#topic)")

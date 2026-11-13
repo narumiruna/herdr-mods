@@ -85,6 +85,10 @@ describe("native Files checks", () => {
           readFileSync(join(modRoot, "reader/main.js"), "utf8"),
         )
         expect(existsSync(join(args[1], "reader/node.js"))).toBe(true)
+        const reader = readFileSync(join(args[1], "reader/main.js"), "utf8")
+        expect(reader).toContain("refresh(cx)")
+        expect(reader).toContain("this.prepareEditors(this.session.manifest)")
+        expect(reader).toContain("this.prepareBlocks(this.session.manifest, cx)")
       }
       return { status: 0 }
     })
@@ -143,6 +147,11 @@ describe("embedded reader native fixtures", () => {
       expect(source).toContain("await this.readerView?.close()")
       expect(source).toContain("finally { this.reader.release() }")
       expect(source).toContain("Missing entry must fail without an Open form")
+      expect(source).toContain("this.prepareEditors(this.session.manifest)")
+      expect(source).toContain("this.prepareBlocks(this.session.manifest, cx)")
+      expect(source.indexOf("this.prepareBlocks")).toBeGreaterThan(
+        source.indexOf('this.raw = state === "raw"'),
+      )
       expect(source).toContain('validateManifest({...manifest,assets:["../unsafe.svg"]})')
       for (const name of ["main.js", "runtime.js", "model.js", "node.js"])
         expect(readFileSync(join(args[1], "reader", name), "utf8")).toBe(

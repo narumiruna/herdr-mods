@@ -299,10 +299,40 @@ describe("bounded work and disposal", () => {
     const controller = new AbortController()
     const instance = new Renderers({ signal: controller.signal })
     expect(instance.worker.worker).toBeNull()
-    expect(instance.mermaid.browser).toBeNull()
+    expect(instance.mermaid).toBeNull()
     controller.abort()
     await expect(instance.render("math", "x")).rejects.toThrow(/closed/)
     await instance.close()
+  })
+  it("does not create a Mermaid adapter after close during its import", async () => {
+    let finish
+    let importing = false
+    const constructed = vi.fn()
+    const pending = new Promise((resolve) => {
+      finish = resolve
+    })
+    vi.resetModules()
+    vi.doMock("../reader/renderers/mermaid.js", async () => {
+      importing = true
+      await pending
+      return { MermaidRenderer: constructed }
+    })
+    try {
+      const { Renderers: LazyRenderers } = await import("../reader/renderers/index.js")
+      const instance = new LazyRenderers()
+      const work = instance.render("mermaid", "graph TD; A-->B")
+      const rejected = expect(work).rejects.toThrow(/closed/)
+      await vi.waitFor(() => expect(importing).toBe(true))
+      await instance.close()
+      finish()
+      await rejected
+      expect(constructed).not.toHaveBeenCalled()
+      expect(instance.mermaid).toBeNull()
+    } finally {
+      finish()
+      vi.doUnmock("../reader/renderers/mermaid.js")
+      vi.resetModules()
+    }
   })
   it("bounds sources and validates options before any renderer starts", async () => {
     expect(() => new Renderers({ foreground: "red;url(x)" })).toThrow()
@@ -356,6 +386,15 @@ describe("browser lifecycle test seams (no browser)", () => {
       expect(calls.indexOf("setRequestInterception")).toBeLessThan(calls.indexOf("evaluate"))
       await adapter.render("flowchart TD\nB-->C", options)
       expect(launch).toHaveBeenCalledTimes(1)
+      expect(browser.newPage).toHaveBeenCalledTimes(1)
+      expect(page.addScriptTag).toHaveBeenCalledTimes(1)
+      expect(page.setContent).toHaveBeenCalledTimes(1)
+      expect(page.setRequestInterception).toHaveBeenCalledExactlyOnceWith(true)
+      expect(page.setBypassServiceWorker).toHaveBeenCalledExactlyOnceWith(true)
+      expect(page.setCacheEnabled).toHaveBeenCalledExactlyOnceWith(false)
+      expect(page.setContent.mock.calls[0][0]).toContain("default-src 'none'")
+      expect(page.setContent.mock.calls[0][0]).toContain("connect-src 'none'")
+      expect(page.close).not.toHaveBeenCalled()
       expect(launch.mock.calls[0][0].args.join(" ")).not.toMatch(
         /no-sandbox|disable-setuid-sandbox/,
       )
@@ -363,6 +402,104 @@ describe("browser lifecycle test seams (no browser)", () => {
       await adapter.close()
     }
     expect(browser.close).toHaveBeenCalledTimes(1)
+  })
+  it.each(["evaluate", "$eval"])("discards a reused page after %s fails", async (method) => {
+    const first = fakeBrowser()
+    const second = fakeBrowser()
+    const launch = vi
+      .fn()
+      .mockResolvedValueOnce(first.browser)
+      .mockResolvedValueOnce(second.browser)
+    const adapter = new MermaidRenderer({ launch })
+    try {
+      checkSvg(await adapter.render("flowchart TD\nA-->B", options))
+      first.page[method].mockRejectedValueOnce(new Error("render failed"))
+      await expect(adapter.render("flowchart TD\nB-->C", options)).rejects.toThrow("render failed")
+      expect(first.browser.close).toHaveBeenCalledOnce()
+      expect(adapter.page).toBeNull()
+      checkSvg(await adapter.render("flowchart TD\nC-->D", options))
+      expect(launch).toHaveBeenCalledTimes(2)
+      expect(first.browser.newPage).toHaveBeenCalledOnce()
+      expect(second.browser.newPage).toHaveBeenCalledOnce()
+      expect(second.page.addScriptTag).toHaveBeenCalledOnce()
+    } finally {
+      await adapter.close()
+    }
+  })
+  it("resets the browser when successful-render cleanup fails", async () => {
+    const { browser, page } = fakeBrowser()
+    page.evaluate
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+    const adapter = new MermaidRenderer({ launch: async () => browser })
+    await expect(adapter.render("flowchart TD\nA-->B", options)).rejects.toThrow("cleanup failed")
+    expect(browser.close).toHaveBeenCalledOnce()
+    expect(adapter.page).toBeNull()
+    await adapter.close()
+    expect(browser.close).toHaveBeenCalledOnce()
+  })
+  it("ignores late initialization after timeout while a clean page is reused", async () => {
+    const first = fakeBrowser()
+    const second = fakeBrowser()
+    let resume
+    first.page.setContent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resume = resolve
+        }),
+    )
+    const launch = vi
+      .fn()
+      .mockResolvedValueOnce(first.browser)
+      .mockResolvedValueOnce(second.browser)
+    const adapter = new MermaidRenderer({ launch, timeoutMs: 30 })
+    try {
+      await expect(adapter.render("flowchart TD\nA-->B", options)).rejects.toThrow(/timeout/)
+      expect(first.browser.close).toHaveBeenCalledOnce()
+      expect(resume).toBeTypeOf("function")
+      adapter.timeoutMs = 8000
+      checkSvg(await adapter.render("flowchart TD\nC-->D", options))
+      resume()
+      await new Promise((resolve) => setImmediate(resolve))
+      checkSvg(await adapter.render("flowchart TD\nE-->F", options))
+      expect(first.page.addScriptTag).not.toHaveBeenCalled()
+      expect(first.page.evaluate).not.toHaveBeenCalled()
+      expect(adapter.page).toBe(second.page)
+      expect(second.page.addScriptTag).toHaveBeenCalledOnce()
+      expect(second.browser.newPage).toHaveBeenCalledOnce()
+    } finally {
+      resume?.()
+      await adapter.close()
+    }
+  })
+  it("does not launch Puppeteer after close during its import", async () => {
+    let finish
+    let importing = false
+    const launch = vi.fn()
+    const pending = new Promise((resolve) => {
+      finish = resolve
+    })
+    vi.doMock("puppeteer", async () => {
+      importing = true
+      await pending
+      return { default: { launch } }
+    })
+    const adapter = new MermaidRenderer()
+    try {
+      const work = adapter.render("flowchart TD\nA-->B", options)
+      const rejected = expect(work).rejects.toThrow(/closed/)
+      await vi.waitFor(() => expect(importing).toBe(true))
+      await adapter.close()
+      await rejected
+      finish()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(launch).not.toHaveBeenCalled()
+      expect(adapter.browser).toBeNull()
+    } finally {
+      finish()
+      await adapter.close()
+      vi.doUnmock("puppeteer")
+    }
   })
   it("waits for the owned process exit event after browser.close resolves", async () => {
     const { browser } = fakeBrowser()
@@ -413,6 +550,7 @@ describe("browser lifecycle test seams (no browser)", () => {
     })
     const result = adapter.render("flowchart TD\nA-->B", options)
     const rejected = expect(result).rejects.toThrow(/closed/)
+    await vi.waitFor(() => expect(launched).toBeTypeOf("function"))
     await adapter.close()
     expect(signal.aborted).toBe(true)
     launched(browser)

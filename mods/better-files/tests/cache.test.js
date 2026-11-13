@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import {
   lstat,
   mkdir,
@@ -6,6 +7,7 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   utimes,
@@ -13,12 +15,20 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
+import { promisify } from "node:util"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ASSET_LIMIT, AssetCache, CACHE_LIMIT, digest } from "../reader/cache.js"
 
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original()
-  return { ...actual, lstat: vi.fn(actual.lstat) }
+  return {
+    ...actual,
+    lstat: vi.fn(actual.lstat),
+    readdir: vi.fn(actual.readdir),
+    rename: vi.fn(actual.rename),
+    rm: vi.fn(actual.rm),
+    writeFile: vi.fn(actual.writeFile),
+  }
 })
 
 let base
@@ -30,7 +40,7 @@ beforeEach(async () => {
   cache = await new AssetCache(join(base, "profile")).init()
 })
 afterEach(async () => {
-  vi.mocked(lstat).mockReset()
+  vi.resetAllMocks()
   await rm(base, { recursive: true, force: true })
 })
 
@@ -274,6 +284,279 @@ it("rejects unsafe remember keys before writing outside renders", async () => {
   await expect(cache.remember("../escaped", { asset: "unsafe" })).rejects.toThrow()
   await expect(lstat(join(cache.directory, "escaped.json"))).rejects.toMatchObject({
     code: "ENOENT",
+  })
+})
+
+describe("persistent asset accounting", () => {
+  async function recordedTotal() {
+    return JSON.parse(await readFile(cache.accounting, "utf8")).total
+  }
+
+  it("does not repeat full asset stats for hot inserts among 5,000 small assets", async () => {
+    for (let index = 0; index < 5000; index++)
+      await writeFile(join(cache.assets, `${digest(String(index))}.svg`), svg)
+    let total = 5000 * Buffer.byteLength(svg)
+    for (const phase of ["cold", "warm"]) {
+      vi.mocked(lstat).mockClear()
+      vi.mocked(readdir).mockClear()
+      for (let index = 0; index < 40; index++) {
+        const value = `${phase} asset ${index}`
+        await cache.put(value, "svg")
+        total += Buffer.byteLength(value)
+      }
+      // Four constant checks per insert, plus one initial recovery sweep for cold accounting.
+      expect(lstat).toHaveBeenCalledTimes(phase === "cold" ? 5160 : 160)
+      expect(readdir).toHaveBeenCalledTimes(40)
+      expect(vi.mocked(readdir).mock.calls.every(([path]) => path === cache.assets)).toBe(true)
+      expect(await recordedTotal()).toBe(total)
+    }
+  })
+
+  it.each([
+    "missing",
+    "partial",
+    "oversized",
+    "checksum",
+    "version",
+    "limit",
+    "assetLimit",
+    "stamp",
+    "membership",
+  ])("rebuilds %s accounting once instead of trusting its total", async (damage) => {
+    const asset = basename(await cache.put(svg, "svg"))
+    const record = JSON.parse(await readFile(cache.accounting, "utf8"))
+    if (damage === "missing") await rm(cache.accounting)
+    else if (damage === "partial") await writeFile(cache.accounting, "{")
+    else if (damage === "oversized") await writeFile(cache.accounting, "x".repeat(4097))
+    else {
+      if (damage === "checksum") record.total = 0
+      else record[damage] = ["stamp", "membership"].includes(damage) ? "stale" : 0
+      // A valid checksum must not override stale limits or directory identity.
+      if (damage !== "checksum")
+        record.checksum = digest(
+          JSON.stringify([
+            record.version,
+            record.total,
+            record.limit,
+            record.assetLimit,
+            record.stamp,
+            record.membership,
+          ]),
+        )
+      await writeFile(cache.accounting, JSON.stringify(record))
+    }
+    vi.mocked(lstat).mockClear()
+    await cache.put("recovered", "svg")
+    expect(
+      vi.mocked(lstat).mock.calls.filter(([path]) => path === join(cache.assets, asset)),
+    ).toHaveLength(1)
+    expect(await recordedTotal()).toBe(Buffer.byteLength(svg) + 9)
+    vi.mocked(readdir).mockClear()
+    vi.mocked(lstat).mockClear()
+    await cache.put("next insert", "svg")
+    expect(readdir).toHaveBeenCalledTimes(1)
+    expect(
+      vi.mocked(lstat).mock.calls.filter(([path]) => path === join(cache.assets, asset)),
+    ).toHaveLength(0)
+  })
+
+  it("rebuilds after out-of-band additions and removals across initialized instances", async () => {
+    const second = await new AssetCache(cache.home).init()
+    const first = basename(await cache.put(svg, "svg"))
+    const added = await sparseAsset("external", 123)
+    await second.put("second", "svg")
+    expect(await recordedTotal()).toBe(Buffer.byteLength(svg) + 123 + 6)
+    await rm(join(cache.assets, first))
+    await cache.put("third", "svg")
+    expect(await recordedTotal()).toBe(123 + 6 + 5)
+    expect(await readdir(cache.assets)).toContain(added)
+  })
+
+  it("detects changed membership even when directory timestamps do not change", async () => {
+    vi.spyOn(cache, "assetStamp").mockResolvedValue("same-directory-same-clock-tick")
+    const first = basename(await cache.put(svg, "svg"))
+    await rm(join(cache.assets, first))
+    await sparseAsset("replacement", 123)
+    await cache.put("next", "svg")
+    expect(await recordedTotal()).toBe(123 + 4)
+  })
+
+  it("serializes independent writers and rechecks capacity and current leases", async () => {
+    const peers = await Promise.all(
+      Array.from({ length: 4 }, () => new AssetCache(cache.home).init()),
+    )
+    for (let index = 0; index < CACHE_LIMIT / ASSET_LIMIT - 1; index++) await sparseAsset(index)
+    // Establish accounting, then race writers with only one large slot available.
+    await cache.put("warm", "svg")
+    const results = await Promise.all(
+      peers.map((peer, index) =>
+        peer.put(Buffer.alloc(ASSET_LIMIT, index + 1), "svg", `writer-job-${index}`),
+      ),
+    )
+    const names = await readdir(cache.assets)
+    for (const asset of results) expect(names).toContain(basename(asset))
+    const actual = await vi.importActual("node:fs/promises")
+    const total = (
+      await Promise.all(
+        names.map(async (name) => (await actual.lstat(join(cache.assets, name))).size),
+      )
+    ).reduce((sum, size) => sum + size, 0)
+    expect(total).toBeLessThanOrEqual(CACHE_LIMIT)
+    expect(await recordedTotal()).toBe(total)
+    for (let index = 0; index < peers.length; index++) {
+      const lease = JSON.parse(
+        await readFile(join(cache.directory, "leases", `writer-job-${index}.json`), "utf8"),
+      )
+      expect(lease.assets).toContain(basename(results[index]))
+    }
+  })
+
+  it("shares accounting and leases between separate helper processes", async () => {
+    for (let index = 0; index < CACHE_LIMIT / ASSET_LIMIT - 1; index++) await sparseAsset(index)
+    await cache.put("warm", "svg")
+    const source = `
+      import { AssetCache, ASSET_LIMIT } from ${JSON.stringify(
+        new URL("../reader/cache.js", import.meta.url).href,
+      )}
+      const cache = await new AssetCache(process.argv[1]).init()
+      const index = Number(process.argv[2])
+      console.log(await cache.put(Buffer.alloc(ASSET_LIMIT, index), "svg", "process-job-" + index))
+    `
+    const results = await Promise.all(
+      [1, 2, 3].map((index) =>
+        promisify(execFile)(process.execPath, [
+          "--input-type=module",
+          "--eval",
+          source,
+          cache.home,
+          String(index),
+        ]),
+      ),
+    )
+    const names = await readdir(cache.assets)
+    for (const { stdout } of results) expect(names).toContain(basename(stdout.trim()))
+    const actual = await vi.importActual("node:fs/promises")
+    const total = (
+      await Promise.all(
+        names.map(async (name) => (await actual.lstat(join(cache.assets, name))).size),
+      )
+    ).reduce((sum, size) => sum + size, 0)
+    expect(total).toBeLessThanOrEqual(CACHE_LIMIT)
+    expect(await recordedTotal()).toBe(total)
+  })
+
+  it.each(["write", "rename", "record"])(
+    "recovers after an interrupted %s without losing capacity accounting",
+    async (stage) => {
+      await cache.put(svg, "svg")
+      const error = new Error("interrupted writer")
+      const actual = await vi.importActual("node:fs/promises")
+      if (stage === "rename") vi.mocked(rename).mockRejectedValueOnce(error)
+      else
+        vi.mocked(writeFile).mockImplementation(async (path, ...args) => {
+          if (
+            (stage === "write" && String(path).startsWith(cache.assets)) ||
+            (stage === "record" && path === cache.accounting)
+          ) {
+            await actual.writeFile(path, "{", args[1])
+            throw error
+          }
+          return actual.writeFile(path, ...args)
+        })
+      await expect(cache.put("interrupted asset", "svg")).rejects.toBe(error)
+      vi.mocked(writeFile).mockReset()
+      vi.mocked(rename).mockReset()
+      const next = await new AssetCache(cache.home).init()
+      await next.put("recovery", "svg")
+      expect(await recordedTotal()).toBe(Buffer.byteLength(svg) + 8 + (stage === "record" ? 17 : 0))
+      expect((await readdir(cache.assets)).every((name) => !name.startsWith("."))).toBe(true)
+    },
+  )
+
+  it("invalidates accounting before eviction and recovers after a failed removal", async () => {
+    for (let index = 0; index < CACHE_LIMIT / ASSET_LIMIT; index++) await sparseAsset(index)
+    await cache.put("warm", "svg")
+    const active = await cache.put(Buffer.alloc(ASSET_LIMIT, 42), "svg", job)
+    const actual = await vi.importActual("node:fs/promises")
+    const error = new Error("interrupted eviction")
+    let removed = false
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      if (String(path).startsWith(cache.assets) && !options) {
+        expect(await actual.lstat(cache.accounting).catch((failure) => failure.code)).toBe("ENOENT")
+        await actual.rm(path)
+        removed = true
+        throw error
+      }
+      return actual.rm(path, options)
+    })
+    await expect(cache.put(Buffer.alloc(ASSET_LIMIT, 43), "svg")).rejects.toBe(error)
+    expect(removed).toBe(true)
+    vi.mocked(rm).mockReset()
+    await cache.put("recovery", "svg")
+    expect(await readdir(cache.assets)).toContain(basename(active))
+    const total = (
+      await Promise.all(
+        (
+          await readdir(cache.assets)
+        ).map(async (name) => (await actual.lstat(join(cache.assets, name))).size),
+      )
+    ).reduce((sum, size) => sum + size, 0)
+    expect(await recordedTotal()).toBe(total)
+    expect(total).toBeLessThanOrEqual(CACHE_LIMIT)
+  })
+
+  it("rejects an unrelated unsafe asset even when accounting was previously valid", async () => {
+    await cache.put(svg, "svg")
+    await mkdir(join(cache.assets, `${digest("unsafe")}.svg`))
+    await expect(cache.put("new", "svg")).rejects.toThrow("Invalid entry")
+  })
+
+  it("rebuilds accounting when the asset directory is replaced", async () => {
+    await cache.put(svg, "svg")
+    await rename(cache.assets, `${cache.assets}-old`)
+    await mkdir(cache.assets)
+    await cache.put("replacement", "svg")
+    expect(await recordedTotal()).toBe(11)
+  })
+
+  it("does not authorize a mutation when accounting cannot be inspected", async () => {
+    await cache.put(svg, "svg")
+    const actual = await vi.importActual("node:fs/promises")
+    const error = Object.assign(new Error("accounting denied"), { code: "EACCES" })
+    vi.mocked(lstat).mockImplementation(async (path, options) => {
+      if (path === cache.accounting) throw error
+      return actual.lstat(path, options)
+    })
+    await expect(cache.put("new", "svg")).rejects.toBe(error)
+    expect(await readdir(cache.assets)).toEqual([`${digest(svg)}.svg`])
+  })
+
+  it("does not follow an accounting symlink or modify its outside target", async () => {
+    await cache.put(svg, "svg")
+    const outside = join(base, "outside-accounting.json")
+    await writeFile(outside, "{}")
+    await rm(cache.accounting)
+    await symlink(outside, cache.accounting)
+    await cache.put("new", "svg")
+    expect(await readFile(outside, "utf8")).toBe("{}")
+    expect((await lstat(cache.accounting)).isFile()).toBe(true)
+    expect(await recordedTotal()).toBe(Buffer.byteLength(svg) + 3)
+  })
+
+  it("fails closed on a partial lease when accounting requires eviction", async () => {
+    for (let index = 0; index < CACHE_LIMIT / ASSET_LIMIT; index++) await sparseAsset(index)
+    await writeFile(join(cache.directory, "leases", `${job}.json`), "{")
+    await expect(cache.put("new", "svg")).rejects.toThrow("active assets")
+    expect(await readdir(cache.assets)).toHaveLength(CACHE_LIMIT / ASSET_LIMIT)
+  })
+
+  it("publishes protection while still holding the cache lock", async () => {
+    const protect = vi.spyOn(cache, "protect")
+    protect.mockImplementation(async () => {
+      expect((await lstat(join(cache.directory, ".lock"))).isDirectory()).toBe(true)
+    })
+    await cache.put(svg, "svg", job)
+    expect(protect).toHaveBeenCalledWith(job, `${digest(svg)}.svg`)
   })
 })
 

@@ -3,23 +3,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const ui = vi.hoisted(() => {
   const nodes = new Map()
   const states = []
-  const state = { rendering: false }
+  const entities = []
+  const counts = { elements: 0, text: 0, editors: 0 }
+  const state = { rendering: false, cx: null }
+  const draw = (entity) => {
+    if (entity.released) throw new Error("Released entity used as a child")
+    if (!entity.dirty) return
+    const previous = state.cx
+    state.cx = entity.cx
+    try {
+      entity.output = entity.view.render(entity.cx)
+      entity.renders++
+      entity.dirty = false
+    } finally {
+      state.cx = previous
+    }
+  }
   const element = () => {
-    const node = { items: [], handlers: {}, props: {}, used: false }
+    counts.elements++
+    const node = { items: [], handlers: {}, props: {}, used: false, cx: state.cx }
     const proxy = new Proxy(node, {
       get(target, key) {
         if (key in target) return target[key]
         return (...args) => {
           if (node.used) throw new Error("Native elements are single-use values")
           const add = (child) => {
+            if (child?.retained === true) draw(child)
             if (typeof child === "object" && child !== null && "used" in child) {
               if (child.used) throw new Error("Native element already has a parent")
               child.used = true
             }
             node.items.push(child)
           }
-          if (key === "id") nodes.set(args[0], proxy)
-          else if (key === "child") add(args[0])
+          if (key === "id") {
+            nodes.set(args[0], proxy)
+            node.props.id = args[0]
+          } else if (key === "child") add(args[0])
           else if (key === "children") args[0].forEach(add)
           else if (key === "when") {
             if (args[0]) args[1](proxy)
@@ -31,7 +50,7 @@ const ui = vi.hoisted(() => {
     })
     return proxy
   }
-  return { nodes, states, state, element }
+  return { nodes, states, entities, counts, state, element }
 })
 vi.mock("gpui-kit", () => ({
   View: class {},
@@ -48,8 +67,19 @@ vi.mock("gpui-base", () => ({
       return state
     },
   },
-  Editor: { new: (state) => ui.element().editor(state) },
-  TextView: { html: (id, html) => ui.element().id(id).html(html) },
+  Editor: {
+    new: (state) => {
+      ui.counts.editors++
+      if (state.release.mock.calls.length) throw new Error("Released editor used")
+      return ui.element().editor(state)
+    },
+  },
+  TextView: {
+    html: (id, html) => {
+      ui.counts.text++
+      return ui.element().id(id).html(html)
+    },
+  },
   ScrollHandle: { new: () => ({ release: vi.fn(), scroll_to_item: vi.fn() }) },
   Scrollbar: { vertical: ui.element },
   h_flex: ui.element,
@@ -111,7 +141,47 @@ function context() {
   const cx = {
     tasks,
     timers,
-    notify: vi.fn(),
+    notify: vi.fn((target) => {
+      if (ui.state.rendering) throw new Error("notify during render")
+      const entity = target || cx.entity
+      if (entity?.released) throw new Error("Notifying released entity")
+      if (entity) entity.dirty = true
+    }),
+    new(Class, props) {
+      if (ui.state.rendering) throw new Error("cx.new during render")
+      const serializable = (value) => {
+        if (value === null || ["string", "number", "boolean"].includes(typeof value)) return
+        if (typeof value !== "object") throw new Error("Nonserializable entity props")
+        for (const child of Object.values(value)) serializable(child)
+      }
+      serializable(props)
+      const view = new Class()
+      const childCx = context()
+      const entity = {
+        retained: true,
+        view,
+        cx: childCx,
+        dirty: true,
+        released: false,
+        renders: 0,
+        output: null,
+        set_props: vi.fn((next) => {
+          if (ui.state.rendering || entity.released) throw new Error("Invalid entity update")
+          serializable(next)
+          view.update(JSON.parse(JSON.stringify(next)))
+          entity.dirty = true
+        }),
+        release: vi.fn(() => {
+          if (ui.state.rendering || entity.released) throw new Error("Invalid entity release")
+          entity.released = true
+          return true
+        }),
+      }
+      childCx.entity = entity
+      ui.entities.push(entity)
+      view.init(JSON.parse(JSON.stringify(props)), childCx)
+      return entity
+    },
     write_to_clipboard: vi.fn(),
     focus_handle: () => ({ focus: vi.fn(), release: vi.fn() }),
     spawn(body) {
@@ -159,14 +229,28 @@ async function ready(
 function render(view, cx) {
   ui.nodes.clear()
   ui.state.rendering = true
+  ui.state.cx = cx
   try {
-    return view.render(cx)
+    const root = view.render(cx)
+    const collect = (node) => {
+      if (!node || typeof node !== "object") return
+      if (node.retained === true) {
+        collect(node.output)
+        return
+      }
+      if (node.props?.id) ui.nodes.set(node.props.id, node)
+      for (const child of node.items || []) collect(child)
+    }
+    collect(root)
+    return root
   } finally {
     ui.state.rendering = false
+    ui.state.cx = null
   }
 }
 function click(id, cx) {
-  ui.nodes.get(id).handlers.on_click({}, cx)
+  const node = ui.nodes.get(id)
+  node.handlers.on_click({}, node.cx || cx)
 }
 
 beforeEach(() => {
@@ -175,6 +259,11 @@ beforeEach(() => {
   watchFolder.mockReset().mockImplementation(() => new Promise(() => {}))
   ui.nodes.clear()
   ui.states.length = 0
+  ui.entities.length = 0
+  ui.counts.elements = 0
+  ui.counts.text = 0
+  ui.counts.editors = 0
+  ui.state.cx = null
   ui.state.rendering = false
   theme.mockReturnValue({
     foreground: "#222222",
@@ -183,6 +272,219 @@ beforeEach(() => {
     border: "#aaaaaa",
     surface: "#eeeeee",
     muted: "#666666",
+  })
+})
+
+describe("retained reader blocks", () => {
+  it.each(["html", "code"])("does not rebuild 600 unchanged %s blocks on redraw", async (type) => {
+    const document = {
+      ...manifest(),
+      warnings: [],
+      blocks: Array.from({ length: 600 }, (_, index) =>
+        type === "html"
+          ? { id: `block-${index}`, type, html: `<p>Block ${index}</p>` }
+          : { id: `block-${index}`, type, source: `const value = ${index}`, language: "js" },
+      ),
+    }
+    const { view, cx, io } = await ready(undefined, (io) => io.render.mockResolvedValue(document))
+    render(view, cx)
+    expect(ui.entities).toHaveLength(600)
+    expect(ui.counts[type === "html" ? "text" : "editors"]).toBe(600)
+    const before = { ...ui.counts }
+    for (let index = 0; index < 10; index++) render(view, cx)
+    // A changed document signature alone does not change a block's description.
+    io.render.mockResolvedValueOnce({ ...document, signature: "metadata-only" })
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    render(view, cx)
+    expect(ui.counts.text).toBe(before.text)
+    expect(ui.counts.editors).toBe(before.editors)
+    expect(ui.counts.elements - before.elements).toBeLessThan(11 * 16)
+    expect(ui.entities.every((entity) => entity.renders === 1)).toBe(true)
+    expect(ui.entities.every((entity) => entity.set_props.mock.calls.length === 0)).toBe(true)
+    expect(ui.entities).toHaveLength(600)
+    await view.close()
+    expect(ui.entities.every((entity) => entity.release.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("updates one changed top-level block, including nested content, without rebuilding siblings", async () => {
+    const { view, cx, io, data } = await ready()
+    render(view, cx)
+    const entities = [...ui.entities]
+    const code = view.editors.get("code1")
+    io.render.mockResolvedValueOnce({
+      ...data,
+      signature: "nested-edit",
+      blocks: data.blocks.map((block) =>
+        block.id === "q1"
+          ? { ...block, children: [{ id: "code1", type: "code", source: "changed nested code" }] }
+          : block,
+      ),
+    })
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    expect(entities[1].set_props).toHaveBeenCalledOnce()
+    expect(entities.filter((entity) => entity.set_props.mock.calls.length)).toEqual([entities[1]])
+    expect(ui.entities).toEqual(entities)
+    render(view, cx)
+    expect(entities.map((entity) => entity.renders)).toEqual([1, 2, 1, 1])
+    expect(code.release).toHaveBeenCalledOnce()
+    expect(ui.counts.text).toBe(1)
+    expect(ui.counts.editors).toBe(3)
+    await view.close()
+  })
+
+  it("reuses reordered entities, releases removed entities, and keeps parent scroll indices", async () => {
+    const { view, cx, io, data } = await ready()
+    render(view, cx)
+    const [paragraph, quote, graphic, error] = ui.entities
+    io.render.mockResolvedValueOnce({
+      ...data,
+      signature: "reorder",
+      blocks: [data.blocks[2], data.blocks[0], { id: "new", type: "html", html: "<p>New</p>" }],
+      anchors: { notes: 1 },
+    })
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    render(view, cx)
+    expect(ui.nodes.get("reader-scroll").items).toEqual([graphic, paragraph, ui.entities[4]])
+    expect(quote.release).toHaveBeenCalledOnce()
+    expect(error.release).toHaveBeenCalledOnce()
+    expect(paragraph.set_props).not.toHaveBeenCalled()
+    expect(graphic.set_props).not.toHaveBeenCalled()
+    view.reveal("notes")
+    expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(1)
+    await view.close()
+    expect(ui.entities.every((entity) => entity.release.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("routes child source and zoom controls to only their top-level entity", async () => {
+    const { view, cx } = await ready()
+    render(view, cx)
+    const graphic = ui.entities[2]
+    const childCx = graphic.cx
+    expect(ui.nodes.get("more-g1").cx).toBe(childCx)
+    cx.notify.mockClear()
+    click("more-g1", childCx)
+    expect(cx.notify).toHaveBeenCalledExactlyOnceWith(graphic)
+    expect(childCx.notify).not.toHaveBeenCalled()
+    render(view, cx)
+    expect(ui.entities.map((entity) => entity.renders)).toEqual([1, 1, 2, 1])
+    click("source-g1", childCx)
+    render(view, cx)
+    const state = view.editors.get("g1")
+    expect(state.options.value).toBe("x^2")
+    click("source-g1", childCx)
+    render(view, cx)
+    click("source-g1", childCx)
+    render(view, cx)
+    expect(view.editors.get("g1")).toBe(state)
+    expect(ui.entities.map((entity) => entity.renders)).toEqual([1, 1, 5, 1])
+    await view.close()
+  })
+
+  it("routes child links and async failures through the reader context", async () => {
+    const { view, cx, io } = await ready()
+    render(view, cx)
+    const paragraph = ui.entities[0]
+    const node = ui.nodes.get("text-p1")
+    expect(node.cx).toBe(paragraph.cx)
+    const follow = (url) => node.handlers.on_link_click(url, paragraph.cx)
+    cx.notify.mockClear()
+    follow("https://unknown.example/")
+    expect(view.error).toMatch(/blocked/)
+    expect(cx.notify).toHaveBeenCalledExactlyOnceWith()
+    expect(paragraph.cx.notify).not.toHaveBeenCalled()
+    follow("https://herdr-markdown.invalid/link/0")
+    expect(view.error).toBe("")
+    expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(0)
+    io.openExternal.mockRejectedValueOnce(new Error("External open failed"))
+    follow("https://herdr-markdown.invalid/link/2")
+    await cx.tasks.at(-1)
+    expect(view.error).toBe("External open failed")
+    expect(paragraph.cx.tasks).toHaveLength(0)
+    expect(paragraph.cx.notify).not.toHaveBeenCalled()
+    await view.close()
+  })
+
+  it("clears old child entities on local navigation and uses the new session's links", async () => {
+    const { view, cx, io, data } = await ready()
+    render(view, cx)
+    const previous = [...ui.entities]
+    const oldCode = view.editors.get("code1")
+    io.render.mockResolvedValueOnce({
+      ...data,
+      file: "/workspace/other.md",
+      signature: "other-document",
+      links: { "https://herdr-markdown.invalid/link/0": { kind: "fragment", fragment: "other" } },
+      anchors: { other: 2 },
+    })
+    const node = ui.nodes.get("text-p1")
+    node.handlers.on_link_click("https://herdr-markdown.invalid/link/1", previous[0].cx)
+    expect(previous.every((entity) => entity.release.mock.calls.length === 1)).toBe(true)
+    expect(view.blockEntities).toEqual([])
+    expect(oldCode.release).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(view.session.manifest?.file).toBe("/workspace/other.md"))
+    render(view, cx)
+    expect(ui.entities).toHaveLength(8)
+    expect(previous.every((entity) => entity.released)).toBe(true)
+    view.scroll.scroll_to_item.mockClear()
+    const current = ui.nodes.get("text-p1")
+    current.handlers.on_link_click("https://herdr-markdown.invalid/link/0", ui.entities[4].cx)
+    expect(view.scroll.scroll_to_item).toHaveBeenCalledExactlyOnceWith(2)
+    expect(previous[0].cx.tasks).toHaveLength(0)
+    await view.close()
+    expect(ui.entities.every((entity) => entity.release.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("keeps block entities across Source/Read and a failed refresh", async () => {
+    const { view, cx, io } = await ready()
+    render(view, cx)
+    const entities = [...ui.entities]
+    const counts = { ...ui.counts }
+    click("reader-source", cx)
+    render(view, cx)
+    expect(view.raw).toBe(true)
+    click("reader-source", cx)
+    render(view, cx)
+    expect(view.raw).toBe(false)
+    expect(ui.counts.text).toBe(counts.text)
+    expect(ui.counts.editors).toBe(counts.editors + 1)
+    io.render.mockRejectedValueOnce(new Error("Read failed"))
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    render(view, cx)
+    expect(view.blockEntities).toEqual(entities)
+    expect(entities.every((entity) => entity.renders === 1 && !entity.released)).toBe(true)
+    await view.close()
+    await view.close()
+    expect(entities.every((entity) => entity.release.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("updates graphic widths and theme outside render without replacing block entities", async () => {
+    const { view, cx } = await ready()
+    render(view, cx)
+    const entities = [...ui.entities]
+    const editor = view.editors.get("code1")
+    view.width = 640
+    view.refresh(cx)
+    await cx.tasks.at(-1)
+    render(view, cx)
+    expect(entities.map((entity) => entity.renders)).toEqual([1, 1, 2, 1])
+    expect(view.editors.get("code1")).toBe(editor)
+    theme.mockReturnValue({ ...theme(), foreground: "#dddddd", background: "#111111" })
+    render(view, cx)
+    const timer = cx.timers.at(-1)
+    render(view, cx)
+    expect(timer.cancel).not.toHaveBeenCalled()
+    timer.fire()
+    await cx.tasks.at(-1)
+    render(view, cx)
+    expect(entities.map((entity) => entity.renders)).toEqual([2, 2, 3, 2])
+    expect(editor.release).toHaveBeenCalledOnce()
+    expect(ui.entities).toEqual(entities)
+    expect(ui.nodes.get("text-p1").props.text_color).toBe("#dddddd")
+    await view.close()
   })
 })
 

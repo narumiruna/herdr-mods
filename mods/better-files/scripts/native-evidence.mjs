@@ -16,6 +16,7 @@ import puppeteer from "puppeteer"
 import { runRequest } from "../reader/helper.mjs"
 import { validateManifest } from "../reader/model.js"
 import { Renderers } from "../reader/renderers/index.js"
+import { MermaidRenderer } from "../reader/renderers/mermaid.js"
 
 const modRoot = fileURLToPath(new URL("..", import.meta.url))
 const modes = [
@@ -393,21 +394,22 @@ async function main() {
         await runRequest(request, {
           rendererFactory(options) {
             const renderer = new Renderers(options)
-            const launch = renderer.mermaid.launch
-            renderer.mermaid.launch = async (options) => {
-              const launchStart = Date.now()
-              const browser = await launch({
-                ...options,
-                executablePath,
-                userDataDir: join(root, "chromium"),
-                env,
-              })
-              const pid = browser.process()?.pid
-              if (!pid) throw new Error("Browser ownership unavailable")
-              groups.add(pid)
-              browsers.push({ mode, pid, startupMs: Date.now() - launchStart })
-              return browser
-            }
+            renderer.mermaid = new MermaidRenderer({
+              launch: async (options) => {
+                const launchStart = Date.now()
+                const browser = await puppeteer.launch({
+                  ...options,
+                  executablePath,
+                  userDataDir: join(root, "chromium"),
+                  env,
+                })
+                const pid = browser.process()?.pid
+                if (!pid) throw new Error("Browser ownership unavailable")
+                groups.add(pid)
+                browsers.push({ mode, pid, startupMs: Date.now() - launchStart })
+                return browser
+              },
+            })
             return renderer
           },
         }),
@@ -478,7 +480,10 @@ class FixtureReader extends Reader {
     super.init(mode === "missing-entry" ? {} : { file:manifest.file, root:manifest.root, on:null }, cx)
     if (mode === "missing-entry" && (this.session || !this.error)) throw new Error("Missing entry must fail without an Open form")
     this.raw = mode === "raw"
-    if (this.session?.manifest) this.prepareEditors(this.session.manifest)
+    if (this.session?.manifest) {
+      this.prepareEditors(this.session.manifest)
+      this.prepareBlocks(this.session.manifest, cx)
+    }
   }
 }
 export default class extends Files {

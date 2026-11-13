@@ -1,4 +1,14 @@
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -85,7 +95,8 @@ it("returns source, dependencies, job and a deterministic signature and closes i
   await writeFile(file, "# Changed\n")
   expect((await run()).signature).not.toBe(first.signature)
   expect(renderer.render).not.toHaveBeenCalled()
-  expect(renderer.close).toHaveBeenCalledTimes(3)
+  expect(factory).not.toHaveBeenCalled()
+  expect(renderer.close).not.toHaveBeenCalled()
   expect(process.listenerCount("SIGTERM")).toBe(sigterm)
   expect(process.listenerCount("SIGINT")).toBe(sigint)
   const lease = JSON.parse(await readFile(leasePath(), "utf8"))
@@ -94,6 +105,7 @@ it("returns source, dependencies, job and a deterministic signature and closes i
 })
 
 it("normalizes renderer options instead of passing document-controlled configuration", async () => {
+  await writeFile(file, "```mermaid\ngraph TD; A-->B\n```")
   await save({
     width: 801.4,
     dark: true,
@@ -129,6 +141,17 @@ it("batches special blocks through one renderer and leaves ordinary code alone",
   expect(lease.assets).toHaveLength(result.assets.length)
 })
 
+it("does not create a renderer for an all-cache document", async () => {
+  await writeFile(file, "```mermaid\ngraph TD; A-->B\n```")
+  const first = await run()
+  factory.mockClear()
+  renderer.close.mockClear()
+  const second = await run()
+  expect(second.blocks).toEqual(first.blocks)
+  expect(factory).not.toHaveBeenCalled()
+  expect(renderer.close).not.toHaveBeenCalled()
+})
+
 it("retains a block's source and error and closes after a render failure", async () => {
   await writeFile(file, "```mermaid\nbroken\n```")
   renderer.render.mockRejectedValueOnce(new Error("syntax failure"))
@@ -141,11 +164,12 @@ it("retains a block's source and error and closes after a render failure", async
   expect(renderer.close).toHaveBeenCalledOnce()
 })
 
-it("closes the renderer and removes signal listeners after a document-level failure", async () => {
+it("does not create a renderer and removes signal listeners after a parser failure", async () => {
   await writeFile(file, `${"> ".repeat(45)}deep`)
   const count = process.listenerCount("SIGTERM")
   await expect(run()).rejects.toThrow("nesting")
-  expect(renderer.close).toHaveBeenCalledOnce()
+  expect(factory).not.toHaveBeenCalled()
+  expect(renderer.close).not.toHaveBeenCalled()
   expect(process.listenerCount("SIGTERM")).toBe(count)
 })
 
@@ -221,6 +245,47 @@ describe("cancellation and resource cleanup", () => {
     expect(factory).not.toHaveBeenCalled()
     await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(lstat(`${path}.cancel`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("closes a factory result that arrives after cancellation without rendering", async () => {
+    await writeFile(file, "```mermaid\ngraph TD; A-->B\n```")
+    let finish
+    factory.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const running = run()
+    const outcome = expect(running).rejects.toThrow(/cancelled/)
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce())
+    await cancelRequest(path)
+    await vi.waitFor(() => expect(factory.mock.calls[0][0].signal.aborted).toBe(true))
+    finish(renderer)
+    await outcome
+    expect(renderer.render).not.toHaveBeenCalled()
+    expect(renderer.close).toHaveBeenCalledOnce()
+    await expect(lstat(leasePath())).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("does not save a late result from a renderer that ignores cancellation", async () => {
+    await writeFile(file, "```mermaid\ngraph TD; A-->B\n```")
+    let finish
+    renderer.render.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const running = run()
+    const outcome = expect(running).rejects.toThrow(/cancelled/)
+    await vi.waitFor(() => expect(renderer.render).toHaveBeenCalledOnce())
+    await cancelRequest(path)
+    await vi.waitFor(() => expect(factory.mock.calls[0][0].signal.aborted).toBe(true))
+    finish({ svg, width: 20, height: 10 })
+    await outcome
+    expect(await readdir(join(appHome, "data/better-files/assets"))).toEqual([])
+    await expect(lstat(leasePath())).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("aborts an active render, closes resources, and removes request and lease files", async () => {

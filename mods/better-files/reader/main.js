@@ -24,6 +24,23 @@ export default class MarkdownReader extends View {
   }
 
   init(initialProps, cx) {
+    this.ownerCx = cx
+    const owner = this
+    // Share native state through the class closure, never through entity props.
+    this.BlockView = class extends View {
+      init(props) {
+        this.update(props)
+      }
+      update(props) {
+        this.block = props.block
+      }
+      render() {
+        return owner.block(this.block)
+      }
+    }
+    this.blocks = new Map()
+    this.blockOwners = new Map()
+    this.blockEntities = []
     this.entry = initialProps || props() || {}
     this.initialFragment = typeof this.entry.fragment === "string" ? this.entry.fragment : null
     this.io = this.createIO()
@@ -113,8 +130,10 @@ export default class MarkdownReader extends View {
       const serial = session.serial
       const changed = await work
       if (this.closed || session !== this.session || session.serial !== serial) return
-      if (session.manifest && (changed || this.editorPalette !== this.palette))
+      if (session.manifest && (changed || this.editorPalette !== this.palette)) {
         this.prepareEditors(session.manifest)
+        this.prepareBlocks(session.manifest, cx)
+      }
       if (changed) {
         this.watch(cx)
         if (this.initialFragment !== null) {
@@ -171,10 +190,67 @@ export default class MarkdownReader extends View {
     this.editorSpecs.clear()
   }
 
+  clearBlocks() {
+    for (const { entity } of this.blocks.values()) entity.release()
+    this.blocks.clear()
+    this.blockOwners.clear()
+    this.blockEntities = []
+  }
+
+  blockSpec(block) {
+    const state = []
+    const collect = (child) => {
+      state.push([child.id, this.sources.has(child.id), this.zoom.get(child.id) || 1])
+      if (child.type === "graphic") state.push(this.width)
+      for (const nested of child.children || []) collect(nested)
+    }
+    collect(block)
+    return JSON.stringify([block, colors(), state])
+  }
+
+  prepareBlocks(manifest, cx = this.ownerCx) {
+    const active = new Set()
+    this.blockOwners.clear()
+    this.blockEntities = manifest.blocks.map((block) => {
+      active.add(block.id)
+      const spec = this.blockSpec(block)
+      let retained = this.blocks.get(block.id)
+      if (!retained) {
+        retained = { entity: cx.new(this.BlockView, { block }), block, spec }
+        this.blocks.set(block.id, retained)
+      } else {
+        retained.block = block
+        if (retained.spec !== spec) {
+          retained.spec = spec
+          retained.entity.set_props({ block })
+        }
+      }
+      const collect = (child) => {
+        this.blockOwners.set(child.id, retained)
+        for (const nested of child.children || []) collect(nested)
+      }
+      collect(block)
+      return retained.entity
+    })
+    for (const [id, retained] of this.blocks) {
+      if (active.has(id)) continue
+      retained.entity.release()
+      this.blocks.delete(id)
+    }
+  }
+
+  redrawBlock(id) {
+    const retained = this.blockOwners.get(id)
+    if (!retained || this.closed) return
+    retained.spec = this.blockSpec(retained.block)
+    this.ownerCx.notify(retained.entity)
+  }
+
   async close() {
     if (this.closed) return
     this.closed = true
     this.refreshTask?.cancel()
+    this.clearBlocks()
     this.clearEditors()
     this.scroll.release()
     this.focus.release()
@@ -196,7 +272,9 @@ export default class MarkdownReader extends View {
       .text_size(11)
       .cursor_pointer()
       .disabled(disabled)
-      .on_click((_event, cx) => action(cx))
+      .on_click(() => {
+        if (!this.closed) action(this.ownerCx)
+      })
       .child(text)
   }
 
@@ -303,6 +381,7 @@ export default class MarkdownReader extends View {
       this.session = next
       this.entry = entry
       this.initialFragment = target.fragment || ""
+      this.clearBlocks()
       this.clearEditors()
       this.sources.clear()
       this.zoom.clear()
@@ -346,7 +425,9 @@ export default class MarkdownReader extends View {
         .w_full()
         .text_size(16)
         .text_color(t.foreground)
-        .on_link_click((url, cx) => this.link(url, cx))
+        .on_link_click((url) => {
+          if (!this.closed) this.link(url, this.ownerCx)
+        })
     if (block.type === "container") {
       const content = v_flex()
         .w_full()
@@ -379,13 +460,13 @@ export default class MarkdownReader extends View {
       .child(this.button(`copy-${block.id}`, "Copy source", (cx) => cx.write_to_clipboard(source)))
     if (block.type === "graphic")
       toolbar.child(
-        this.button(`source-${block.id}`, sourceView ? "Render" : "Source", (cx) => {
+        this.button(`source-${block.id}`, sourceView ? "Render" : "Source", () => {
           if (sourceView) this.sources.delete(block.id)
           else {
             this.sources.add(block.id)
             this.ensureEditor(block.id, source, block.language || "text")
           }
-          cx.notify()
+          this.redrawBlock(block.id)
         }),
       )
     const card = v_flex()
@@ -408,21 +489,21 @@ export default class MarkdownReader extends View {
     const scale = Math.min(1, Math.max(160, this.width - 40) / block.width) * zoom
     toolbar
       .child(
-        this.button(`less-${block.id}`, "−", (cx) => {
+        this.button(`less-${block.id}`, "−", () => {
           this.zoom.set(block.id, Math.max(0.25, zoom / 1.25))
-          cx.notify()
+          this.redrawBlock(block.id)
         }),
       )
       .child(
-        this.button(`fit-${block.id}`, "Fit", (cx) => {
+        this.button(`fit-${block.id}`, "Fit", () => {
           this.zoom.delete(block.id)
-          cx.notify()
+          this.redrawBlock(block.id)
         }),
       )
       .child(
-        this.button(`more-${block.id}`, "+", (cx) => {
+        this.button(`more-${block.id}`, "+", () => {
           this.zoom.set(block.id, Math.min(4, zoom * 1.25))
-          cx.notify()
+          this.redrawBlock(block.id)
         }),
       )
     card.child(toolbar)
@@ -539,7 +620,7 @@ export default class MarkdownReader extends View {
             .gap(14)
             .overflow_y_scroll()
             .track_scroll(this.scroll)
-            .children(manifest.blocks.map((block) => this.block(block))),
+            .children(this.blockEntities),
         )
         .child(Scrollbar.vertical("reader-scroll").absolute().inset_0()),
     )
