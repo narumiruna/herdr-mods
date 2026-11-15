@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "vitest"
 import { filterMods, GALLERY_URL, parseRepository, validateManifest } from "../manager.js"
 
@@ -132,4 +133,18 @@ describe("structural validation", () => {
 
 test("keeps the Gallery link on the mods page", () => {
   expect(GALLERY_URL).toBe("https://herdr.dev/gallery/?type=mods")
+})
+
+test("documents an installable mod from this repository", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8")
+  const path = /2\. Enter `(mods\/[^`]+)` in \*\*Mod directory\*\*\./.exec(readme)?.[1]
+  expect(path).toBeDefined()
+  const directory = new URL(`../../../${path}/`, import.meta.url)
+  const manifest = readFileSync(new URL("mod.json", directory), "utf8")
+  const entry = readFileSync(new URL("main.js", directory), "utf8")
+  expect(validateManifest(manifest, entry)).toHaveProperty("title")
+  expect(readme).toContain(`such as \`${path}\``)
+  expect(readme).toContain(`The installed folder is \`<app-home>/${path}\``)
+  const recipe = readFileSync(new URL("../RECIPE.md", import.meta.url), "utf8")
+  expect(recipe).toContain(`such as \`${path}\``)
 })

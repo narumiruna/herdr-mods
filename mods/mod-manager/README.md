@@ -23,7 +23,7 @@ Root `npm start` also toggles the dialog. It does not create or change the insta
 
 - **Gallery** loads the same public mod index as the Gallery website: [`assets.herdr.dev/mods/index.json`](https://assets.herdr.dev/mods/index.json). It supports search, source filters, and batches of 50 cards. Search covers the full list, including folder IDs and cards not yet rendered.
 - **Installed** reads actual local manifests. GitHub, development, local, and shipped sources are distinct. A name alone does not establish source identity or ownership. Gallery and Installed share verified membership.
-- **From GitHub** accepts a public `https://github.com/owner/repository` URL, with an optional `.git` suffix. Leave **Mod directory** blank for a repository-root mod, or enter the exact case-sensitive relative directory containing `mod.json` and `main.js`, such as `mods/layout-manager`. Installation uses the repository's default branch. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
+- **From GitHub** accepts a public `https://github.com/owner/repository` URL, with an optional `.git` suffix. Leave **Mod directory** blank for a repository-root mod, or enter the exact case-sensitive relative directory containing `mod.json` and `main.js`, such as `mods/github-issues-prs`. Installation uses the repository's default branch. Branch/tree URLs, credentials, SSH, private repositories, and local paths are not accepted.
 - Each verified GitHub card has **Source**. It opens that card's recorded repository at its commit and exact case-sensitive recipe directory, without installing anything. When Update is available, **Update source** opens the checked update candidate instead of the older installed commit. Without a recorded commit, Source opens the repository root. For a recipe bundle, find the selected mod folder within that source directory. If the browser fails, the exact URL stays visible for manual review. URL delivery does not verify browser display.
 - Gallery selections preserve the exact recipe path and mod folder. For a bundle, select the specific mod card. The manager does not apply recipe layouts or keybindings or install companion mods automatically.
 - A Gallery failure is shown as an error, not an empty successful list. A slow Gallery request does not block an otherwise-ready Installed page or its operations. **Show warnings** reveals source and recovery warnings in a scrollable list, 20 at a time.
@@ -31,8 +31,8 @@ Root `npm start` also toggles the dialog. It does not create or change the insta
 For example, to install a mod from this repository:
 
 1. Enter `https://github.com/narumiruna/herdr-mods` in **Repository URL**.
-2. Enter `mods/layout-manager` in **Mod directory**.
-3. Select **Install**. The installed folder is `<app-home>/mods/layout-manager`.
+2. Enter `mods/github-issues-prs` in **Mod directory**.
+3. Select **Install**. The installed folder is `<app-home>/mods/github-issues-prs`.
 
 The final directory component becomes the installed folder name, even if the manifest has a different `id`. Directory components must contain only ASCII letters, digits, underscores, periods, or hyphens, and must start with a letter, digit, or underscore. The final component must start with a letter or digit. Absolute paths, `.` or `..` components, backslashes, and trailing slashes are not accepted. Leading and trailing whitespace is removed. Each directory component is limited to 128 characters; the complete path is limited to 1024 characters and 64 components.
 
