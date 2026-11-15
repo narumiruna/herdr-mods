@@ -9,6 +9,10 @@
 - Do not put a mod recipe at the repository root or create a nested `mods/` directory inside the mod root for recipe packaging.
 - Resolve recipe links and preview paths from the mod root, and update references when files move.
 
+## Testing
+
+- [UNREVIEWED] Read and follow `.agents/skills/verify-repo-changes/SKILL.md` when implementing or validating repository changes.
+
 ## Mod sharing
 
 - For every mod under `mods/*/`, read and follow `.agents/skills/share-herdr-mod/SKILL.md` when adding or updating the mod.
