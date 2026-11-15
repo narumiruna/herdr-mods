@@ -16,12 +16,6 @@ const specs = {
     width: 680,
     height: 760,
   },
-  "layout-manager": {
-    files: ["main.js", "model.js", "tree.js", "runtime.js", "mod.json"],
-    states: ["personal", "ordinary-keyboard-placement"],
-    width: 1200,
-    height: 950,
-  },
   "mod-manager": {
     files: ["main.js", "manager.js", "runtime.js", "sidebar.js", "mod.json"],
     states: ["gallery", "error"],
@@ -211,11 +205,7 @@ async function main() {
   const candidate = join(await realpath(dirname(directory)), basename(directory))
   if (candidate === resolve(repository) || candidate.startsWith(`${resolve(repository)}/`))
     throw new Error("Evidence output must be outside the repository")
-  if (
-    Buffer.byteLength(
-      join(candidate, "layout-manager-ordinary-keyboard-placement/profile/herdr-app.sock"),
-    ) >= 104
-  )
+  if (Buffer.byteLength(join(candidate, "github-issues-prs-error/profile/herdr-app.sock")) >= 104)
     throw new Error("Output path is too long for the macOS socket; use a short /tmp path")
   if (args.length) await mkdir(candidate, { mode: 0o700 }) // Refuse an existing directory.
   output = await realpath(candidate)

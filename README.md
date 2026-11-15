@@ -10,7 +10,6 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 
 - [`mods/github-issues-prs/`](mods/github-issues-prs/): read-only GitHub issues and pull requests, repository context, and optional workspace tabs.
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
-- [`mods/layout-manager/`](mods/layout-manager/): edit existing personal layout blocks and containers, insert new mod views beside any node, and keep legacy managed-panel controls.
 - [`mods/better-files/`](mods/better-files/): a personal Files clone with a bundled native Markdown reader, display math, official Mermaid SVG, and static Vega-Lite in the same Files pane. Other file previews remain unchanged. Owner interaction checks remain incomplete.
 - [`docs/markdown-reader-examples.md`](docs/markdown-reader-examples.md): a visual render check for Better Files, with Mermaid, LaTeX, Python/Go/Rust code, and Vega-Lite examples.
 - `layouts/`: local layouts and SVG previews.
@@ -109,18 +108,6 @@ npm start
 `npm start` opens or closes the installed `mod-manager` dialog; it does not create an installation link. The same mod can provide a sidebar footer with `{ "footer": true }`; no separate sidebar mod is needed. Existing personal layouts that use `mod-manager-sidebar` need an owner-managed change. See the [sidebar launcher guide](mods/mod-manager/README.md#sidebar-launcher) for the 125 px layout block, migration, and recovery. Repository checks do not change the live profile.
 
 See the [Mod Manager guide](mods/mod-manager/README.md) for installation, runtime requirements, file operations, and recovery.
-
-## Layout Manager
-
-[Layout Manager](mods/layout-manager/README.md) moves existing blocks and containers by node ID beside any ordinary layout node. Its canvas and outline support four-side placement and a keyboard path. Inventory grips explicitly add new views; they do not duplicate a node during a move. The legacy managed panel, tab ordering, props, and overlay controls remain available. Shipped layouts must be cloned before editing. Saves reject stale files. Actual host layout parsing, geometry, and physical interaction remain [unverified owner checks](mods/layout-manager/README.md#unverified-acceptance-and-owner-handoff); eager native-description checks do not prove them.
-
-The [recipe](mods/layout-manager/RECIPE.md) describes both dialog and dock-header modes. Stop Herdr before creating its development link, then reopen the app. No layout or keybinding is installed automatically.
-
-```sh
-npm test --workspace herdr-layout-manager
-npm run check:mod --workspace herdr-layout-manager
-npm start --workspace herdr-layout-manager
-```
 
 ## Better Files and Markdown
 

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import test from "node:test"
 import { captureGenerator, createAppOwner, offlineProgram, pngInfo } from "./native-previews.mjs"
 
-for (const name of ["github-issues-prs", "layout-manager", "mod-manager"]) {
+for (const name of ["github-issues-prs", "mod-manager"]) {
   test(`${name}: saves trusted fixtures without starting the native app`, async () => {
     const source = await readFile(
       new URL(`../mods/${name}/scripts/check-views.mjs`, import.meta.url),
