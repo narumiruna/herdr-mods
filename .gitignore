@@ -1,3 +1,6 @@
+# Local verification evidence; never commit
+/.verifications/
+
 # Logs
 logs
 *.log
