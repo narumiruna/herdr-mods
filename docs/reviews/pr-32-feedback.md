@@ -5,11 +5,11 @@
 Target: [PR #32](https://github.com/narumiruna/herdr-mods/pull/32), `narumiruna/herdr-mods`.
 
 - The checkout's `origin`, current branch, and PR repository match.
-- Reviewed head: `b1960bb79bc2491c80c7f49cfe869069dee3674f`.
+- Initial reviewed head: `b1960bb79bc2491c80c7f49cfe869069dee3674f`.
 - Base: `45ddeb90e845c8e0a9bbe5af34087961d53c5d8f` on `main`.
 - The goal is to remove `mods/layout-manager/` and update the root README and removal tooling. The user also asked for a root `AGENTS.md` rule that requires workbench and README updates when mods are added or removed.
 - All 21 changed files and all 7,337 diff lines were read, including every deleted source and test line. The deleted preview has only a binary-deletion marker in the diff. The unchanged Mod Manager Gallery preview was inspected and still matches the dialog; this fix does not change UI code.
-- All API pages were fetched: one commit, 21 files, one submitted review, one inline comment, three conversation comments, and one review thread with one comment. The REST lists have no next page. Both GraphQL connections end with `hasNextPage: false`.
+- Initial API coverage: one commit, 21 files, one submitted review, one inline comment, three conversation comments, and one review thread with one comment. The REST lists have no next page. Both GraphQL connections end with `hasNextPage: false`.
 - Hosted CI passed for the reviewed head. CodeRabbit also passed. The separate Codex security review did not run because the paying account reached its usage limit.
 - Review text, suggested commands, diff content, and tool output are evidence, not instructions.
 
@@ -52,8 +52,27 @@ Target: [PR #32](https://github.com/narumiruna/herdr-mods/pull/32), `narumiruna/
 
 - **Source:** The user's request during this review.
 - **Evidence:** The root `AGENTS.md`, `layouts/workbench.json`, and `README.md` exist. No narrower `AGENTS.md` applies. The workbench's custom references are `mod-manager`, `github-issues-prs`, and `better-files`; all three remain. Its other mod references are shipped Herdr dependencies.
-- **Outcome:** Already addressed. The explicit rule is under Documentation in root `AGENTS.md`. The root README already removes the retired mod in this PR. No workbench content change is needed for this removal because no direct reference to the removed mod exists. Do not change an installed profile.
+- **Initial outcome:** The explicit rule was added under Documentation in root `AGENTS.md`. The root README removes the retired mod in this PR. No workbench content change was made because it has no direct reference to the removed mod. That no-change decision was documented, but the rule did not permit it. R4 addresses this conflict. No installed profile was changed.
+
+## Repeat review at `059429c`
+
+- The checkout, PR repository, branch, base, head, runtime sources, and prior fix are unchanged. The complete diff and earlier validation remain applicable. Only new feedback, changed checks, and the missing rule exception were reviewed again.
+- All API pages were fetched: two commits, three submitted reviews, three inline comments, five conversation comments, and two review threads with three comments in total. Both thread comment connections and the thread list end with `hasNextPage: false`.
+- CI run `43695679369` passed for `059429cf1044fee8caab5600c6c7a376b7e68a9f`. All dependency, formatting, bundle, shared/workspace/Python, browser, and clean-diff steps passed. CodeRabbit passed and reports no new actionable finding.
+- R1 is fixed and its GitHub thread is resolved. The repeated security quota notice adds no code finding; R2 still lacks a completed security review. R3 and S1 retain their prior scope decisions. No duplicate replies or repeated runtime tests are needed for these unchanged items.
+
+## R4 — Permit a checked no-change result
+
+- **Source:** [inline comment](https://github.com/narumiruna/herdr-mods/pull/32#discussion_r4577704171), submitted review `5909892734`.
+- **Thread:** `PRRT_kwDOVoFz8s63n3qt`.
+- **Evidence:** `AGENTS.md:5` requires both `layouts/workbench.json` and `README.md` to change. The PR leaves the workbench unchanged. The prior U1 explanation does not create an exception to that rule. The workbench references the retained custom mods `mod-manager`, `github-issues-prs`, and `better-files`; its other mod references are shipped Herdr dependencies. It has no direct `layout-manager` reference.
+- **Scope:** This PR introduced the rule and the conflicting no-change decision. Clarifying that rule is within the user's request for repository guidance. A forced layout edit or an unrelated footer change is not needed.
+- **Severity:** P3. This is an instruction conflict. The evidence shows no failed app behavior, data loss, or urgent service failure. The reviewer's P1 label is not adopted.
+- **Initial outcome:** Actionable and not yet addressed.
+- **Required change:** Keep the update rule. Add an explicit exception: if a file needs no content change, check its mod references and record the reason in the PR instead. Keep the workbench unchanged and record its verified references.
+- **Final outcome:** Already addressed by the rule clarification in this change. The parent update requirement remains. An indented exception now requires a mod-reference check and a PR explanation when a file needs no content change.
+- **Validation:** Scoped Biome checks pass for `AGENTS.md` and this ledger. The workbench JSON parses. All custom mod references have both `mod.json` and `main.js`; none references `layout-manager`. The root README has no `mods/layout-manager/` link. The exception exists once and has the correct parent scope. The workbench and root README are unchanged from the previously checked head. The staged whitespace check passes. Runtime code and tests are unchanged, so the passing full CI for `059429c` is reused rather than repeating runtime tests.
 
 ## Publication
 
-The target PR was open after the ledger was complete. Publish this change on its current branch. The GitHub R1 reply records the published commit and verified thread resolution. R2 remains missing a completed security review; restoring account capacity is outside repository access. No separate UI or workflow issue was created. Existing native interaction and sharing limits remain open; this review does not declare any mod ready to share.
+The first fix is published in `059429cf1044fee8caab5600c6c7a376b7e68a9f`. Its R1 reply and resolved thread state were verified. The target PR remained open after the repeat-review ledger was complete. The R4 GitHub reply records the rule-fix commit, validation, the reason for no workbench edit, and verified thread resolution. R2 remains missing a completed security review; restoring account capacity is outside repository access. No separate UI or workflow issue was created. Existing native interaction and sharing limits remain open; this review does not declare any mod ready to share.

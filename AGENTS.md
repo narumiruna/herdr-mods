@@ -3,6 +3,7 @@
 ## Documentation
 
 - When adding or removing a mod, update `layouts/workbench.json` and `README.md` in the same change.
+  - If a file needs no content change, check its mod references and state the reason in the pull request instead.
 - Each `mods/<name>/` directory is a mod root and contains its `mod.json` and `main.js`.
 - Store each mod's recipe at `mods/<name>/RECIPE.md`, beside those runtime entry files.
 - Do not put a mod recipe at the repository root or create a nested `mods/` directory inside the mod root for recipe packaging.
