@@ -78,23 +78,30 @@ The PowerShell script uses junctions for mod directories and symbolic links for 
 - `-WhatIf` does not create directories or links.
 - Conflicts and link errors are reported without stopping other entries. Any failure sets exit code 1.
 
-The PowerShell script only creates links. On macOS or Linux, use the shell script below for cleanup.
-
 Before removing links, select a layout that is not supplied by this checkout, then stop Herdr. To remove the links, run:
 
 ```sh
 ./scripts/unlink.sh
 ```
 
+On Windows, preview the removals, then remove the links:
+
+```powershell
+.\scripts\unlink.ps1 -WhatIf
+.\scripts\unlink.ps1
+```
+
+`unlink.ps1` also accepts `-AppHome C:\Herdr-Test-Profile`. It does not create a missing profile. Removal errors are reported without stopping other entries; any failure sets exit code 1. If script execution is blocked, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\unlink.ps1`.
+
 The link scripts scan `mods/*/`, `layouts/*.json`, and `layouts/*.svg` on each run. They link mod directories into `mods/` and layout files and SVG previews into `layouts/`, using absolute source paths. They skip other files, layout subdirectories, and hidden entries such as `layouts/.state/`. Run a link script again after you add a mod or layout.
 
 Correct links are left unchanged. Conflicts are reported without overwriting files, directories, or other links. A conflict sets exit code 1; other mods and layouts are still processed.
 
-The unlink script removes only same-name links that point to this checkout's mod directories or supported layout paths, including broken links. The shell scripts recognize absolute and relative links. Relative paths start at the link's directory. The unlink script keeps source files, real files and directories, and links to other locations.
+The unlink scripts remove only same-name links that point to this checkout's mod directories or supported layout paths, including broken links. They recognize absolute and relative links. Relative paths start at the link's directory. They keep source files, real files and directories, and links to other locations. The PowerShell script also removes matching mod junctions without deleting their contents.
 
 All link scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
-Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. These tests do not change your Herdr profile.
+Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. On Windows, run `node --test scripts/unlink.test.mjs` for PowerShell cleanup tests with a temporary checkout and `-AppHome`. Symbolic-link tests require Administrator permissions or Windows Developer Mode; they are skipped when link creation is not permitted. These tests do not change your Herdr profile.
 
 ## Open Mod Manager
 
