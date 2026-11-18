@@ -1,0 +1,27 @@
+Agent Spaces
+
+This mod is derived from the Spaces mod shipped with Herdr App 0.1.16.
+The installed Herdr distribution includes the Apache License, Version 2.0.
+A copy is retained in LICENSE.
+
+Original Spaces main.js SHA-256, before line-ending normalization:
+eef42839285ec5023c07362a807179a7f65062b3ed3a834dc52efaea3153618a
+
+Changes in this copy:
+- Expanded rows show overlapping agent program icons instead of color avatars
+  when agents are present.
+- A working/total count and one native animated status ring appear on the right.
+- Activity uses one live agents() snapshot per render, grouped by qualified space ID.
+- Icon stacks are limited to three tiles, with a count for remaining agents.
+- Tooltips describe the complete agent list and its current states.
+- Shipped selection, menus, drag order, Git details, worktrees, machine groups,
+  and compact rail behavior remain in this personal clone.
+- Process side effects are disabled during herdr-app check.
+- Chrome icon paths use this mod's bundled icons directory.
+- Formatting and type annotations follow the repository's installed SDK checks.
+
+activity.js, tests, native fixtures, package scripts, and documentation are additions.
+The seven copied icons add accessibility titles and retain their original geometry. Lucide and Feather license
+notices for the copied Lucide icons are in THIRD-PARTY-NOTICES.
+Program icons are supplied by Herdr's program table; they are not copied from
+the owner's profile into this bundle. Generated SDK declarations are excluded.
