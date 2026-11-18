@@ -8,6 +8,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 
 ## Repository structure
 
+- [`mods/agent-spaces/`](mods/agent-spaces/RECIPE.md): Spaces with overlapping agent icons, working/total counts, and one native status ring. The workbench layout uses this mod.
 - [`mods/github-issues-prs/`](mods/github-issues-prs/): read-only GitHub issues and pull requests, repository context, and optional workspace tabs.
 - [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
 - [`mods/better-files/`](mods/better-files/): a personal Files clone with a bundled native Markdown reader, display math, official Mermaid SVG, and static Vega-Lite in the same Files pane. Other file previews remain unchanged. Owner interaction checks remain incomplete.
@@ -102,6 +103,19 @@ The unlink scripts remove only same-name links that point to this checkout's mod
 All link scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
 Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. On Windows, run `node --test scripts/unlink.test.mjs` for PowerShell cleanup tests with a temporary checkout and `-AppHome`. Symbolic-link tests require Administrator permissions or Windows Developer Mode; they are skipped when link creation is not permitted. These tests do not change your Herdr profile.
+
+## Agent Spaces
+
+[Agent Spaces](mods/agent-spaces/RECIPE.md) keeps the shipped Spaces controls and adds the selected compact summary: overlapping agent icons on the left, with a working/total count and one status ring on the right. For example, `2/3` means two of three reported agents are working. Three icons are shown at most; `+N` counts the rest. Hover either summary to read the full agent list. Spaces without reported agents keep their colored avatar and have no count.
+
+The repository workbench layout now uses `agent-spaces`. Install or link `mods/agent-spaces` into the existing profile while Herdr is stopped, then reopen Herdr. For a different personal layout, change only its Spaces block's `content.mod` from `spaces` to `agent-spaces`. Keep the separate Agents block and existing keys. Repository checks do not change or verify the live profile. To revert, change that block back to `spaces`.
+
+```sh
+npm test --workspace herdr-agent-spaces
+npm run check:mod --workspace herdr-agent-spaces
+```
+
+Native fixture checks and gallery preview requirements are recorded in the [recipe](mods/agent-spaces/RECIPE.md#done-when). Real agent interaction and platform checks must pass before this bundle is ready to share.
 
 ## Open Mod Manager
 
