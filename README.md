@@ -16,6 +16,7 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
+- `.gitattributes`: LF checkout rules for text files.
 - `.github/` and `.changeset/`: shared CI and release configuration.
 - `prek.toml`: shared Git hook configuration.
 
@@ -55,7 +56,15 @@ prek install
 
 For an existing Husky checkout, check `git config --local --get core.hooksPath` before running `prek install`. If it returns `.husky/_`, run `git config --local --unset core.hooksPath`. Do not remove a different custom hook path.
 
-The three hooks run in order on every commit: `npx biome migrate --write`, `npx biome check --write .`, and `uv run python scripts/lint_recipes.py`. They check the whole repository and do not receive staged filenames. Biome check includes formatting, so no separate format hook is needed. If Biome changes files, review and stage the changes, then retry the commit. Run all hooks manually with `prek run --all-files`. `npm ci` does not install Git hooks.
+The hooks run in order on every commit: `mixed-line-ending --fix=lf`, `npx biome migrate --write`, `npx biome check --write .`, and `uv run python scripts/lint_recipes.py`.
+The first hook converts staged text files to LF before Biome runs.
+The `.gitattributes` rule keeps text files in LF on checkout, including Windows with `core.autocrlf=true`; binary files are not converted.
+
+The three local hooks check the whole repository and do not receive staged filenames.
+Biome check includes formatting, so no separate format hook is needed.
+If a hook changes files, review and stage the changes, then retry the commit.
+Run all hooks manually with `prek run --all-files`.
+`npm ci` does not install Git hooks.
 
 ## Quality and bundle checks
 
