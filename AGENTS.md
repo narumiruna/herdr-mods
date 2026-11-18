@@ -11,7 +11,7 @@
 
 ## Testing
 
-- [UNREVIEWED] Read and follow `.agents/skills/verify-repo-changes/SKILL.md` when implementing or validating repository changes.
+- [UNREVIEWED] Read and follow `.agents/skills/verify-repo-changes/SKILL.md` when implementing or validating repository changes or resolving test, check, or Git hook failures.
 
 ## Mod sharing
 

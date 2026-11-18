@@ -1,6 +1,6 @@
 ---
 name: verify-repo-changes
-description: Verify changes in this repository before reporting completion, including UI changes that require inspected screenshots and functional changes that require reproducible steps and results, with traceable local evidence under .verifications/<topic>/.
+description: Verify repository changes before reporting completion and repair failed tests, checks, or Git hooks during authorized work, with inspected screenshots for UI changes and reproducible local evidence under .verifications/<topic>/.
 ---
 
 # Verify Repository Changes
@@ -43,7 +43,8 @@ Do not report a required check as passed without direct evidence.
 4. Keep required gallery assets such as `mods/<name>/preview.png` separate from run evidence.
    - A gallery preview does not replace a current verification screenshot, and this skill does not remove required bundle assets.
 
-If the app or screenshot capability is unavailable, mark UI verification `blocked` and state the action needed to capture and inspect the screenshots.
+If the app or screenshot capability is unavailable, first follow [Repair Failed Checks](#repair-failed-checks).
+Mark UI verification `blocked` only when the remaining work needs external access or approval, and state the action needed.
 A DOM assertion, fixture render, or successful build does not replace the required screenshot check in the intended app.
 
 ## Verify Functional Changes
@@ -63,6 +64,27 @@ A DOM assertion, fixture render, or successful build does not replace the requir
    - Do not use a bare success statement, command list without results, or screenshot alone as functional evidence.
    - Keep failed and blocked checks visible when recording a later successful run.
 
+## Repair Failed Checks
+
+1. Start this loop when a test, required check, or Git hook fails during authorized implementation, repair, commit, or push work.
+   - For a read-only review or diagnosis request, report the required repair without changing files.
+2. Keep the failure output and identify the failing command, tested source, and expected result before changing files.
+   - Do not treat an expected nonzero exit in a negative test as an unexpected failure.
+3. Read the diagnostics and reproduce the failure with the smallest relevant check; locate the cause in the implementation, test, configuration, or local setup.
+4. Apply the smallest correct repair without asking for approval for safe, local, reversible work needed to complete the task.
+   - For version or hook errors, inspect the actual executable, version, and hook target, then repair the local setup with checks enabled.
+   - Use a compatible project-local or isolated tool before changing a shared or global installation.
+   - A pre-existing failure still needs diagnosis and a safe repair when it blocks the requested work.
+   - Preserve unrelated user changes.
+5. Rerun the original failing command after each repair, then run affected regression tests and the applicable repository gates.
+   - Use new diagnostics to continue this loop until required checks pass or a remaining action needs authorization or external access.
+   - Do not repeat a failing command without a corrective change or new diagnostic evidence.
+6. Do not skip hooks or tests, remove coverage, weaken assertions, or change expected results merely to make checks pass.
+   - Fix an incorrect test only when the intended behavior and evidence justify the change.
+7. Ask only when the remaining repair needs unavailable access, an external action not already approved, a destructive or costly action, or a material scope increase.
+   - First attempt available safe local recovery, including compatible tools and local hook setup, and continue independent authorized work.
+   - For a real blocker, report the observed failure, attempted repairs, and the exact external action or approval needed to continue.
+
 ## Close the Run
 
 1. Finish `report.md` with these sections so that another person can follow the evidence.
@@ -78,8 +100,9 @@ A DOM assertion, fixture render, or successful build does not replace the requir
    - Run `git check-ignore -v -- .verifications/<topic>/<run-id>/report.md` with the actual run path and confirm that the root rule matches.
    - Run `git ls-files -- .verifications` and `git diff --cached --name-only -- .verifications`; both must return no paths.
    - Never force-add or commit verification evidence; `.gitignore` does not remove files that Git already tracks.
-   - If evidence is tracked or staged, stop and report the paths that must be untracked or unstaged without deleting the local evidence.
+   - If this run staged evidence, unstage only those evidence paths without deleting the local files, then repeat these checks.
+   - If evidence was already tracked or staged before this task, preserve the user's index changes and request the approval needed to exclude those paths before publication.
 4. Run `git diff --check` and review the intended change paths without changing unrelated work.
 5. Report the result and the local `report.md` path.
-   - Keep verification incomplete if a required check failed, is blocked, or lacks evidence; name the action needed to finish it.
+   - Keep verification incomplete if a required check still fails, is blocked, or lacks evidence after the repair loop; name the action needed to finish it.
    - Local evidence is ignored by Git and is not part of a commit or pull request; do not imply that other people can access it through Git.
