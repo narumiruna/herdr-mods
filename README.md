@@ -56,6 +56,19 @@ npm run evidence:previews
 
 `evidence:previews` captures actual fixture views in disposable macOS Herdr profiles. Evidence and process-cleanup records stay outside the repository. Preview generation does not change the owner's profile, perform real GitHub requests, or test physical pointer and keyboard input. A passing structural check or screenshot is not sufficient to call a bundle ready to share.
 
+## Recipe lint
+
+Run the Python linter from the repository root. It uses only the standard library:
+
+```sh
+uv run python scripts/lint_recipes.py
+uv run python -m unittest discover -s scripts -p 'test_lint_recipes.py' -v
+```
+
+The linter checks every immediate `mods/*/` directory for `RECIPE.md` and `preview.png` files. The root `RECIPE.md` is optional and is checked only when present. Each recipe must have a non-empty H1 title and these exact H2 headings: `What you see`, `How it behaves`, `Built from`, `Watch out`, and `Done when`. Use ATX headings (`#` and `##`). Headings inside fenced code blocks, HTML blocks, or HTML comments do not count.
+
+The optional directory argument selects a different repository: `uv run python scripts/lint_recipes.py <directory>`. The default is the current directory. Errors include file paths and set exit code 1; success sets exit code 0. A directory with no recipe targets fails. This is a structural check, not a full Markdown renderer. It does not enforce section order or content, validate image data or links, or replace bundle and native checks. Run it separately; the existing npm and CI commands do not include it.
+
 ## Link local mods and layouts
 
 Stop Herdr before you change links. To link this checkout's mods and layouts into `~/.config/herdr-app/`, run:
