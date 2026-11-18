@@ -23,8 +23,7 @@
     "test:operations": "npm run test:operations --workspaces --if-present",
     "ci": "npm run check && npm run check:bundles && npm test && npm run check:types",
     "changeset": "changeset",
-    "release": "changeset publish",
-    "prepare": "husky"
+    "release": "changeset publish"
   },
   "overrides": {
     "katex": "0.19.1"
@@ -33,7 +32,6 @@
     "@biomejs/biome": "^2.6.7",
     "@changesets/cli": "^3.0.3",
     "acorn": "^8.19.0",
-    "husky": "^9.1.7",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   }

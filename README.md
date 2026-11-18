@@ -16,7 +16,8 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
-- `.github/`, `.changeset/`, and `.husky/`: shared CI, release, and Git hook configuration.
+- `.github/` and `.changeset/`: shared CI and release configuration.
+- `prek.toml`: shared Git hook configuration.
 
 Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Better Files needs installed Node dependencies and Puppeteer's browser for Markdown rendering.
 
@@ -41,7 +42,20 @@ npm test --workspace herdr-mod-manager
 npm run check:mod --workspace herdr-mod-manager
 ```
 
-Shared hooks, Changesets, and release commands run from the root.
+Changesets and release commands run from the root.
+
+### Git hooks
+
+Install or upgrade prek, then install the Git hook from the repository root:
+
+```sh
+uv tool install --upgrade "prek>=0.3.2"
+prek install
+```
+
+For an existing Husky checkout, check `git config --local --get core.hooksPath` before running `prek install`. If it returns `.husky/_`, run `git config --local --unset core.hooksPath`. Do not remove a different custom hook path.
+
+The three hooks run in order on every commit: `npx biome migrate --write`, `npx biome check --write .`, and `uv run python scripts/lint_recipes.py`. They check the whole repository and do not receive staged filenames. Biome check includes formatting, so no separate format hook is needed. If Biome changes files, review and stage the changes, then retry the commit. Run all hooks manually with `prek run --all-files`. `npm ci` does not install Git hooks.
 
 ## Quality and bundle checks
 
@@ -67,7 +81,7 @@ uv run python -m unittest discover -s scripts -p 'test_lint_recipes.py' -v
 
 The linter checks every immediate `mods/*/` directory for `RECIPE.md` and `preview.png` files. The root `RECIPE.md` is optional and is checked only when present. Each recipe must have a non-empty H1 title and these exact H2 headings: `What you see`, `How it behaves`, `Built from`, `Watch out`, and `Done when`. Use ATX headings (`#` and `##`). Headings inside fenced code blocks, HTML blocks, or HTML comments do not count.
 
-The optional directory argument selects a different repository: `uv run python scripts/lint_recipes.py <directory>`. The default is the current directory. Errors include file paths and set exit code 1; success sets exit code 0. A directory with no recipe targets fails. This is a structural check, not a full Markdown renderer. It does not enforce section order or content, validate image data or links, or replace bundle and native checks. Run it separately; the existing npm and CI commands do not include it.
+The optional directory argument selects a different repository: `uv run python scripts/lint_recipes.py <directory>`. The default is the current directory. Errors include file paths and set exit code 1; success sets exit code 0. A directory with no recipe targets fails. This is a structural check, not a full Markdown renderer. It does not enforce section order or content, validate image data or links, or replace bundle and native checks. The prek commit hook runs it automatically. The npm and CI commands do not include it.
 
 ## Link local mods and layouts
 

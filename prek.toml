@@ -1,0 +1,32 @@
+minimum_prek_version = "0.3.2"
+default_stages = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "biome-migrate"
+name = "Biome migrate"
+language = "system"
+entry = "npx biome migrate --write"
+pass_filenames = false
+always_run = true
+priority = 0
+
+[[repos.hooks]]
+id = "biome-check"
+name = "Biome check"
+language = "system"
+entry = "npx biome check --write ."
+pass_filenames = false
+always_run = true
+priority = 1
+
+[[repos.hooks]]
+id = "lint-recipes"
+name = "Recipe lint"
+language = "system"
+entry = "uv run python scripts/lint_recipes.py"
+pass_filenames = false
+always_run = true
+priority = 2
