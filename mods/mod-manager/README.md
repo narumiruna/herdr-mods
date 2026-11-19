@@ -2,6 +2,21 @@
 
 A native Herdr App mod for browsing the Gallery, discovering installed mods, installing trusted public GitHub mods, checking updates, and confirmed uninstall. It has no enable/disable controls.
 
+## Share on Herdr Gallery
+
+Copy this prompt into your coding agent. Review the files before you approve
+publication.
+
+```text
+Source repository: https://github.com/narumiruna/herdr-mods
+
+Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my mod-manager mod the
+way it describes: a brief another agent could build it from with an empty folder.
+Put the mods/mod-manager/ folder, any keys.json snippet, the recipe and
+a screenshot named preview.png in one folder, without a layouts/ folder, push it
+to a public GitHub repo and add the topic herdr-mod.
+```
+
 ## Open in Herdr
 
 Herdr loads the JavaScript files in this mod directory directly. No build, Node.js, or npm packages are required at runtime. Copy or link this directory (`mods/mod-manager/` in the repository) to `mods/mod-manager` under the app home. A development link must point to the nested mod directory, not the repository root:

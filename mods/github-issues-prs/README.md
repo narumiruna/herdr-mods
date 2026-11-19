@@ -6,6 +6,21 @@ terminal's GitHub `origin`. It supports github.com. This mod remains read-only.
 `preview.png` is included. The bundle remains incomplete until the required
 disposable-profile interaction checks pass.
 
+## Share on Herdr Gallery
+
+Copy this prompt into your coding agent. Review the files before you approve
+publication.
+
+```text
+Source repository: https://github.com/narumiruna/herdr-mods
+
+Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my github-issues-prs mod the
+way it describes: a brief another agent could build it from with an empty folder.
+Put the mods/github-issues-prs/ folder, any keys.json snippet, the recipe and
+a screenshot named preview.png in one folder, without a layouts/ folder, push it
+to a public GitHub repo and add the topic herdr-mod.
+```
+
 ## Interface
 
 - **Header:** GitHub Issues & PRs and the current repository. Repository text is read-only.

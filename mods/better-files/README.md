@@ -4,6 +4,21 @@ Browse files and read local Markdown **in the same Files pane**. This mod derive
 
 **Sharing status: incomplete. External acceptance remains open.** Linux automated checks and Windows native checks pass; existing Windows repository/test limits and owner-operated physical acceptance remain. The preserved 600 × 525 `preview.png` is a genuine native Windows file-list fixture with safe sample data. It is not merged-reader or physical interaction proof.
 
+## Share on Herdr Gallery
+
+Copy this prompt into your coding agent. Review the files before you approve
+publication.
+
+```text
+Source repository: https://github.com/narumiruna/herdr-mods
+
+Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my better-files mod the
+way it describes: a brief another agent could build it from with an empty folder.
+Put the mods/better-files/ folder, any keys.json snippet, the recipe and
+a screenshot named preview.png in one folder, without a layouts/ folder, push it
+to a public GitHub repo and add the topic herdr-mod.
+```
+
 ## One installable mod
 
 Install only `better-files`. Its `reader/` directory contains the embedded UI, model, host runtime, Node discovery, helper, parser, file/cache handling, and renderers. All runtime imports remain inside this mod root.

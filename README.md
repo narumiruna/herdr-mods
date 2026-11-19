@@ -2,6 +2,21 @@
 
 A monorepo for Herdr App mods, managed with npm workspaces.
 
+## Share on Herdr Gallery
+
+Replace `<name>` with the mod directory name, then copy this prompt into your
+coding agent. Review the files before you approve publication.
+
+```text
+Source repository: https://github.com/narumiruna/herdr-mods
+
+Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my <name> mod the
+way it describes: a brief another agent could build it from with an empty folder.
+Put the mods/<name>/ folder, any keys.json snippet, the recipe and
+a screenshot named preview.png in one folder, without a layouts/ folder, push it
+to a public GitHub repo and add the topic herdr-mod.
+```
+
 ## Share Mod Manager
 
 The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. The mod bundle contains no layout or keybinding file. GitHub publication requires separate approval.
@@ -56,11 +71,12 @@ prek install
 
 For an existing Husky checkout, check `git config --local --get core.hooksPath` before running `prek install`. If it returns `.husky/_`, run `git config --local --unset core.hooksPath`. Do not remove a different custom hook path.
 
-The hooks run in order on every commit: `mixed-line-ending --fix=lf`, `npx biome migrate --write`, `npx biome check --write .`, and `uv run python scripts/lint_recipes.py`.
+The hooks run in order on every commit: line-ending normalization, Biome migration,
+Biome check, recipe lint, and README sharing prompt lint.
 The first hook converts staged text files to LF before Biome runs.
 The `.gitattributes` rule keeps text files in LF on checkout, including Windows with `core.autocrlf=true`; binary files are not converted.
 
-The three local hooks check the whole repository and do not receive staged filenames.
+The local hooks check the whole repository and do not receive staged filenames.
 Biome check includes formatting, so no separate format hook is needed.
 If a hook changes files, review and stage the changes, then retry the commit.
 Run all hooks manually with `prek run --all-files`.
@@ -91,6 +107,19 @@ uv run python -m unittest discover -s scripts -p 'test_lint_recipes.py' -v
 The linter checks every immediate `mods/*/` directory for `RECIPE.md` and `preview.png` files. The root `RECIPE.md` is optional and is checked only when present. Each recipe must have a non-empty H1 title and these exact H2 headings: `What you see`, `How it behaves`, `Built from`, `Watch out`, and `Done when`. Use ATX headings (`#` and `##`). Headings inside fenced code blocks, HTML blocks, or HTML comments do not count.
 
 The optional directory argument selects a different repository: `uv run python scripts/lint_recipes.py <directory>`. The default is the current directory. Errors include file paths and set exit code 1; success sets exit code 0. A directory with no recipe targets fails. This is a structural check, not a full Markdown renderer. It does not enforce section order or content, validate image data or links, or replace bundle and native checks. The prek commit hook runs it automatically. The npm and CI commands do not include it.
+
+## README sharing prompt lint
+
+`prek` checks each mod README for a plain-text fenced sharing prompt with the
+GitHub source URL and the correct mod directory name. The linter checks immediate
+`mods/` subdirectories with `mod.json` or `main.js`. Ordinary prose and prompts
+in HTML comments do not count. Run the check and its tests from the repository
+root:
+
+```sh
+uv run python scripts/lint_readme_prompts.py
+uv run python -m unittest discover -s scripts -p 'test_lint_readme_prompts.py' -v
+```
 
 ## Link local mods and layouts
 

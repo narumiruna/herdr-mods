@@ -38,3 +38,12 @@ entry = "uv run python scripts/lint_recipes.py"
 pass_filenames = false
 always_run = true
 priority = 3
+
+[[repos.hooks]]
+id = "lint-readme-prompts"
+name = "README sharing prompt lint"
+language = "system"
+entry = "uv run python scripts/lint_readme_prompts.py"
+pass_filenames = false
+always_run = true
+priority = 4
