@@ -8,19 +8,10 @@ disposable-profile interaction checks pass.
 
 ![GitHub panel with Issues and Pull Requests tabs and a results list](preview.png)
 
-## Share on Herdr Gallery
-
-Copy this prompt into your coding agent. Review the files before you approve
-publication.
+## Install with a coding agent
 
 ```text
-Source repository: https://github.com/narumiruna/herdr-mods
-
-Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my github-issues-prs mod the
-way it describes: a brief another agent could build it from with an empty folder.
-Put the mods/github-issues-prs/ folder, any keys.json snippet, the recipe and
-a screenshot named preview.png in one folder, without a layouts/ folder, push it
-to a public GitHub repo and add the topic herdr-mod.
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/narumiruna/herdr-mods/tree/main/mods/github-issues-prs
 ```
 
 ## Interface

@@ -1,4 +1,4 @@
-"""Tests for Herdr Gallery sharing prompts in mod READMEs."""
+"""Tests for Herdr installation prompts in mod READMEs."""
 
 from pathlib import Path
 import subprocess
@@ -6,12 +6,12 @@ import sys
 import tempfile
 import unittest
 
-from lint_readme_prompts import has_sharing_prompt
+from lint_readme_prompts import has_install_prompt
 from lint_readme_prompts import lint_repository
-from lint_readme_prompts import PROMPT_TEMPLATE
 
 SCRIPT = Path(__file__).with_name("lint_readme_prompts.py").resolve()
-PROMPT = PROMPT_TEMPLATE.format(name="example")
+MOD_URL = "https://github.com/narumiruna/herdr-mods/tree/main/mods/example"
+PROMPT = f"Read ~/.config/herdr-app/AGENTS.md, then add this mod: {MOD_URL}"
 TEXT_FENCE = "```"
 
 
@@ -19,13 +19,17 @@ def fenced_prompt(prompt: str = PROMPT) -> str:
     return f"{TEXT_FENCE}text\n{prompt}\n{TEXT_FENCE}\n"
 
 
-class SharingPromptTests(unittest.TestCase):
-    def test_accepts_wrapped_prompt_in_plain_text_fences(self):
-        prompt = PROMPT.replace(" mod ", " mod\n").replace(" Put ", "\nPut ")
-        for fence, label in ((TEXT_FENCE, "text"), ("~~~~", "plaintext")):
+class InstallPromptTests(unittest.TestCase):
+    def test_accepts_prompt_in_plain_text_fences(self):
+        wrapped = PROMPT.replace(f" {MOD_URL}", f"\n{MOD_URL}")
+        for fence, label, prompt in (
+            (TEXT_FENCE, "", PROMPT),
+            (TEXT_FENCE, "text", PROMPT),
+            ("~~~~", "plaintext", wrapped),
+        ):
             with self.subTest(fence=fence, label=label):
                 source = f"# Example\n\n{fence}{label}\n{prompt}\n{fence}\n"
-                self.assertTrue(has_sharing_prompt(source, "example"))
+                self.assertTrue(has_install_prompt(source, "example"))
 
     def test_rejects_plain_prose_comments_and_nested_examples(self):
         prompt = fenced_prompt()
@@ -38,46 +42,36 @@ class SharingPromptTests(unittest.TestCase):
         )
         for source in rejected:
             with self.subTest(source=source):
-                self.assertFalse(has_sharing_prompt(source, "example"))
+                self.assertFalse(has_install_prompt(source, "example"))
 
     def test_recognizes_a_fence_after_comments_and_other_code(self):
         source = (
             f"{TEXT_FENCE}xml\n<!-- unclosed in code\n{TEXT_FENCE}\n\n"
             f"<!-- an actual comment -->\n\n{fenced_prompt()}"
         )
-        self.assertTrue(has_sharing_prompt(source, "example"))
+        self.assertTrue(has_install_prompt(source, "example"))
 
-    def test_rejects_wrong_name_in_either_position(self):
-        for wrong in (
-            PROMPT.replace("my example mod", "my <name> mod"),
-            PROMPT.replace("mods/example/", "mods/another-mod/"),
+    def test_requires_the_correct_mod_url(self):
+        for url in (
+            MOD_URL.replace("/mods/example", "/mods/<name>"),
+            MOD_URL.replace("/mods/example", "/mods/another-mod"),
+            MOD_URL.replace("/tree/main/", "/tree/dev/"),
+            MOD_URL.removesuffix("/tree/main/mods/example"),
+            MOD_URL.replace("/narumiruna/", "/someone-else/"),
         ):
-            with self.subTest(wrong=wrong):
-                self.assertFalse(has_sharing_prompt(fenced_prompt(wrong), "example"))
-
-    def test_requires_the_source_repository_inside_the_prompt(self):
-        source_line = "Source repository: https://github.com/narumiruna/herdr-mods"
-        without_source = PROMPT.removeprefix(f"{source_line} ")
-        self.assertNotEqual(without_source, PROMPT)
-        for source in (
-            f"{source_line}\n\n{fenced_prompt(without_source)}",
-            fenced_prompt(
-                "Source repository: https://github.com/example/mods "
-                f"{without_source}"
-            ),
-        ):
-            with self.subTest(source=source):
-                self.assertFalse(has_sharing_prompt(source, "example"))
+            with self.subTest(url=url):
+                source = fenced_prompt(PROMPT.replace(MOD_URL, url))
+                self.assertFalse(has_install_prompt(source, "example"))
 
     def test_rejects_incomplete_or_non_text_block(self):
-        missing_topic = PROMPT.removesuffix(" and add the topic herdr-mod.")
+        without_url = PROMPT.removesuffix(f" {MOD_URL}")
         for source in (
-            fenced_prompt(missing_topic),
+            f"{MOD_URL}\n\n{fenced_prompt(without_url)}",
             fenced_prompt().removesuffix(f"{TEXT_FENCE}\n"),
             fenced_prompt().replace(f"{TEXT_FENCE}text", f"{TEXT_FENCE}sh"),
         ):
             with self.subTest(source=source):
-                self.assertFalse(has_sharing_prompt(source, "example"))
+                self.assertFalse(has_install_prompt(source, "example"))
 
 
 class RepositoryTests(unittest.TestCase):

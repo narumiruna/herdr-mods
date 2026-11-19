@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
-"""Check that each Herdr mod README has a copyable Gallery sharing prompt."""
+"""Check that each Herdr mod README has a copyable installation prompt."""
 
 import argparse
 from pathlib import Path
 import re
 import sys
 
-SOURCE_REPOSITORY = "https://github.com/narumiruna/herdr-mods"
 PROMPT_TEMPLATE = (
-    f"Source repository: {SOURCE_REPOSITORY} "
-    "Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my {name} "
-    "mod the way it describes: a brief another agent could build it from with "
-    "an empty folder. Put the mods/{name}/ folder, any keys.json snippet, "
-    "the recipe and a screenshot named preview.png in one folder, "
-    "without a layouts/ folder, push it to a public GitHub repo "
-    "and add the topic herdr-mod."
+    "Read ~/.config/herdr-app/AGENTS.md, then add this mod: "
+    "https://github.com/narumiruna/herdr-mods/tree/main/mods/{name}"
 )
 FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 COMMENT_MARKER = re.compile(r"<!--|-->")
 
 
-def has_sharing_prompt(source: str, mod_name: str) -> bool:
+def has_install_prompt(source: str, mod_name: str) -> bool:
     """Return whether a closed plain-text fence contains the mod's prompt."""
     expected = PROMPT_TEMPLATE.format(name=mod_name)
     fence = ""
@@ -54,7 +48,7 @@ def has_sharing_prompt(source: str, mod_name: str) -> bool:
 
 
 def lint_repository(root: Path) -> list[str]:
-    """Return file-specific errors for missing or invalid sharing prompts."""
+    """Return file-specific errors for missing or invalid install prompts."""
     mods = root / "mods"
     if not mods.is_dir():
         return [f"{mods}: expected a mods directory"]
@@ -77,11 +71,10 @@ def lint_repository(root: Path) -> list[str]:
         except (OSError, UnicodeError) as error:
             errors.append(f"{path}: cannot read UTF-8 README: {error}")
             continue
-        if not has_sharing_prompt(source, mod.name):
+        if not has_install_prompt(source, mod.name):
             errors.append(
-                f"{path}: add the sharing prompt for {mod.name} "
-                "as a plain-text fenced code block with the source URL "
-                f"{SOURCE_REPOSITORY}"
+                f"{path}: add this installation prompt in a plain-text fence:\n"
+                f"  {PROMPT_TEMPLATE.format(name=mod.name)}"
             )
     if not found_mod:
         errors.append(f"{mods}: no mod directories found")
@@ -107,7 +100,7 @@ def main() -> int:
         for error in errors:
             print(error, file=sys.stderr)
         return 1
-    print("PASS: every mod README has its copyable Gallery sharing prompt.")
+    print("PASS: every mod README has its copyable installation prompt.")
     return 0
 
 

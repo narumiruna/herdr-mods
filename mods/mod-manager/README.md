@@ -4,19 +4,10 @@ A native Herdr App mod for browsing the Gallery, discovering installed mods, ins
 
 ![Mod Manager Gallery listing available mods](preview.png)
 
-## Share on Herdr Gallery
-
-Copy this prompt into your coding agent. Review the files before you approve
-publication.
+## Install with a coding agent
 
 ```text
-Source repository: https://github.com/narumiruna/herdr-mods
-
-Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my mod-manager mod the
-way it describes: a brief another agent could build it from with an empty folder.
-Put the mods/mod-manager/ folder, any keys.json snippet, the recipe and
-a screenshot named preview.png in one folder, without a layouts/ folder, push it
-to a public GitHub repo and add the topic herdr-mod.
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/narumiruna/herdr-mods/tree/main/mods/mod-manager
 ```
 
 ## Open in Herdr

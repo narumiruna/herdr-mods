@@ -41,7 +41,7 @@ priority = 3
 
 [[repos.hooks]]
 id = "lint-readme-prompts"
-name = "README sharing prompt lint"
+name = "README installation prompt lint"
 language = "system"
 entry = "uv run python scripts/lint_readme_prompts.py"
 pass_filenames = false
