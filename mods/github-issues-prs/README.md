@@ -84,9 +84,8 @@ characters. Comments, diffs, and CI checks are not shown.
 ## Requirements and access
 
 The mod runs `git remote get-url origin` and `gh issue/pr list/view` on the
-workspace's machine. An m4 workspace uses m4's `gh` and account; an m2 workspace
-uses m2's `gh` and account. Each machine's CLI configuration controls its account
-and private-repository permissions. A pinned repository uses its captured machine.
+workspace's machine. Each machine's CLI configuration controls its account and
+private-repository permissions. A pinned repository uses its captured machine.
 
 Install GitHub CLI (`gh`) and run `gh auth login` on the machine that needs access.
 Resolve remote installation, connection, and login errors on that remote machine,
@@ -145,7 +144,7 @@ shipped `menu` and `new-menu` mods.
 
 `main.js` selects the mode once when each copy starts. `tabs.js` contains the
 tab-bar controller, based on the shipped Tabs mod from Herdr App 0.1.14. This
-repository does not distribute a layout or change the live profile or bindings.
+mod bundle does not include a layout or change the live profile or bindings.
 
 For an existing `github-tabs` installation, change the tab-bar node to the first
 example, and change the old `github` panel's `content.mod` to `github-issues-prs`.
@@ -176,8 +175,8 @@ request ordering, cleanup, and the layout examples above. `check:mod` uses a
 disposable profile, checks this mod, then checks nine native descriptions with
 fixture data and no GitHub access. It generates ignored SDK declarations needed
 by `check:types`; do not put these declarations or `node_modules/` in a bundle.
-These checks passed with Herdr App 0.1.15. Other versions and platforms remain
-unverified. Eager native checks do not prove painting or physical interaction.
+These checks passed with Herdr App 0.1.16 on macOS. Eager native checks do not
+prove painting or physical interaction.
 The profile owner must verify in a disposable profile:
 
 1. Both views load from one installation; the tab-bar copy makes no GitHub calls.
@@ -187,8 +186,8 @@ The profile owner must verify in a disposable profile:
 4. The default panel follows local and remote repositories, searches and previews
    items, and handles failed commands without changing accounts.
 
-No live-profile migration, native interaction check, or authenticated GitHub
-request was performed. The existing preview shows the list, not the updated error
-states. Owner inspection of those states is still required before sharing.
+The bundled screenshot shows the native Issues list with fictional data. No
+live-profile migration, physical interaction test, or authenticated GitHub test
+was performed. The interaction checks above are still required before sharing.
 No `keys.json` is needed. Existing app shortcuts remain in place; modified arrow
 keys are not handled by the panel's type tabs.
