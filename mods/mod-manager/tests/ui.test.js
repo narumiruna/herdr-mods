@@ -417,30 +417,20 @@ describe("sidebar footer through the manager entry", () => {
     native.layout.mockReturnValue({ id: "sidebar", size: { px: width } })
     const { view, cx } = setup({ props: { footer: true } })
     const root = view.render()
-    expect(root.nodes.map((node) => node.attributes.id)).toEqual([
-      "mods",
-      "layout-manager",
-      "settings",
-      "machine",
-    ])
+    expect(root.nodes.map((node) => node.attributes.id)).toEqual(["mods", "settings", "machine"])
     expect(
       descendants(root)
         .filter((node) => node.type === "svg")
         .map((node) => node.attributes.id),
-    ).toEqual(
-      ["layers", "panel-right", "settings", "plus"].map(
-        (name) => `mods/workspace-chrome/${name}.svg`,
-      ),
-    )
+    ).toEqual(["layers", "settings", "plus"].map((name) => `mods/workspace-chrome/${name}.svg`))
     expect(root.attributes.pt).toBe(4)
     expect(root.attributes.pb).toBe(8)
-    for (const id of ["mods", "layout-manager", "settings", "machine"]) {
+    for (const id of ["mods", "settings", "machine"]) {
       expect(find(view, id).attributes.h).toBe(28)
       click(view, id, cx)
     }
     expect(native.run.mock.calls).toEqual([
       ["mod.open", { name: "mod-manager" }],
-      ["mod.open", { name: "layout-manager" }],
       ["app.settings"],
       ["mod.open", { name: "machine-add" }],
     ])
@@ -458,7 +448,6 @@ describe("sidebar footer through the manager entry", () => {
     native.layout.mockReturnValue({ children: [{ id: "sidebar", size: { px: width } }] })
     for (const [id, label] of [
       ["mods", "Mods"],
-      ["layout-manager", "Layout Manager"],
       ["settings", "Settings"],
       ["machine", "Add machine"],
     ]) {
@@ -481,7 +470,7 @@ describe("sidebar footer through the manager entry", () => {
     (layout) => {
       native.layout.mockReturnValue(layout)
       const { view } = setup({ props: { footer: true } })
-      expect(contents(view.render())).toBe(" Mods  Layout Manager  Settings  Add machine")
+      expect(contents(view.render())).toBe(" Mods  Settings  Add machine")
       expect(find(view, "mods").attributes).not.toHaveProperty("tooltip")
     },
   )

@@ -13,7 +13,9 @@ Browse the Herdr Gallery, inspect installed mods, and install, update, or uninst
 - Search, source filters, a result count, and scrollable mod cards. Cards show the title, description, source, installation state, recorded version or commit, protection reasons, and permitted actions. Verified GitHub cards include Source for code review. Results appear in batches of 50.
 - Loading, empty-search, error, progress, update, ownership-migration, and uninstall-confirmation states. A read-only banner gives the backend failure reason and Retry local backend. Show warnings expands a scrollable list in batches of 20. Errors must not look like successful empty results.
 - Colors from `theme()`, including canvas, chrome, surface, border, foreground, muted, accent, and blocked. Light and dark appearance still need visual review.
-- An optional 125 px sidebar footer from the same mod, with Mods, Layout Manager, Settings, and Add machine. Below 160 px sidebar width, it shows icons with tooltips. Settings has an indicator when an app update is ready.
+- An optional 97 px sidebar footer with Mods, Settings, and Add machine. Below
+  160 px sidebar width, it shows icons with tooltips. Settings has an indicator
+  when a Herdr update is ready.
 
 ## How it behaves
 
@@ -30,7 +32,9 @@ Browse the Herdr Gallery, inspect installed mods, and install, update, or uninst
 - Protect shipped mods, the running manager, development links, modified targets, and configured or active dependencies. Unknown runtime dependency safety blocks update and uninstall.
 - Keep browsing available when the file backend is unavailable. Show the reason, use read-only inventory, and block all file actions and update checks. Retry local backend refreshes Installed from every page. Restore actions only after verified discovery succeeds. A stopped mutation process reports an unverified outcome and recovery instructions; it must not claim a rollback.
 - Closing the dialog does not cancel an active file transaction. Run the transaction in an unowned task; keep redraw work owned by the view. Do not equate verified file changes with runtime unload or reload.
-- In footer mode, do not create a manager session, inputs, or loading tasks. Mods toggles this dialog, Layout Manager toggles the separately installed `layout-manager` dialog, Settings runs `app.settings`, and Add machine opens shipped `machine-add`.
+- In footer mode, do not create a manager session, inputs, or loading tasks.
+  Mods toggles this dialog, Settings runs `app.settings`, and Add machine opens
+  the shipped `machine-add` mod.
 
 ## Built from
 
@@ -60,7 +64,11 @@ Create this manifest:
 - Use `View`, `div`, and `svg` from `gpui-kit`; use `Button`, `Input`, `InputState`, `Scrollbar`, `h_flex`, and `v_flex` from `gpui-base`.
 - Use Herdr `appHome`, `exec`, `layout`, `panes`, `readTextFile`, `props`, `closeOverlay`, `theme`, `run`, and `updates`. Use host `fetch`, `fs/promises.readdir`, and `fs/promises.exists`. Do not require Node.js filesystem APIs at runtime.
 - Use `cx.spawn` and `cx.sleep` for asynchronous work. Mutation tasks use `{ owner: null }` so dialog dismissal does not abandon a transaction.
-- Use Herdr's shipped `icons/gh.svg`, `icons/shell.svg`, and `mods/workspace-chrome/` icons: `layers`, `search`, `plus`, `x`, `chevron-right`, `square`, `file-text`, `circle-check`, `panel-right`, and `settings`. These are host assets, not external bundle links. Keep shipped `workspace-chrome` installed; footer Add machine also needs shipped `machine-add`. The Layout Manager launcher needs `layout-manager` installed separately. Do not redistribute a profile or modify shipped mods.
+- Use Herdr's shipped `icons/gh.svg`, `icons/shell.svg`, and
+  `mods/workspace-chrome/` icons: `layers`, `search`, `plus`, `x`, `chevron-right`,
+  `square`, `file-text`, `circle-check`, and `settings`. Keep the shipped
+  `workspace-chrome` mod installed. Add machine also needs the shipped
+  `machine-add` mod. Do not redistribute a profile or modify shipped mods.
 - Herdr loads the JavaScript directly. No build output, npm packages, Python packages, or tool downloads are required at runtime. Preserve the adjacent MIT `LICENSE` with redistributed source.
 
 ### File-operation requirements
@@ -81,7 +89,7 @@ Herdr App **0.1.15** and its installed SDK were checked on macOS. The local Pyth
 2. Copy or link only `mods/mod-manager/` to `<app-home>/mods/mod-manager`, not the repository root. Preserve the license. Exclude generated `gpui-kit.d.ts`, caches, and installed development dependencies from a copied bundle. Tests and development scripts are not runtime requirements.
 3. If changing an existing development link, fully quit Herdr first. Keep the checkout and personal configuration intact. Reopen the app after the owner changes the link.
 4. Open the dialog with `herdr-app do mod.open --name mod-manager`. No layout change or keybinding is required. No `layouts/` directory or `keys.json` snippet is distributed.
-5. For the optional footer, add the block documented in the [sidebar launcher guide](README.md#sidebar-launcher) to an existing personal layout. Use `content.mod: "mod-manager"`, `content.props: { "footer": true }`, and `size: { "px": 125 }`. Keep the shipped header and all unrelated layout blocks.
+5. For the optional footer, add the block documented in the [sidebar launcher guide](README.md#sidebar-launcher) to an existing personal layout. Use `content.mod: "mod-manager"`, `content.props: { "footer": true }`, and `size: { "px": 97 }`. Keep the shipped header and all unrelated layout blocks.
 
 An optional shortcut must use the installed mod name and the intended binding context. Merge it into existing keys and resolve conflicts; do not replace the user's keybindings. Customize dialog dimensions in `mod.json`, view spacing and labels in `main.js`, and footer presentation in `sidebar.js`.
 
@@ -117,7 +125,7 @@ A successful `herdr-app check` establishes only initial load and eager element c
 4. Use a reviewed test mod in the disposable profile. Verify install, update lookup, pinned update, and inventory readback. Confirm protected mods, dirty targets, and source conflicts refuse changes with a visible reason. Unknown dependencies must block update and uninstall; backend failure must block all file actions.
 5. Cancel uninstall and migration confirmations; verify mod files and ownership state are unchanged. Confirm a valid package uninstall removes only its verified files, and a migrated Git uninstall retains the complete checkout at the shown archive path.
 6. Verify a Gallery failure does not hide ready installed mods. With missing backend tools, verify the read-only reason, disabled actions on all pages, and Retry local backend. Check warning expansion and scrolling. Stop a multi-repository update check and verify the current check finishes, no next check starts, and counts remain accurate. Close during a controlled test transaction and verify completion or retained recovery evidence after reopening.
-7. If using the footer, check both widths, tooltips, icons, update indicator, all four actions, and repeated dialog open/close. Closing the dialog must leave the footer usable.
+7. If using the footer, check both widths, tooltips, icons, update indicator, all three actions, and repeated dialog open/close. Closing the dialog must leave the footer usable.
 8. Complete native checks on each additional claimed platform. Actual-profile migration, installation-link changes, self-update, restart, and GitHub publication require separate owner action; fixture tests do not establish their success.
 
 Do not test these operations against the user's installed mods, layouts, keybindings, or manager data. Do not publish the bundle until applicable native acceptance checks are complete and publication is approved.
