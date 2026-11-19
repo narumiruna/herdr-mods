@@ -1,6 +1,6 @@
 ---
 name: share-herdr-mod
-description: Prepare or publish a Herdr mod for the Community gallery with a rebuildable RECIPE.md, mod files, preview.png, optional keys.json, and the public GitHub topic herdr-mod.
+description: Prepare a Herdr mod or its privacy-safe preview for the Community gallery, or publish its bundle with RECIPE.md, preview.png, optional keys.json, and the GitHub topic herdr-mod.
 ---
 
 # Share a Herdr Mod
@@ -48,12 +48,25 @@ mods/<name>/
 - Include only the required bindings in `keys.json`.
   - Preserve binding contexts and mod names.
   - Explain that consumers must merge the snippet and resolve conflicts, not replace their existing keys.
-- Use a PNG preview of the actual mod, with private content removed.
-  - Inspect the image before including it.
-  - If a suitable preview is unavailable, request one and report the bundle as incomplete.
-  - Do not use a placeholder or generated image as evidence of the mod's appearance.
-- Exclude credentials, private paths, profile data, caches, dependencies installed for development, and generated SDK declarations.
+- Include the PNG from [Capture a Safe Preview](#capture-a-safe-preview).
+- Exclude credentials, private paths, profile data, caches, development dependencies, and generated SDK declarations.
 - Retain required license notices and include only files the user has the right to share.
+
+## Capture a Safe Preview
+
+1. Use only fictional data in previews and in examples in recipes or other shared files.
+   - Invent project names, paths, account names, host names, and file contents.
+   - Do not copy examples from the user's computer or accounts, even if you plan to mask or blur them.
+2. Capture the actual mod in a new disposable Herdr profile populated only with the fictional data.
+   - Do not connect the profile to the user's live workspace, terminals, Git repositories, remote machines, clipboard, or accounts.
+   - Use test substitutes for filesystem and network inputs when the mod needs them.
+   - Capture only the isolated app or mod view, not the desktop or another window.
+3. Before including `preview.png`, inspect the final pixels and remove unnecessary PNG metadata.
+   - Check for usernames, paths, host names, secrets, notifications, and other identifying details.
+   - If real data appears, discard the image and capture a new one in isolation.
+   - Keep raw captures, logs, and test profiles local and out of the shared bundle.
+4. If you cannot capture a safe preview, request one and report the bundle as incomplete.
+   - Do not substitute a mockup, generated image, or screenshot from a live profile.
 
 ## Write RECIPE.md
 

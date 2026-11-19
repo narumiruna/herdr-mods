@@ -117,12 +117,14 @@ Completed locally with Herdr App 0.1.16 on Windows:
 - 67 model and single-use builder tests pass, including selection, menus, drag restrictions, and machine groups.
 - The mod and 13 native fixture states pass `herdr-app check`.
 - Nineteen current native screenshots were opened and inspected, including graphite, paper, 160 px width, icon overflow, and worktrees.
-- The adjacent preview is a crop of the inspected mixed-agent native capture. It is not a design mockup.
+
+The adjacent preview is a crop of a native Herdr App 0.1.16 capture on macOS.
+It shows fictional spaces and agents in a disposable profile.
 
 Still required before completion or sharing:
 
 - In a disposable profile with real agents, verify live working/idle transitions, agent exits, and agent additions without reload.
 - The profile owner must check physical row selection, context menus, same-machine dragging, hover tooltips, new-space controls, and unchanged terminal input and keys.
-- Other platforms and Herdr versions remain unverified.
+- Live behavior on other platforms and compatibility with other Herdr versions remain unverified.
 
 This bundle remains incomplete until these checks pass. GitHub publication requires separate approval.

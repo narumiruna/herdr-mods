@@ -39,13 +39,13 @@ import { groupAgents } from "./activity.js"
 const state = ${JSON.stringify(state)}
 const space = (id, name, active = false, machine = null) => ({id, name, active, machine, folder: "", tabs: [], status: null})
 const list = state === "empty" ? [] : [
-  space("s1", "herdr-mods", true),
-  space("s2", "obsidian-ai"),
-  space("s3", "pi-extensions"),
-  space("s4", "work-log"),
+  space("s1", "Demo Atlas", true),
+  space("s2", "Demo Beacon"),
+  space("s3", "Demo Comet"),
+  space("s4", "Demo Dock"),
 ]
 if (state.includes("narrow") || state === "overflow") list[0].name = "a-very-long-space-name-that-must-not-cover-the-count"
-if (state === "machines") list.push(space("remote/s1", "herdr-mods", false, "remote"))
+if (state === "machines") list.push(space("remote/s1", "Demo Atlas", false, "remote"))
 const pi = {key:"pi",name:"Pi",icon:"icons/pi.svg",tint:true,agent:true}
 const claude = {key:"claude",name:"Claude Code",icon:"icons/claude.svg",tint:false,agent:true}
 const codex = {key:"codex",name:"Codex",icon:"icons/codex.svg",tint:false,agent:true}
@@ -71,7 +71,7 @@ export default class extends Spaces {
     return list.map((w,i) => ({
       w, i,
       tree: state.startsWith("worktree") && i === 1 ? "└─" : null,
-      g: state.startsWith("worktree") ? {name:"herdr-mods",branch:i===1?"feature/sidebar":"main",ahead:2,behind:1} : null,
+      g: state.startsWith("worktree") ? {name:"demo-atlas",branch:i===1?"feature/demo-panel":"main",ahead:2,behind:1} : null,
     }))
   }
   grouped(t, collapsed) {
