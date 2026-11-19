@@ -4,6 +4,11 @@ A native Herdr App mod for browsing the Gallery, discovering installed mods, ins
 
 ![Mod Manager Gallery listing available mods](preview.png)
 
+The [recipe](RECIPE.md) is the build brief. The preview shows the native Gallery.
+The bundle contains no layout or keybinding file. It remains incomplete until
+[the required native interaction checks](RECIPE.md#required-before-calling-the-bundle-complete)
+pass. Get separate approval before publishing to GitHub.
+
 ## Install with a coding agent
 
 ```text
@@ -25,7 +30,16 @@ herdr-app check mods/mod-manager
 herdr-app do mod.open --name mod-manager
 ```
 
-Root `npm start` also toggles the dialog. It does not create or change the installation link. The profile owner must fully quit Herdr before changing an existing link from the old repository root to the nested mod directory. Reopen Herdr and verify loading after the link change; repository checks do not verify the live profile. Escape or Close closes it. External development-link edits can require closing and reopening the dialog. There is no `src` or `dist` output. The local sidebar launcher is described below.
+Run `npm start` from the repository root to toggle the dialog. This command
+does not create or change the installation link. Press Escape or select Close
+to close the dialog. If you edit the linked source, you might need to close and
+reopen the dialog. There is no `src` or `dist` output.
+
+The profile owner must fully quit Herdr before changing an existing link from
+the old repository root to the nested mod directory. Reopen Herdr and verify
+that the mod loads. Repository checks do not change or verify the live profile.
+
+See [Sidebar launcher](#sidebar-launcher) to use the same mod as a sidebar footer.
 
 ## Browse and install
 
@@ -104,7 +118,16 @@ File success does not prove runtime unload or reload. Herdr can retain hidden co
 
 Self-update is an **explicit external CLI operation**, not the Gallery **Update** action. There is no automatic or live self-update. The running manager remains protected in the UI and file backend.
 
-The command supports an ordinary, complete Git checkout of this official repository on `main`, on macOS or Linux. Run the updater from the installation to change. The script is in `mods/mod-manager/`, but it reports and updates the entire resolved Git checkout, including every workspace and shared file. Review all repository changes. For a development link, it does not replace the link. The exact reported checkout path must be confirmed during apply. Package copies, shipped copies, linked worktrees, shallow clones, detached HEAD, development branches, and non-official origins are not supported.
+On macOS and Linux, run `mods/mod-manager/self_update.py` from the checkout you
+want to update. The script updates the entire Git checkout, including all
+workspaces and shared files. It does not replace the development link. Review
+all changes and confirm the exact checkout path the script reports.
+
+Use a complete checkout of the official repository on `main`. The updater
+downloads from `narumiruna/herdr-mods` and also accepts origins with the old name,
+`narumiruna/herdr-mod-manager`. It does not support package copies, shipped copies,
+linked worktrees, shallow clones, detached HEAD, other branches, or unofficial
+origins.
 
 Original updaters in older flat installations require manager files at the repository root and cannot update directly to this monorepo layout. Preserve the old checkout, create a fresh clone, and have the profile owner change the development link to `<checkout>/mods/mod-manager`. Older installations without `self_update.py` also need manual migration. Do not discard local files with reset or clean.
 

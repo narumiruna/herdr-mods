@@ -107,11 +107,18 @@ From the repository root, after setup:
 ```sh
 npm test --workspace herdr-better-files
 npm run test:browser --workspace herdr-better-files
-npm run check:types --workspace herdr-better-files
 npm run check:mod --workspace herdr-better-files
+npm run check:types --workspace herdr-better-files
 npm run check:bundles
 git diff --check
 ```
+
+In a repository checkout, open the [Markdown reader examples](../../docs/markdown-reader-examples.md)
+in Better Files to check Mermaid diagrams, LaTeX, Python, Go, and Rust code
+blocks, and Vega-Lite charts.
+
+On macOS, capture native fixtures with `npm run evidence:native --workspace herdr-better-files`.
+See [macOS capture requirements](docs/native-fixture.md#macos-capture-script).
 
 Native scripts use disposable profiles. The entry, seven Files fixtures, and nine embedded reader fixtures passed on Windows App 0.1.15. After the Backspace fix, the Linux merged suite has 507 passes and 5 Windows-only skips; the selected Windows suite has 331 passes. Chromium tests passed on both platforms. Full repository tests, types, formatting, and bundles passed in a disposable Linux LF snapshot. These checks do not establish physical interaction. Existing Windows full-suite and raw-checkout gate failures remain documented. The macOS-only capture script cannot capture Windows.
 

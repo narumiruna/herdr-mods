@@ -74,6 +74,8 @@ characters. Comments, diffs, and CI checks are not shown.
 
 ## Requirements and access
 
+Herdr loads this mod directly. No build or runtime npm packages are required.
+
 The mod runs `git remote get-url origin` and `gh issue/pr list/view` on the
 workspace's machine. Each machine's CLI configuration controls its account and
 private-repository permissions. A pinned repository uses its captured machine.

@@ -11,14 +11,9 @@ A monorepo for Herdr App mods, managed with npm workspaces.
 | [Mod Manager](mods/mod-manager/README.md)                 | Browse the Gallery, install or remove mods, and check for updates.                               |
 | [Spaces Agent Status](mods/spaces-agent-status/README.md) | See agent icons, activity counts, and status rings in the Spaces sidebar.                        |
 
-## Share Mod Manager
-
-The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. The mod bundle contains no layout or keybinding file. GitHub publication requires separate approval.
-
 ## Repository structure
 
 - [`mods/`](mods/): mod source, tests, and documentation.
-- [`docs/markdown-reader-examples.md`](docs/markdown-reader-examples.md): a visual render check for Better Files, with Mermaid, LaTeX, Python/Go/Rust code, and Vega-Lite examples.
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
 - `biome.json`: shared formatting and lint rules.
@@ -26,15 +21,22 @@ The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/
 - `.github/` and `.changeset/`: shared CI and release configuration.
 - `prek.toml`: shared Git hook configuration.
 
-Each mod is a workspace under `mods/*`. Development tools and the npm lockfile are shared at the repository root. Herdr loads each mod directly. Manager mods need no build output or runtime npm packages; Better Files needs installed Node dependencies and Puppeteer's browser for Markdown rendering.
+Each mod is a workspace under `mods/*`. Development tools and the npm lockfile
+are shared at the repository root. See each mod's README for runtime requirements.
 
 ## Development
 
-Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Run these commands from the repository root:
+Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Install the
+workspace dependencies from the repository root:
 
 ```sh
 npm ci
-npm run setup:browser --workspace herdr-better-files
+```
+
+Complete the [Better Files browser setup](mods/better-files/README.md#requirements-and-setup)
+before running the repository-wide native checks:
+
+```sh
 npm run check:mod
 npm run ci
 git diff --check
@@ -42,12 +44,10 @@ git diff --check
 
 `check:mod` runs native checks and generates the ignored Herdr SDK declarations inside each mod. Run it before `check:types` or `ci`. Hosted Linux CI runs formatting and fixture tests without the local SDK.
 
-Root `check` checks the whole repository. Root `test` runs the isolated shared-script tests, then all mod workspace suites. Root `test:operations`, `check:mod`, `check:views`, and `check:types` run the corresponding workspace scripts. To run one mod:
-
-```sh
-npm test --workspace herdr-mod-manager
-npm run check:mod --workspace herdr-mod-manager
-```
+Root `check` checks the whole repository. Root `test` runs the isolated
+shared-script tests, then all mod workspace suites. Root `test:operations`,
+`check:mod`, `check:views`, and `check:types` run the corresponding workspace
+scripts. See each mod's README for its workspace commands.
 
 Changesets and release commands run from the root.
 
@@ -75,15 +75,26 @@ Run all hooks manually with `prek run --all-files`.
 
 ### Share on Herdr Gallery
 
-Replace `<name>` with the mod directory name, then copy this prompt into your
-coding agent. Review the files before you approve publication.
+Copy this prompt into your coding agent from the repository root. It covers
+all mods in this checkout. Review the files before you approve publication.
 
 ```text
-Read ~/.config/herdr-app/AGENTS.md, then write a RECIPE.md for my <name> mod the
-way it describes: a brief another agent could build it from with an empty folder.
-Put the mods/<name>/ folder, any keys.json snippet, the recipe and
-a screenshot named preview.png in one folder, without a layouts/ folder, push it
-to a public GitHub repo and add the topic herdr-mod.
+Read the repository's AGENTS.md, ~/.config/herdr-app/AGENTS.md if present,
+and .agents/skills/share-herdr-mod/SKILL.md. Follow the sharing skill for
+all mods under mods/*/, including required companion mods. Include any
+immediate subdirectory with mod.json or main.js, even if one is missing.
+
+Prepare or update each mod's bundle in its existing directory. Put RECIPE.md
+and a privacy-safe preview.png next to mod.json and main.js. Write each recipe
+so another agent can build the mod from an empty folder. Include a keys.json
+snippet only for required bindings. Do not include a layouts/ directory.
+
+Run the required checks for each mod. Report every mod's status and what is
+needed to resolve missing files, failed checks, or checks you could not run.
+Mark a mod as ready to share only when all its required checks pass.
+
+Prepare the bundles locally. Get explicit approval before publishing the
+approved bundles to a public GitHub repository and adding the herdr-mod topic.
 ```
 
 ## Quality and bundle checks
@@ -177,57 +188,3 @@ The unlink scripts remove only same-name links that point to this checkout's mod
 All link scripts can run from any working directory and can be run more than once. They do not select a layout or change keybindings. Reopen Herdr after you change links. Changes to linked mods or layouts affect the checkout directly.
 
 Run `npm run test:scripts` to test the shell scripts with a temporary checkout and `HOME`. On Windows, run `node --test scripts/unlink.test.mjs` for PowerShell cleanup tests with a temporary checkout and `-AppHome`. Symbolic-link tests require Administrator permissions or Windows Developer Mode; they are skipped when link creation is not permitted. These tests do not change your Herdr profile.
-
-## Spaces Agent Status
-
-[Spaces Agent Status](mods/spaces-agent-status/RECIPE.md) keeps the shipped Spaces controls and adds the selected compact summary: overlapping agent icons on the left, with a working/total count and one status ring on the right. For example, `2/3` means two of three reported agents are working. Three icons are shown at most; `+N` counts the rest. Hover either summary to read the full agent list. Spaces without reported agents keep their colored avatar and have no count.
-
-The repository workbench layout uses `spaces-agent-status`. With Herdr stopped,
-install or link `mods/spaces-agent-status` into the existing profile. If you
-previously installed or linked `agent-spaces`, replace that installation or link.
-In a personal layout, set the Spaces block's `content.mod` to `spaces-agent-status`.
-Keep the separate Agents block and existing keys. Reopen Herdr after the change.
-To revert to the shipped Spaces block, set its `content.mod` to `spaces`.
-
-```sh
-npm test --workspace herdr-spaces-agent-status
-npm run check:mod --workspace herdr-spaces-agent-status
-```
-
-Native fixture checks and gallery preview requirements are recorded in the [recipe](mods/spaces-agent-status/RECIPE.md#done-when). Real agent interaction and platform checks must pass before this bundle is ready to share.
-
-## Open Mod Manager
-
-Link `<checkout>/mods/mod-manager` to `<app-home>/mods/mod-manager`, not the repository root. Existing development links to the old repository root must be changed by the profile owner with Herdr fully stopped. Reopen Herdr after the link change and verify that the manager loads. Repository checks do not change or verify the live profile link.
-
-```sh
-herdr-app check mods/mod-manager
-npm start
-```
-
-`npm start` opens or closes the installed `mod-manager` dialog; it does not create an installation link. The same mod can provide a sidebar footer with `{ "footer": true }`; no separate sidebar mod is needed. Existing personal layouts that use `mod-manager-sidebar` need an owner-managed change. See the [sidebar launcher guide](mods/mod-manager/README.md#sidebar-launcher) for the 125 px layout block, migration, and recovery. Repository checks do not change the live profile.
-
-See the [Mod Manager guide](mods/mod-manager/README.md) for installation, runtime requirements, file operations, and recovery.
-
-## Better Files and Markdown
-
-[Better Files](mods/better-files/README.md) opens local `.md` and `.markdown` files in the same Files pane. It bundles the reader UI and Node helper, with native prose/code, MathJax display math, official Mermaid.js diagrams, and static Vega-Lite charts. Inline math remains TeX source on Herdr 0.1.15; it is not complete LaTeX support.
-
-Install dependencies and the pinned browser first. Install only `better-files`, then change the intended Files block's `content.mod` to `better-files` while Herdr is stopped. Keep other layout settings, shipped Files, and source documents unchanged. See the [installation and migration guide](mods/better-files/README.md).
-
-The standalone `markdown-reader` mod, its Open/dialog/tab entry points, and personal Files-clone preparation tool have been removed. Existing profile links and layouts need owner-managed cleanup. New reader data uses `data/better-files/`; old `data/markdown-reader/` is not reused, migrated, or automatically deleted.
-
-```sh
-npm test --workspace herdr-better-files
-npm run test:browser --workspace herdr-better-files
-npm run check:mod --workspace herdr-better-files
-npm run evidence:native --workspace herdr-better-files
-```
-
-See [verification and external handoff](mods/better-files/docs/verification.md) for native evidence, platform limits, and required owner interaction checks.
-
-## Self-update
-
-Self-update is an explicit CLI operation. The script is now at `mods/mod-manager/self_update.py`. It checks and updates the **entire Git checkout**, including all workspaces and shared files. Source downloads use `narumiruna/herdr-mods`; checkout origins with the previous repository name remain accepted. Review the full repository changes before confirmation.
-
-Older flat installations cannot update directly to this layout with their original updater. Preserve the old checkout, create a fresh clone, and have the profile owner change the development link to the nested mod directory. Do not use reset or clean to discard local files. See the [self-update guide](mods/mod-manager/README.md#self-update) for requirements and recovery.
