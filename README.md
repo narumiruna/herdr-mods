@@ -2,16 +2,22 @@
 
 A monorepo for Herdr App mods, managed with npm workspaces.
 
+## Mod overview
+
+| Mod                                                       | What it does                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [Better Files](mods/better-files/README.md)               | Browse files and read Markdown in the same Files pane.                                           |
+| [GitHub Issues & PRs](mods/github-issues-prs/README.md)   | View issues and pull requests for the focused terminal's GitHub repository in a read-only panel. |
+| [Mod Manager](mods/mod-manager/README.md)                 | Browse the Gallery, install or remove mods, and check for updates.                               |
+| [Spaces Agent Status](mods/spaces-agent-status/README.md) | See agent icons, activity counts, and status rings in the Spaces sidebar.                        |
+
 ## Share Mod Manager
 
 The [Mod Manager recipe](mods/mod-manager/RECIPE.md) is a build brief for `mods/mod-manager/`. Its actual native preview is included. The bundle remains incomplete until the required native interaction checks pass. The mod bundle contains no layout or keybinding file. GitHub publication requires separate approval.
 
 ## Repository structure
 
-- [`mods/spaces-agent-status/`](mods/spaces-agent-status/RECIPE.md): Spaces with overlapping agent icons, working/total counts, and one native status ring. The workbench layout uses this mod.
-- [`mods/github-issues-prs/`](mods/github-issues-prs/): read-only GitHub issues and pull requests, repository context, and optional workspace tabs.
-- [`mods/mod-manager/`](mods/mod-manager/): Herdr Mod Manager source, tests, native check scripts, and documentation.
-- [`mods/better-files/`](mods/better-files/): a personal Files clone with a bundled native Markdown reader, display math, official Mermaid SVG, and static Vega-Lite in the same Files pane. Other file previews remain unchanged. Owner interaction checks remain incomplete.
+- [`mods/`](mods/): mod source, tests, and documentation.
 - [`docs/markdown-reader-examples.md`](docs/markdown-reader-examples.md): a visual render check for Better Files, with Mermaid, LaTeX, Python/Go/Rust code, and Vega-Lite examples.
 - `layouts/`: local layouts and SVG previews.
 - `scripts/`: shared repository scripts.
