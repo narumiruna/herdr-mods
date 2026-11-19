@@ -4,6 +4,8 @@ Browse files and read local Markdown **in the same Files pane**. This mod derive
 
 **Sharing status: incomplete. External acceptance remains open.** Linux automated checks and Windows native checks pass; existing Windows repository/test limits and owner-operated physical acceptance remain. The preserved 600 × 525 `preview.png` is a genuine native Windows file-list fixture with safe sample data. It is not merged-reader or physical interaction proof.
 
+![Better Files pane showing a file list](preview.png)
+
 ## Share on Herdr Gallery
 
 Copy this prompt into your coding agent. Review the files before you approve

@@ -2,6 +2,8 @@
 
 A native Herdr App mod for browsing the Gallery, discovering installed mods, installing trusted public GitHub mods, checking updates, and confirmed uninstall. It has no enable/disable controls.
 
+![Mod Manager Gallery listing available mods](preview.png)
+
 ## Share on Herdr Gallery
 
 Copy this prompt into your coding agent. Review the files before you approve

@@ -6,6 +6,8 @@ terminal's GitHub `origin`. It supports github.com. This mod remains read-only.
 `preview.png` is included. The bundle remains incomplete until the required
 disposable-profile interaction checks pass.
 
+![GitHub panel with Issues and Pull Requests tabs and a results list](preview.png)
+
 ## Share on Herdr Gallery
 
 Copy this prompt into your coding agent. Review the files before you approve
