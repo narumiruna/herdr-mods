@@ -102,7 +102,9 @@ def lint_repository(root: Path) -> list[str]:
     mods = root / "mods"
     if mods.is_dir():
         for mod in sorted(mods.iterdir()):
-            if not mod.is_dir():
+            if not mod.is_dir() or not any(
+                (mod / name).is_file() for name in ("mod.json", "main.js")
+            ):
                 continue
             recipes.append(mod / "RECIPE.md")
             preview = mod / "preview.png"

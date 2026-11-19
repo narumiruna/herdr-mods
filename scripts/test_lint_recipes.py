@@ -26,6 +26,8 @@ class RecipeLintTests(unittest.TestCase):
     def mod(self, name="example", recipe=RECIPE):
         mod = self.root / "mods" / name
         mod.mkdir(parents=True)
+        (mod / "mod.json").write_text("{}", encoding="utf-8")
+        (mod / "main.js").touch()
         if recipe is not None:
             (mod / "RECIPE.md").write_text(recipe, encoding="utf-8")
         # File presence only. This fixture is not an image or a gallery preview.
@@ -173,6 +175,25 @@ class RecipeLintTests(unittest.TestCase):
         (mod / "nested").mkdir()
         (mod / "nested" / "RECIPE.md").write_text("Not a recipe", encoding="utf-8")
         self.assertEqual(lint_repository(self.root), [])
+
+    def test_ignores_removed_mods_with_only_generated_files(self):
+        self.mod()
+        leftover = self.root / "mods" / "removed"
+        (leftover / "node_modules").mkdir(parents=True)
+        (leftover / "gpui-kit.d.ts").touch()
+        self.assertEqual(lint_repository(self.root), [])
+
+    def test_lints_mods_with_only_one_runtime_entry_file(self):
+        for entry in ("mod.json", "main.js"):
+            mod = self.root / "mods" / Path(entry).stem
+            mod.mkdir(parents=True)
+            (mod / entry).touch()
+        self.assertEqual(lint_repository(self.root), [
+            "mods/main/preview.png: required file is missing or is not a file",
+            "mods/mod/preview.png: required file is missing or is not a file",
+            "mods/main/RECIPE.md: required file is missing or is not a file",
+            "mods/mod/RECIPE.md: required file is missing or is not a file",
+        ])
 
     def test_no_targets_is_an_error(self):
         expected = ["no recipe targets found; expected RECIPE.md or mods/*/RECIPE.md"]

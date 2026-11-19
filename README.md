@@ -104,7 +104,13 @@ uv run python scripts/lint_recipes.py
 uv run python -m unittest discover -s scripts -p 'test_lint_recipes.py' -v
 ```
 
-The linter checks every immediate `mods/*/` directory for `RECIPE.md` and `preview.png` files. The root `RECIPE.md` is optional and is checked only when present. Each recipe must have a non-empty H1 title and these exact H2 headings: `What you see`, `How it behaves`, `Built from`, `Watch out`, and `Done when`. Use ATX headings (`#` and `##`). Headings inside fenced code blocks, HTML blocks, or HTML comments do not count.
+The linter requires `RECIPE.md` and `preview.png` in each immediate `mods/`
+subdirectory that contains a `mod.json` or `main.js` file. It ignores directories
+with only generated files or installed dependencies. The linter checks the
+optional root `RECIPE.md` if it exists. Each recipe must have a non-empty H1 title
+and these exact H2 headings: `What you see`, `How it behaves`, `Built from`,
+`Watch out`, and `Done when`. Use ATX headings (`#` and `##`). Headings inside
+fenced code blocks, HTML blocks, or HTML comments do not count.
 
 The optional directory argument selects a different repository: `uv run python scripts/lint_recipes.py <directory>`. The default is the current directory. Errors include file paths and set exit code 1; success sets exit code 0. A directory with no recipe targets fails. This is a structural check, not a full Markdown renderer. It does not enforce section order or content, validate image data or links, or replace bundle and native checks. The prek commit hook runs it automatically. The npm and CI commands do not include it.
 
