@@ -3,6 +3,8 @@
 Show each space's agent icons, working/total count, and status ring in the
 Spaces sidebar. The separate Agents panel stays unchanged.
 
+![Spaces sidebar with agent icons, activity counts, and status rings](preview.png)
+
 ## Share on Herdr Gallery
 
 Copy this prompt into your coding agent. Review the files before you approve
