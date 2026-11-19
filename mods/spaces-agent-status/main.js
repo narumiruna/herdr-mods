@@ -473,7 +473,7 @@ export default class Spaces extends View {
       const rebuilt = this.rebuilt(machine) || !!repair
       const login = machine?.state === "needs_login" ? `hc machine login ${m}` : null
       const folded = this.folded.has(m)
-      const icon = svg(`mods/agent-spaces/icons/${m ? "server" : "monitor"}.svg`)
+      const icon = svg(`mods/spaces-agent-status/icons/${m ? "server" : "monitor"}.svg`)
         .size(13)
         .flex_none()
       const badge = div()
@@ -610,7 +610,7 @@ export default class Spaces extends View {
                 .bg(connected ? t.ansi2 : t.dim),
             )
             .child(
-              svg(`mods/agent-spaces/icons/chevron-${folded ? "right" : "down"}.svg`)
+              svg(`mods/spaces-agent-status/icons/chevron-${folded ? "right" : "down"}.svg`)
                 .size(11)
                 .flex_none(),
             ),
@@ -641,11 +641,13 @@ export default class Spaces extends View {
                 .border_color(t.dim)
                 .items_center()
                 .justify_center()
-                .child(svg("mods/agent-spaces/icons/plus.svg").size(10)),
+                .child(svg("mods/spaces-agent-status/icons/plus.svg").size(10)),
             ),
         )
         .when(!collapsed, (el) =>
-          el.child(svg("mods/agent-spaces/icons/plus.svg").size(12)).child("New space there"),
+          el
+            .child(svg("mods/spaces-agent-status/icons/plus.svg").size(12))
+            .child("New space there"),
         )
       if (!collapsed && rebuilt) {
         before += 1
@@ -792,7 +794,7 @@ export default class Spaces extends View {
 
   activityBadge(space, activity, t) {
     const ring = activity.working
-      ? svg("mods/agent-spaces/icons/spinner.svg")
+      ? svg("mods/spaces-agent-status/icons/spinner.svg")
           .size(12)
           .mx(1)
           .flex_none()
@@ -878,7 +880,10 @@ export default class Spaces extends View {
             el
               .pl(22)
               .child(
-                svg("mods/agent-spaces/icons/branch.svg").size(13).flex_none().text_color(t.dim),
+                svg("mods/spaces-agent-status/icons/branch.svg")
+                  .size(13)
+                  .flex_none()
+                  .text_color(t.dim),
               ),
           )
           .when(Boolean(activity), (el) =>
@@ -1003,7 +1008,7 @@ export default class Spaces extends View {
               .rounded(6)
               .hover((s) => s.bg(t.hover).text_color(t.foreground))
               .on_click(() => run("space.new"))
-              .child(svg("mods/agent-spaces/icons/plus.svg").size(14)),
+              .child(svg("mods/spaces-agent-status/icons/plus.svg").size(14)),
           ),
       )
       .child(

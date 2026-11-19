@@ -270,7 +270,7 @@ function tiles(root, id = "space-1") {
 }
 
 function spinner(root) {
-  return nodes(root).filter((node) => node.asset === "mods/agent-spaces/icons/spinner.svg")
+  return nodes(root).filter((node) => node.asset === "mods/spaces-agent-status/icons/spinner.svg")
 }
 
 beforeEach(() => {

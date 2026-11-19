@@ -86,7 +86,7 @@ export default class extends Spaces {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const temporary = mkdtempSync(join(tmpdir(), "herdr-agent-spaces-views-"))
+  const temporary = mkdtempSync(join(tmpdir(), "herdr-spaces-agent-status-views-"))
   try {
     const profile = join(temporary, "profile")
     mkdirSync(profile)

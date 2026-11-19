@@ -30,7 +30,7 @@
               "id": "spaces",
               "type": "block",
               "content": {
-                "mod": "agent-spaces"
+                "mod": "spaces-agent-status"
               },
               "size": {
                 "weight": 1

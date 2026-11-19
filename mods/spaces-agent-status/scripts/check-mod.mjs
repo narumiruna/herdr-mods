@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-const profile = mkdtempSync(join(tmpdir(), "herdr-agent-spaces-check-"))
+const profile = mkdtempSync(join(tmpdir(), "herdr-spaces-agent-status-check-"))
 try {
   for (const [program, args] of [
     ["herdr-app", ["check", "."]],

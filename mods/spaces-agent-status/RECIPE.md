@@ -1,10 +1,10 @@
-# Agent Spaces
+# Spaces Agent Status
 
 Add agent activity to the Spaces sidebar. Agent icons overlap on the left.
 A working/total count and one status ring sit on the right.
 For example, `2/3` means that two of three reported agents are working.
 
-![Agent Spaces preview](preview.png)
+![Spaces Agent Status preview](preview.png)
 
 This recipe is the build brief. The adjacent files are one implementation.
 
@@ -49,8 +49,8 @@ This recipe is the build brief. The adjacent files are one implementation.
 
 ## Built from
 
-- One mod root: `mods/agent-spaces/`, containing `main.js`, `activity.js`, `mod.json`, `icons/`, and this recipe.
-- Manifest: title `Agent Spaces`, `place: "none"`, cloned from `spaces` in Herdr App 0.1.16.
+- One mod root: `mods/spaces-agent-status/`, containing `main.js`, `activity.js`, `mod.json`, `icons/`, and this recipe.
+- Manifest: title `Spaces Agent Status`, `place: "none"`, cloned from `spaces` in Herdr App 0.1.16.
 - Runtime: Herdr's `gpui-kit`, `gpui-base`, and `herdr` modules. No runtime npm packages or companion mods are required.
 - Data: `agents()`, `spaces()`, `panes()`, `machines()`, `layout()`, and `theme()`.
 - Program icons: use `svg(program.icon)` when `program.tint` is true, otherwise `image(program.icon)`. These paths come from the host program table.
@@ -58,11 +58,12 @@ This recipe is the build brief. The adjacent files are one implementation.
 - Bundle the clone's chrome icons locally. Retain the Apache, Lucide, and Feather notices.
 - Development: Node.js 26, npm workspaces, Vitest, TypeScript, and Biome.
 
-Install only this mod directory in the existing profile's `mods/agent-spaces/`.
-Stop Herdr before changing directory links. In an existing personal layout,
-change only the Spaces block's `content.mod` from `spaces` to `agent-spaces`.
-Keep other layout blocks, installed mods, and keys. This bundle contains no
-layout or keybinding file. No new keybinding is required.
+With Herdr stopped, install or link this mod directory at
+`mods/spaces-agent-status/` in the existing profile. If you previously installed
+or linked `agent-spaces`, replace that installation or link. In a personal layout,
+set the Spaces block's `content.mod` to `spaces-agent-status`. Keep other layout
+blocks, installed mods, and keys. This bundle contains no layout or keybinding
+file. No new keybinding is required.
 
 To revert, change that block back to `spaces`. The shipped mod is not modified.
 Compatibility with Herdr versions other than the installed 0.1.16 is unknown.
@@ -89,9 +90,9 @@ Compatibility with Herdr versions other than the installed 0.1.16 is unknown.
 Run from the repository root:
 
 ```sh
-npm test --workspace herdr-agent-spaces
-npm run check:mod --workspace herdr-agent-spaces
-npm run check:types --workspace herdr-agent-spaces
+npm test --workspace herdr-spaces-agent-status
+npm run check:mod --workspace herdr-spaces-agent-status
+npm run check:types --workspace herdr-spaces-agent-status
 npm run ci
 git diff --check
 ```

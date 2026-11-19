@@ -1,12 +1,12 @@
 {
-  "name": "herdr-agent-spaces",
+  "name": "herdr-spaces-agent-status",
   "private": true,
   "type": "module",
   "version": "0.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/narumiruna/herdr-mods.git",
-    "directory": "mods/agent-spaces"
+    "directory": "mods/spaces-agent-status"
   },
   "scripts": {
     "test": "vitest run",
