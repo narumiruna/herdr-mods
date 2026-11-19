@@ -1,32 +1,40 @@
 # GitHub Issues & PRs
 
-Read GitHub issues and pull request descriptions without leaving Herdr. Follow
-the focused terminal's repository and machine, or pin a repository with props.
-This recipe is the build brief; the adjacent files are one implementation.
+Read GitHub issues and pull request descriptions in a Herdr side panel, tab, or
+overlay. The panel follows the focused terminal's repository and machine, or
+stays on a pinned repository. It does not change issues or pull requests.
 
 ![GitHub Issues & PRs preview](preview.png)
 
-The preview is an inspected capture of the actual native list UI with public
-fixture data on Herdr 0.1.15. It contains no private paths or repository names.
-The bundle remains incomplete until the interaction checks below pass.
+Use this brief to build the mod from an empty directory. The adjacent files
+are one implementation. The preview shows the native list in a disposable
+Herdr profile with a fictional repository, issues, and authors.
 
 ## What you see
 
-- A panel that fills its layout block, or a 680 × 760 overlay (`place: "none"`).
-- A repository header, refresh button, Issues/Pull Requests tabs, search field,
-  Open/Closed/All filters, scrollable results, and machine/transport status.
-- Read-only repository text. The tooltip identifies its source folder and machine.
-- Rows with wrapping titles, state, number, author, and update age. A detail view
-  replaces the list with Markdown, labels, and PR branch/review/change counts.
+- A view that fills its assigned block or tab, or opens in a 680 × 760 overlay.
+  Use the theme background, a 1 px border, and 10 px rounded corners.
+- A 56 px header shows the title, read-only repository name, and a 30 px refresh
+  button. The repository tooltip shows where the data comes from.
+- Below it, two 40 px tabs select Issues or Pull Requests. An accent underline
+  marks the active tab. A 32 px search field, result count, and Open/Closed/All
+  filters precede the scrolling list.
+- Each row has an icon, 13 px wrapping title, and 11 px state, number, author,
+  and update age. Use theme colors for states: green for Open, red for Closed,
+  purple for Merged, and muted text for Draft. Keep the text labels in all themes.
+- A detail view replaces the list and its controls. It has Back and Open on GitHub
+  actions, a 16 px title, labels, Markdown description, and, for pull requests,
+  source and target branches, review status, and change counts.
 - Loading, no repository, no results, operational error, and retry states.
   Existing results remain visible after a background failure. Show machine-specific
   authentication recovery as wrapped visible text in list and detail errors, not
   only a hover tooltip. Generate help from the request's machine and CLI transport;
   do not treat CLI output as recovery instructions.
-- Theme colors and bundled SVG icons. Body text is 12–13 px; the detail title is
-  16 px. The header is 56 px and the footer is 28 px.
-- Optional `tabs: true` mode replaces a workspace tab bar, not the panel itself.
-  It adds a GitHub panel button beside the available Files/Changes buttons.
+- A 28 px footer shows loading or update status and the machine and GitHub CLI
+  transport in use.
+- The optional workspace tab bar adds a GitHub panel button beside the available
+  Files and Changes buttons. A working agent shows a spinning icon; blocked and
+  done agents show a dot in the applicable theme color. Idle adds no indicator.
 
 ## How it behaves
 
@@ -54,13 +62,20 @@ The bundle remains incomplete until the interaction checks below pass.
 
 ## Built from
 
-- One root, `mods/github-issues-prs/`: `mod.json`, `main.js`, `github.js`, `tabs.js`,
-  `icons/`, this recipe, README, and LICENSE. No required companion mod.
+- Create `mods/github-issues-prs/` with `mod.json` and `main.js`. Set the manifest
+  title to `GitHub Issues & PRs`, `place` to `"none"`, and overlay `width` and
+  `height` to `680` and `760`. Keep the runtime modules, icons, recipe, and PNG
+  in the same mod root. There is no required companion mod.
 - `main.js`: a `gpui-kit` View and `gpui-base` buttons, inputs, scrollbars, and
   Markdown. Herdr APIs include `spaces`, `panes`, `focused`, `exec`, `props`,
   `window`, `theme`, context timers/tasks, focus handles, and URL opening.
-- `github.js`: repository parsing, argv construction, machine-scoped transport,
-  deadlines, diagnostic redaction, and list/detail validation.
+- `github.js`: normalize the `git remote get-url origin` result to `owner/repo`.
+  Pass the selected machine as `on` to `exec`. Probe `gh --version` with a 10 s
+  timeout (15 s for WSL). Allow 10 s for Git and 45 s for each GitHub query.
+  Bound unsettled promises with a view timer 2 s beyond each command timeout.
+  Read number, title, URL, state, author, update time, and labels in JSON.
+  Request the body only for details and include draft, branch, review, and change
+  fields for pull requests. Validate the shape and item number before rendering.
 - `tabs.js`: `layout`, `shared`, `settings`, local storage, `run`, and `openOverlay`.
   Tab context and new-tab menus require Herdr's shipped `menu` and `new-menu`.
   Program icons are host-provided; fixed icons are inside this bundle.
@@ -76,8 +91,9 @@ The bundle remains incomplete until the interaction checks below pass.
 - Runtime dependencies: Herdr, Git, and GitHub CLI on the selected machine. Local
   Windows may use `wsl.exe --exec gh` only if native CLI discovery fails. Remote
   machines never fall back locally. Authenticate manually on the selected machine.
-- Checked with Herdr App 0.1.15 on macOS. Other versions/platforms are unknown.
-  Development checks use repository Vitest, TypeScript, and Biome dependencies.
+- Native entry, fixture, and preview checks used Herdr App 0.1.16 on macOS.
+  The source repository supplies Vitest, TypeScript, and Biome for development.
+  The runtime mod does not need npm dependencies.
 
 ## Watch out
 
@@ -108,21 +124,26 @@ Completed local checks:
    no GitHub account or network. This is not physical interaction evidence.
 3. `npm run check:types --workspace herdr-github-issues-prs` and
    `npm run check --workspace herdr-github-issues-prs` pass after SDK generation.
-4. JSON, local runtime imports/assets, and `git diff --check` pass.
-5. Actual list/error captures passed native checks and both status samples in
-   disposable profiles. The inspected 680 × 760 list capture is `preview.png`.
-   These screenshots do not prove pointer, keyboard, or authenticated behavior.
+4. Bundle structure, JSON, runtime imports, local links, and `git diff --check` pass.
+5. The list and list-error screenshots rendered without native runtime errors in
+   disposable profiles. `preview.png` is the inspected 680 × 501 list screenshot
+   after resizing and metadata removal. The screenshot does not prove pointer,
+   keyboard, or authenticated behavior.
 
 Still required before sharing:
 
-1. In a disposable profile, load both views, inspect narrow/wide sizes and theme
-   contrast, use keyboard search/clear/type tabs, read a result, and return with
-   Escape. Normal terminal input and existing shortcuts must remain unchanged.
+1. In a disposable profile, load both views at narrow and wide sizes in light and
+   dark themes. Titles must remain readable and controls usable. Enter applies
+   the search, Clear restores all results for the active filter, and switching
+   type restores its draft and filter. Open a result and press Escape to return.
+   Normal terminal input and existing shortcuts must remain unchanged.
 2. Verify physical tab select/reorder/rename/close/new-tab and window controls,
    panel switching, and per-space restore. Remove the panel target and confirm
    its button disappears. Close the mod during a pending request without errors.
-3. Verify approved read-only local/remote GitHub access and failed authentication,
-   unavailable origin, timeout/retry, rapid focus changes, and late responses.
-   Do not change accounts or write to GitHub to test these cases.
+3. With approved test accounts and repositories, verify that local and remote
+   terminals show results from their own machines. A missing origin must show a
+   neutral message. Failed authentication and timeouts must show Retry without
+   switching machines. Move focus quickly and confirm that late results cannot
+   replace the current list. Do not change accounts or write to GitHub to test this.
 4. Repeat preview inspection after UI changes. Keep private content out of the
    image, confirm it matches that version, and check all recipe links.
