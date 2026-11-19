@@ -6,7 +6,6 @@ A monorepo for Herdr App mods, managed with npm workspaces.
 
 | Mod                                                       | What it does                                                                                     |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [Better Files](mods/better-files/README.md)               | Browse files and read Markdown in the same Files pane.                                           |
 | [GitHub Issues & PRs](mods/github-issues-prs/README.md)   | View issues and pull requests for the focused terminal's GitHub repository in a read-only panel. |
 | [Mod Manager](mods/mod-manager/README.md)                 | Browse the Gallery, install or remove mods, and check for updates.                               |
 | [Spaces Agent Status](mods/spaces-agent-status/README.md) | See agent icons, activity counts, and status rings in the Spaces sidebar.                        |
@@ -26,17 +25,11 @@ are shared at the repository root. See each mod's README for runtime requirement
 
 ## Development
 
-Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Install the
-workspace dependencies from the repository root:
+Use Node.js 26, Git, uv, cached Python 3.14, and Herdr App 0.1.15. Run these
+commands from the repository root:
 
 ```sh
 npm ci
-```
-
-Complete the [Better Files browser setup](mods/better-files/README.md#requirements-and-setup)
-before running the repository-wide native checks:
-
-```sh
 npm run check:mod
 npm run ci
 git diff --check
@@ -99,7 +92,7 @@ approved bundles to a public GitHub repository and adding the herdr-mod topic.
 
 ## Quality and bundle checks
 
-The [quality review](docs/mod-quality-review.md) records scores against [RUBRIC.md](RUBRIC.md), test evidence, and acceptance limits. Scores do not replace native interaction checks.
+The [historical quality review](docs/mod-quality-review.md) records scores against [RUBRIC.md](RUBRIC.md), test evidence, and acceptance limits. Scores do not replace native interaction checks.
 
 ```sh
 npm run check:bundles

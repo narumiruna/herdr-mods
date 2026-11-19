@@ -1,15 +1,11 @@
-# Better Files rendering examples
+# Markdown rendering examples
 
-Use this document to check Markdown rendering in Better Files.
-
-1. In Better Files, expand `docs`.
-2. Click `markdown-reader-examples.md`.
-3. The document must open in the same pane. No file setup form should appear.
-4. Scroll through all sections. Compare each result with its expected output.
-5. Use **Back** to return to the file list.
+These examples were used to test the removed Better Files mod. Open this
+document in a Markdown renderer to compare each example with its expected
+output. Renderer support varies.
 
 All chart data is in this file. No external data source is required.
-Code blocks are examples only. The reader must not execute them.
+Code blocks are examples only. Do not execute them.
 
 ## Contents
 

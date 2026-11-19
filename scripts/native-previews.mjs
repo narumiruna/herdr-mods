@@ -3,12 +3,11 @@ import { createHash } from "node:crypto"
 import { cp, mkdir, mkdtemp, open, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { command, waitForStatus } from "../mods/better-files/scripts/native-evidence.mjs"
 
 // Run only with serialized native capture access and stable source files.
 // No preview is copied into a mod root automatically: inspect the PNG first.
 const repository = fileURLToPath(new URL("..", import.meta.url))
-const readerScript = "mods/better-files/scripts/native-evidence.mjs"
+const offlineCorePath = "scripts/fixtures/offline-core.cjs"
 const specs = {
   "github-issues-prs": {
     files: ["main.js", "github.js", "tabs.js", "mod.json", "icons"],
@@ -69,15 +68,6 @@ export function captureGenerator(source, name, destination, temporary) {
     .replaceAll("Checking native fixture:", "Preparing trusted fixture:")
 }
 
-// Keep the reader's complete reviewed generation-1 handshake, method list,
-// frame bounds, empty world, and fail-closed method handling unchanged.
-export function offlineProgram(source) {
-  const start = source.indexOf("function offlineCore() {")
-  const end = source.indexOf("\nfunction alive(", start)
-  if (start < 0 || end < 0) throw new Error("Reader offline-core source changed; review it")
-  return `(${source.slice(start, end).trim()})();\n`
-}
-
 export function pngInfo(bytes) {
   if (
     bytes.length < 33 ||
@@ -112,6 +102,108 @@ async function stop(group) {
   }
   if (alive(group)) throw new Error(`Owned process group remains: ${group}`)
 }
+
+// A successful exit can precede the last pipe data. Only close completes output.
+export async function command(program, args, env, timeout = 15000) {
+  const child = spawn(program, args, { env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (data) => {
+    stdout += data
+  })
+  child.stderr.on("data", (data) => {
+    stderr += data
+  })
+  let timer
+  let timedOut = false
+  try {
+    const { code, signal } = await new Promise((done, reject) => {
+      child.once("error", reject)
+      child.once("close", (code, signal) => done({ code, signal }))
+      timer = setTimeout(() => {
+        timedOut = true
+        try {
+          if (child.pid) process.kill(-child.pid, "SIGKILL")
+        } catch (error) {
+          if (error.code !== "ESRCH") return reject(error)
+        }
+        // Bound pipe waiting too, but let close reap the child before cleanup.
+        child.stdout.destroy()
+        child.stderr.destroy()
+      }, timeout)
+    })
+    if (timedOut)
+      throw Object.assign(
+        new Error(`${program} ${args.join(" ")}: timed out after ${timeout} ms`),
+        { code: "ETIMEDOUT", stdout, stderr },
+      )
+    if (code !== 0)
+      throw Object.assign(
+        new Error(`${program} ${args.join(" ")}: ${stderr || stdout || `exit ${code}`}`),
+        { exitCode: code, signal, stdout, stderr },
+      )
+    return { stdout, stderr }
+  } finally {
+    clearTimeout(timer)
+    if (child.pid) await stop(child.pid)
+  }
+}
+// Verified with Herdr 0.1.15 status against missing and stale macOS sockets.
+// Do not retry permission errors, protocol failures, other sockets, or timeouts.
+function statusConnectionError(error, env) {
+  const prefix = `herdr-app: no Herdr window at ${join(env.HERDR_APP_HOME, "herdr-app.sock")}: `
+  return (
+    error.exitCode === 2 &&
+    error.signal === null &&
+    error.code == null &&
+    error.stdout === "" &&
+    ["No such file or directory (os error 2)", "Connection refused (os error 61)"].some(
+      (reason) => error.stderr?.trimEnd() === prefix + reason,
+    )
+  )
+}
+
+// Bound status commands and retry sleeps by one startup deadline. Check the
+// owned leader too: its group can outlive it if an app child remains running.
+export async function waitForStatus(
+  app,
+  env,
+  child,
+  mode,
+  { timeout = 15000, run = command } = {},
+) {
+  const deadline = Date.now() + timeout
+  const checkApp = () => {
+    if (child.exitCode !== null || child.signalCode !== null || !alive(child.pid))
+      throw new Error(`App exited in mode ${mode}`)
+  }
+  let lastError
+  const expired = () =>
+    new Error(`App status startup deadline exceeded in mode ${mode}`, { cause: lastError })
+  while (true) {
+    checkApp()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw expired()
+    let result
+    try {
+      result = await run(app, ["status"], env, remaining)
+    } catch (error) {
+      checkApp()
+      lastError = error
+      if (Date.now() >= deadline) throw expired()
+      if (!statusConnectionError(error, env)) throw error
+      await sleep(Math.min(100, deadline - Date.now()))
+      continue
+    }
+    checkApp()
+    if (Date.now() >= deadline) throw expired()
+    const status = JSON.parse(result.stdout)
+    if (!Array.isArray(status?.errors) || status.errors.length)
+      throw new Error(`Native runtime errors in ${mode}: ${JSON.stringify(status?.errors)}`)
+    return status
+  }
+}
+
 export function createAppOwner({ start = spawn, run = command } = {}) {
   const groups = new Set()
   let active = null
@@ -222,11 +314,11 @@ async function main() {
       "Inspect PNGs before manually copying selected captures to preview.png.",
     ],
   }
-  summary.sourceHashes[readerScript] = sha256(await readFile(join(repository, readerScript)))
+  const core = await readFile(join(repository, offlineCorePath))
+  summary.sourceHashes[offlineCorePath] = sha256(core)
   summary.sourceHashes["scripts/native-previews.mjs"] = sha256(
     await readFile(fileURLToPath(import.meta.url)),
   )
-  const core = offlineProgram(await readFile(join(repository, readerScript), "utf8"))
   const versionEnv = await isolation(join(output, "version"), core)
   summary.version = (await command(app, ["--version"], versionEnv)).stdout.trim()
   const version = /\d+\.\d+\.\d+/.exec(summary.version)?.[0]
@@ -402,8 +494,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         ownedGroups: [...groups],
         remaining: [...groups].filter(alive),
         errors,
-        commandGroups:
-          "Reader command() waits for close and stops each owned CLI group before returning.",
+        commandGroups: "command() waits for close and stops each owned CLI group before returning.",
       })
     if (errors.length) {
       console.error(errors.join("\n"))

@@ -133,7 +133,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "better-files"
+                        "mod": "files"
                       }
                     },
                     {

@@ -25,9 +25,6 @@
     "changeset": "changeset",
     "release": "changeset publish"
   },
-  "overrides": {
-    "katex": "0.19.1"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.6.7",
     "@changesets/cli": "^3.0.3",

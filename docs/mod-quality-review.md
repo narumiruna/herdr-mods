@@ -2,7 +2,9 @@
 
 Review date: 2026-11-12. Checked host: Herdr App 0.1.15 on macOS. The later [PR #26 feedback ledger](reviews/pr-26-feedback.md) records new findings, fixes, validation, and unresolved acceptance limits.
 
-The scores and counts below describe the pre-merge implementations. Markdown Reader is now an internal part of Better Files, not a separate installable mod. Current paths, checks, and acceptance restrictions are in [Better Files verification](../mods/better-files/docs/verification.md). The older reader graphic-card preview is no longer bundled.
+This review records historical scores, checks, and acceptance limits. It does
+not describe the current set of mods. The standalone Markdown Reader was merged
+into Better Files, and Better Files was later removed.
 
 ## Scope and scoring method
 
@@ -103,7 +105,7 @@ All captures use disposable profiles, public fixture data, an offline core, and 
 - Layout emitted duplicate system-font warnings. Its deep schematic is clipped inside a scrollable canvas; the screenshots do not establish physical scrolling or destination access.
 - The three-mod fixture denied six background `curl` calls for bundled update-notes media. No GitHub/account/file operation was performed. Command wrappers and the restricted environment are not an OS network sandbox.
 
-| Bundled preview                      | Dimensions |
+| Preview at time of review            | Dimensions |
 | ------------------------------------ | ---------- |
 | `mods/github-issues-prs/preview.png` | 680 × 760  |
 | `mods/layout-manager/preview.png`    | 1200 × 950 |
@@ -112,7 +114,10 @@ All captures use disposable profiles, public fixture data, an offline core, and 
 
 ## External acceptance and sharing restrictions
 
-All four mods remain **incomplete for sharing** until their required native interaction checks pass. A numeric implementation score, eager native description, or actual screenshot does not close those checks. An implementation pull request is not Community publication or sharing approval.
+At the time of review, all four mods were **incomplete for sharing** until their
+required native interaction checks passed. A numeric implementation score, eager
+native description, or screenshot does not close those checks. An implementation
+pull request is not Community publication or sharing approval.
 
 The profile owner or a tester with an isolated native input/display environment must use disposable profiles and record the following results:
 
@@ -121,4 +126,8 @@ The profile owner or a tester with an isolated native input/display environment 
 3. **Mod Manager:** native search/focus/scroll and selected Source/browser routing; progress/Stop checks; confirmation cancellation; reviewed disposable-mod install/update/uninstall; read-only retry, recovery warnings, close-during-transaction, and footer coexistence. Preserve recovery receipts and archives.
 4. **Better Files:** actual Markdown file clicks, Back/Escape, same-pane links/fragments, text selection, clipboard, scrolling, zoom, real watch/recovery, remote rejection, and unchanged terminal/Files use. The standalone reader Open/Cancel entry is retired. Inline typeset math remains unsupported.
 
-Prerequisites, expected results, and recovery procedures are retained in each mod's `RECIPE.md` and README, and in [reader verification](../mods/better-files/docs/verification.md). Additional platforms remain unverified; no compatibility claim is added. These checks must not be run against the owner's live mods or account without separate approval. GitHub publication requires explicit approval even after acceptance.
+For current prerequisites, expected results, and recovery procedures, see the
+README and recipe for each mod still in the repository. This review makes no
+compatibility claim for additional platforms. Do not run these checks against
+the owner's live mods or account without separate approval. GitHub publication
+requires explicit approval even after acceptance.

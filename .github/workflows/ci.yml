@@ -28,15 +28,5 @@ jobs:
       - run: npm run check
       - run: npm run check:bundles
       - run: npm test
-      - run: npm run setup:browser --workspace herdr-better-files
-      # Ubuntu restricts user namespaces for downloaded Chrome builds. Allow
-      # only the pinned executable to create its sandbox, not every process.
-      - name: Allow the pinned Chromium sandbox
-        run: |
-          chrome="$(node --input-type=module -e 'import p from "puppeteer"; import {realpathSync} from "node:fs"; const path = realpathSync(await p.executablePath()); if (!/^\/[\w./-]+$/.test(path)) throw new Error("Unsafe browser path"); console.log(path)')"
-          test -x "$chrome"
-          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile herdr-markdown-chrome "%s" flags=(unconfined) {\n  userns,\n}\n' "$chrome" | sudo tee /etc/apparmor.d/herdr-markdown-chrome > /dev/null
-          sudo apparmor_parser -r /etc/apparmor.d/herdr-markdown-chrome
-      - run: npm run test:browser --workspace herdr-better-files
       # Herdr generates the SDK locally; type/native checks also run against the installed app.
       - run: git diff --exit-code

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { EventEmitter } from "node:events"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
-import { captureGenerator, createAppOwner, offlineProgram, pngInfo } from "./native-previews.mjs"
+import { captureGenerator, createAppOwner, pngInfo, waitForStatus } from "./native-previews.mjs"
 
 for (const name of ["github-issues-prs", "mod-manager"]) {
   test(`${name}: saves trusted fixtures without starting the native app`, async () => {
@@ -29,11 +29,7 @@ for (const name of ["github-issues-prs", "mod-manager"]) {
 }
 
 test("offline shim retains the reviewed handshake and fail-closed protocol", async () => {
-  const source = await readFile(
-    new URL("../mods/better-files/scripts/native-evidence.mjs", import.meta.url),
-    "utf8",
-  )
-  const program = offlineProgram(source)
+  const program = await readFile(new URL("./fixtures/offline-core.cjs", import.meta.url), "utf8")
   for (const value of [
     'request.method !== "hello"',
     "generation: 1",
@@ -44,8 +40,39 @@ test("offline shim retains the reviewed handshake and fail-closed protocol", asy
     'process.stdin.on("end"',
   ])
     assert.ok(program.includes(value), value)
-  assert.ok(!program.includes("function alive("))
-  assert.throws(() => offlineProgram("changed source"), /offline-core source changed/)
+})
+
+test("native status retries only the expected startup socket failure", async (t) => {
+  t.mock.method(process, "kill", () => true)
+  const env = { HERDR_APP_HOME: "/mock/profile" }
+  const child = { pid: 4321, exitCode: null, signalCode: null }
+  const socketError = Object.assign(new Error("Missing socket"), {
+    exitCode: 2,
+    signal: null,
+    stdout: "",
+    stderr:
+      "herdr-app: no Herdr window at /mock/profile/herdr-app.sock: " +
+      "No such file or directory (os error 2)",
+  })
+  let calls = 0
+  const status = await waitForStatus("/mock/Herdr", env, child, "fixture", {
+    run: async () => {
+      if (++calls === 1) throw socketError
+      return { stdout: '{"errors":[],"layout":"evidence"}' }
+    },
+  })
+  assert.equal(calls, 2)
+  assert.deepEqual(status, { errors: [], layout: "evidence" })
+
+  const denied = new Error("Permission denied")
+  await assert.rejects(
+    waitForStatus("/mock/Herdr", env, child, "fixture", {
+      run: async () => {
+        throw denied
+      },
+    }),
+    denied,
+  )
 })
 
 test("failed spawn listens before the pid check and cannot dispatch cleanup", async (t) => {
