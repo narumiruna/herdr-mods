@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
-  <title>Workbench layout preview</title>
+  <title>Narumi layout preview</title>
   <rect width="320" height="200" rx="6" fill="#161a1d"/>
   <path d="M72 0v200M0 190h320" stroke="#30363b"/>
   <g font-family="sans-serif" fill="#a5adb5">

@@ -21,7 +21,7 @@ No build or runtime npm packages are required. With Herdr stopped, copy or link
 this directory to `~/.config/herdr-app/mods/spaces-agent-status/`. If you previously
 installed or linked `agent-spaces`, replace that installation or link.
 
-The repository's `layouts/workbench.json` already uses `spaces-agent-status`.
+The repository's `layouts/narumi.json` already uses `spaces-agent-status`.
 In a personal layout, set the Spaces block's `content.mod` to
 `spaces-agent-status`. Keep the existing Agents block and keybindings. Reopen
 Herdr after the change.

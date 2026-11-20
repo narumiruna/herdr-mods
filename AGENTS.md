@@ -2,7 +2,7 @@
 
 ## Documentation
 
-- When adding or removing a mod, update `layouts/workbench.json` and `README.md` in the same change.
+- When adding or removing a mod, update `layouts/narumi.json` and `README.md` in the same change.
   - If a file needs no content change, check its mod references and state the reason in the pull request instead.
 - Each `mods/<name>/` directory is a mod root and contains its `mod.json` and `main.js`.
 - Embed the mod preview in `mods/<name>/README.md` with descriptive

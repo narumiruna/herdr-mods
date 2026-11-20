@@ -23,7 +23,7 @@ Files mod and existing keybindings unchanged.
 No build or runtime npm packages are required. With Herdr stopped, copy or link
 this directory to `~/.config/herdr-app/mods/files-panel/`. In a personal
 layout, set the Files block's `content.mod` to `files-panel`. The repository's
-`layouts/workbench.json` already uses it. Reopen Herdr and show the Files panel.
+`layouts/narumi.json` already uses it. Reopen Herdr and show the Files panel.
 
 To revert, set that block's `content.mod` back to `files`. No new keybinding
 is required.

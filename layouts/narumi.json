@@ -1,6 +1,6 @@
 {
   "id": "root",
-  "preview": "layouts/workbench.svg",
+  "preview": "layouts/narumi.svg",
   "cloned_from": {
     "name": "main",
     "version": "0.1.14"
