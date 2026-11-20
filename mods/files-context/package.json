@@ -1,0 +1,12 @@
+{
+  "name": "herdr-files-context",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "test": "vitest run",
+    "check:mod": "node scripts/check-mod.mjs",
+    "check:views": "vitest run main.test.js",
+    "check:types": "tsc --project jsconfig.json"
+  }
+}
