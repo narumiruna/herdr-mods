@@ -34,8 +34,9 @@ files are one implementation.
    or Escape dismisses it. An explicit **Move to Trash** click runs the
    operation. Prevent duplicate requests while it runs. Show success or
    failure in a notification. On failure, leave confirmation open for retry.
-6. Refresh the tree on local folder changes and at intervals. Remove missing
-   folders from the expanded set. Keep normal preview and browsing behavior.
+6. Refresh the tree on local folder changes and at intervals. Cancel the
+   previous watch when the panel changes location. Remove missing folders from
+   the expanded set. Only the latest preview request can update the preview.
 
 ## Built from
 
@@ -98,6 +99,6 @@ Check the following in a disposable profile:
 
 On macOS with Herdr App 0.1.16, the native entry check passed. The preview
 uses fictional files in a disposable profile. It shows the real popup opened
-by a test dispatch, not by physical input. The six automated interaction tests
-use host stubs; the physical mouse and keyboard checks above are still required
+by a test dispatch, not by physical input. The automated tests use host stubs;
+the physical mouse and keyboard checks above are still required
 before sharing.

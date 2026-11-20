@@ -104,6 +104,9 @@ export default class Files extends View {
     /** @type {Set<string>} */
     this.folders = new Set()
     this.pending = new Set()
+    /** @type {import('herdr').FolderWatch | null} */
+    this.folderWatch = null
+    this.previewRequest = 0
     /** @type {Record<string, string>} */
     this.marks = {}
     this.refresh(cx)
@@ -118,12 +121,20 @@ export default class Files extends View {
     const context = this.context
     cx.spawn(async (cx) => {
       try {
-        while (this.context === context) {
-          await watchFolder(root)
-          if (this.current(context)) this.refresh(cx)
+        while (this.current(context)) {
+          this.folderWatch = watchFolder(root)
+          await this.folderWatch
+          if (!this.current(context)) return
+          this.folderWatch = null
+          this.refresh(cx)
         }
       } catch {
-        if (this.context === context) this.watched = null
+        // The refresh timer still runs if the watch fails.
+      } finally {
+        if (this.context === context) {
+          this.folderWatch = null
+          this.watched = null
+        }
       }
     })
   }
@@ -155,6 +166,8 @@ export default class Files extends View {
     const { cwd, on } = location()
     const next = key()
     if (next !== this.context?.key) {
+      this.folderWatch?.cancel()
+      this.folderWatch = null
       if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file })
       const saved = this.saved.get(next)
       /** @type {LocationContext} */
@@ -270,6 +283,7 @@ export default class Files extends View {
 
   /** @param {string | null} path @param {Context} [cx] */
   show(path, cx) {
+    const request = ++this.previewRequest
     this.code?.release()
     this.code = null
     this.file = path
@@ -278,10 +292,11 @@ export default class Files extends View {
     const context = this.context
     const root = this.root
     const on = this.on
+    const isCurrent = () => request === this.previewRequest && this.current(context)
     cx.spawn(async (cx) => {
       try {
         const text = await readTextFile(`${root}/${path}`, { on })
-        if (this.file !== path || !this.current(context)) return
+        if (!isCurrent()) return
         if (text === null) {
           this.fileError = "This file is no longer available"
           return
@@ -309,10 +324,10 @@ export default class Files extends View {
           },
         })
       } catch {
-        if (this.file === path && this.current(context))
+        if (isCurrent())
           this.fileError = "Cannot preview this file (binary, too large, or unreadable)"
       } finally {
-        cx.notify()
+        if (isCurrent()) cx.notify()
       }
     })
   }

@@ -1,4 +1,17 @@
-import { closeOverlay, exec, focused, notify, openOverlay, props, spaces, window } from "herdr"
+import { EditorState } from "gpui-base"
+import {
+  closeOverlay,
+  exec,
+  focused,
+  notify,
+  openOverlay,
+  props,
+  readTextFile,
+  settings,
+  spaces,
+  watchFolder,
+  window,
+} from "herdr"
 import { beforeEach, expect, it, vi } from "vitest"
 import Files from "./main.js"
 
@@ -25,7 +38,12 @@ const element = vi.hoisted(() => () => {
 })
 
 vi.mock("gpui-kit", () => ({ View: class {}, div: element, svg: element }))
-vi.mock("gpui-base", () => ({ h_flex: element, v_flex: element, Editor: {}, EditorState: {} }))
+vi.mock("gpui-base", () => ({
+  h_flex: element,
+  v_flex: element,
+  Editor: {},
+  EditorState: { new: vi.fn() },
+}))
 vi.mock("herdr", () => ({
   closeOverlay: vi.fn(),
   exec: vi.fn(),
@@ -71,7 +89,75 @@ function view(overlayProps) {
 beforeEach(() => {
   vi.resetAllMocks()
   exec.mockResolvedValue({ code: 0, stdout: "", stderr: "" })
+  settings.mockReturnValue({ font_family: "Mono" })
   window.mockReturnValue({ platform: "macos" })
+})
+
+function showFolder(folder) {
+  spaces.mockReturnValue([{ id: "demo", active: true, machine: null, folder }])
+}
+
+it("cancels the prior watch and keeps the new watch when the prior one settles", async () => {
+  const first = Promise.withResolvers()
+  const second = Promise.withResolvers()
+  const cancelFirst = vi.fn()
+  const cancelSecond = vi.fn()
+  watchFolder
+    .mockReturnValueOnce(Object.assign(first.promise, { cancel: cancelFirst }))
+    .mockReturnValueOnce(Object.assign(second.promise, { cancel: cancelSecond }))
+  showFolder("/demo/first")
+  const { files, cx } = view()
+  const run = (index) => cx.spawn.mock.calls[index][0](cx)
+  await run(0)
+  const firstTask = run(1)
+  expect(watchFolder).toHaveBeenNthCalledWith(1, "/demo/first")
+
+  showFolder("/demo/second")
+  files.refresh(cx)
+  expect(cancelFirst).toHaveBeenCalledOnce()
+  await run(2)
+  const secondTask = run(3)
+  expect(watchFolder).toHaveBeenNthCalledWith(2, "/demo/second")
+
+  first.resolve([])
+  await firstTask
+  showFolder(null)
+  files.refresh(cx)
+  expect(cancelSecond).toHaveBeenCalledOnce()
+  second.resolve([])
+  await secondTask
+  expect(watchFolder).toHaveBeenCalledTimes(2)
+})
+
+it.each([
+  ["text", "old text"],
+  ["missing file", null],
+  ["binary file", "old\0text"],
+  ["read error", new Error("old read failed")],
+])("keeps the latest preview after a stale %s result", async (_kind, staleResult) => {
+  showFolder("/demo")
+  const { files, cx } = view()
+  const first = Promise.withResolvers()
+  readTextFile.mockReturnValueOnce(first.promise).mockResolvedValueOnce("new text")
+  const editor = { release: vi.fn() }
+  EditorState.new.mockReturnValue(editor)
+
+  files.show("notes.txt", cx)
+  const firstTask = cx.spawn.mock.lastCall[0](cx)
+  files.show(null)
+  files.show("notes.txt", cx)
+  await cx.spawn.mock.lastCall[0](cx)
+
+  if (staleResult instanceof Error) first.reject(staleResult)
+  else first.resolve(staleResult)
+  await firstTask
+  expect(EditorState.new).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ value: "new text" }),
+  )
+  expect(files.code).toBe(editor)
+  expect(files.fileError).toBeNull()
+  files.show(null)
+  expect(editor.release).toHaveBeenCalledOnce()
 })
 
 it("dispatches a remote row's context menu and lets it copy without running commands", () => {
