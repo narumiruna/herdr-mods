@@ -83,7 +83,7 @@ it("dispatches a remote row's context menu and lets it copy without running comm
   const menuTarget = { root: "/remote", path: "notes.txt", on: "build" }
   expect(cx.stop_propagation).toHaveBeenCalledOnce()
   expect(openOverlay).toHaveBeenCalledWith({
-    mod: "files-context",
+    mod: "files-panel",
     kind: "popup",
     width: 228,
     props: { fileAction: "menu", target: menuTarget },
@@ -124,7 +124,7 @@ it("runs one Trash command only after confirmation and closes on success", async
   expect(exec).toHaveBeenCalledExactlyOnceWith("/bin/sh", [
     "-c",
     expect.any(String),
-    "files-context",
+    "files-panel",
     "/demo",
     "docs",
     "notes.txt",

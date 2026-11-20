@@ -1,10 +1,11 @@
-# Files Context
+# Files Panel
 
-Add a context menu to the Files panel for path copying and local macOS Finder
-and Trash actions. This recipe is the build brief. The adjacent files are one
-implementation.
+Build a Files panel for Herdr that browses the focused pane's folders, shows Git
+status, and previews text files. Add a menu for copying paths and for Finder
+and Trash actions on local macOS. This recipe is the build brief. The adjacent
+files are one implementation.
 
-![Files Context menu above a file tree](preview.png)
+![Files Panel showing a file tree and the actions menu for chart.ts](preview.png)
 
 ## What you see
 
@@ -38,7 +39,7 @@ implementation.
 
 ## Built from
 
-- One root, `mods/files-context/`, cloned from the Files mod in Herdr App
+- One root, `mods/files-panel/`, cloned from the Files mod in Herdr App
   0.1.16. Set `place: "none"` in `mod.json`; a personal layout supplies the
   Files block.
 - Use `gpui-kit`, `gpui-base`, and `herdr`. Build the tree and preview in
@@ -50,8 +51,8 @@ implementation.
   `cx.write_to_clipboard()` for copying. Send results with `notify()`.
 - Keep the four SVG icons in this root. Keep the Herdr and icon license notices.
 - With Herdr stopped, install the bundle at
-  `~/.config/herdr-app/mods/files-context/`. In a personal layout, set the Files
-  block's `content.mod` to `files-context`. No layout, companion mod, or
+  `~/.config/herdr-app/mods/files-panel/`. In a personal layout, set the Files
+  block's `content.mod` to `files-panel`. No layout, companion mod, or
   keybinding is required in the bundle.
 - Native checks use Herdr App 0.1.16 on macOS. Compatibility with other
   Herdr versions is unknown.
@@ -74,8 +75,8 @@ implementation.
 Run from the repository root:
 
 ```sh
-npm test --workspace herdr-files-context
-npm run check:mod --workspace herdr-files-context
+npm test --workspace herdr-files-panel
+npm run check:mod --workspace herdr-files-panel
 npm run ci
 git diff --check
 ```

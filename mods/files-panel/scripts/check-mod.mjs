@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-const profile = mkdtempSync(join(tmpdir(), "herdr-files-context-check-"))
+const profile = mkdtempSync(join(tmpdir(), "herdr-files-panel-check-"))
 try {
   const result = spawnSync("herdr-app", ["check", "."], {
     stdio: "inherit",

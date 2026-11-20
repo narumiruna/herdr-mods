@@ -133,7 +133,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "files-context"
+                        "mod": "files-panel"
                       }
                     },
                     {

@@ -4,12 +4,12 @@ A monorepo for Herdr App mods, managed with npm workspaces.
 
 ## Mod overview
 
-| Mod                                                       | What it does                                                                                            |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| [Files Context](mods/files-context/README.md)             | Copy paths from the Files tree, reveal local items in Finder, or move them to Trash after confirmation. |
-| [GitHub Issues & PRs](mods/github-issues-prs/README.md)   | View issues and pull requests for the focused terminal's GitHub repository in a read-only panel.        |
-| [Mod Manager](mods/mod-manager/README.md)                 | Browse the Gallery, install or remove mods, and check for updates.                                      |
-| [Spaces Agent Status](mods/spaces-agent-status/README.md) | See agent icons, activity counts, and status rings in the Spaces sidebar.                               |
+| Mod                                                       | What it does                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [Files Panel](mods/files-panel/README.md)                 | Browse folders, preview text files, and run file actions in Herdr.                               |
+| [GitHub Issues & PRs](mods/github-issues-prs/README.md)   | View issues and pull requests for the focused terminal's GitHub repository in a read-only panel. |
+| [Mod Manager](mods/mod-manager/README.md)                 | Browse the Gallery, install or remove mods, and check for updates.                               |
+| [Spaces Agent Status](mods/spaces-agent-status/README.md) | See agent icons, activity counts, and status rings in the Spaces sidebar.                        |
 
 ## Repository structure
 

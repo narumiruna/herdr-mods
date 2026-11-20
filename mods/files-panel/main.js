@@ -347,14 +347,14 @@ export default class Files extends View {
           })
           .child(
             entry.dir
-              ? svg(`mods/files-context/chevron-${open ? "down" : "right"}.svg`)
+              ? svg(`mods/files-panel/chevron-${open ? "down" : "right"}.svg`)
                   .size(12)
                   .flex_none()
                   .text_color(t.dim)
               : div().w(12).flex_none(),
           )
           .child(
-            svg(`mods/files-context/${entry.dir ? "folder" : "file"}.svg`)
+            svg(`mods/files-panel/${entry.dir ? "folder" : "file"}.svg`)
               .size(14)
               .flex_none()
               .text_color(t.muted),

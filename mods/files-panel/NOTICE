@@ -1,4 +1,4 @@
-Files Context
+Files Panel
 
 This mod is derived from the Files mod shipped with Herdr App 0.1.16.
 The installed Herdr distribution includes the Apache License, Version 2.0.
@@ -10,7 +10,7 @@ Original Files main.js SHA-256:
 This copy adds a file-tree context menu, path copying, and local macOS Finder
 and Trash actions. Changes to main.js register the row menu, dispatch the
 overlay views, and remove missing folders from the expanded tree. The icon
-paths use mods/files-context. file-actions.js is new.
+paths use mods/files-panel. file-actions.js is new.
 
 The four copied icons add accessible titles. Their geometry is unchanged.
 Their ISC and MIT notices are retained in THIRD-PARTY-NOTICES.

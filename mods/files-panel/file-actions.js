@@ -5,7 +5,7 @@ import { closeOverlay, exec, notify, openOverlay, theme, window } from "herdr"
 /** @typedef {{root: string, path: string, on?: (string|null)}} Target */
 /** @typedef {import('gpui-kit').Context} Context */
 
-const MOD = "files-context"
+const MOD = "files-panel"
 
 // Resolve the parent without following symlinks outside the displayed tree.
 // Leave the final component alone: a symlink itself can go to the Trash.
@@ -160,7 +160,7 @@ export class FileActions {
       })
     }
     return v_flex()
-      .id("files-context-menu")
+      .id("files-panel-menu")
       .role("menu")
       .track_focus(this.focus)
       .w_full()
