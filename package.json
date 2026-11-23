@@ -30,6 +30,6 @@
     "@changesets/cli": "^3.0.3",
     "acorn": "^8.19.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
